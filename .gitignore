@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# База данных и бэкапы (персональные данные!)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+backups/
+
+# Окружение и секреты
+.env
+.env.*
+*.pem
+*.key
+
+# IDE и ОС
+.idea/
+.vscode/
+.DS_Store
