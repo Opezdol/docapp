@@ -113,7 +113,7 @@ src/docapp/
   domain/          # Employee, Anesthesia, Payment — без зависимостей
   storage/         # порты (ABC) + Sqlite*Store (employees, anesthesia, active_nurse)
   auth/            # хеши паролей (pbkdf2), вход, активная сестра
-  records/         # ввод анестезий (врач + активная сестра)
+  records/         # AnesthesiaService: ввод, «мои записи», правка, удаление
   allocation/      # импорт Excel, матчинг, разноска, экспорт, сводки
   web/             # FastAPI + PWA-интерфейс (мобильный)
 tests/             # pytest
