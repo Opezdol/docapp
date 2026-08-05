@@ -50,6 +50,17 @@ class TestEmployeeValid:
         assert emp.login is None
         assert emp.password_hash is None
 
+    def test_nurse_can_have_login(self):
+        emp = make_employee(
+            role=NURSE,
+            last_name="Сидорова",
+            first_name="Анна",
+            login="anna",
+            password_hash="abc",
+        )
+        assert emp.role == NURSE
+        assert emp.login == "anna"
+
     def test_head_with_buh_id(self):
         emp = make_employee(role=HEAD, buh_id="B-100")
         assert emp.buh_id == "B-100"
@@ -96,10 +107,6 @@ class TestEmployeeInvalid:
     def test_password_without_login(self):
         with pytest.raises(ValueError):
             make_employee(password_hash="abc")
-
-    def test_nurse_cannot_have_login(self):
-        with pytest.raises(ValueError):
-            make_employee(role=NURSE, login="anna", password_hash="abc")
 
     def test_empty_buh_id(self):
         with pytest.raises(ValueError):

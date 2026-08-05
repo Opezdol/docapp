@@ -62,6 +62,10 @@ class AnesthesiaService:
         """Все записи врача, свежие сверху."""
         return self._anesthesia.list_by_doctor(doctor_id)
 
+    def list_for_nurse(self, nurse_id: int) -> list[Anesthesia]:
+        """Все записи, где участвовала медсестра, свежие сверху."""
+        return self._anesthesia.list_by_nurse(nurse_id)
+
     def update(
         self,
         doctor_id: int,

@@ -29,8 +29,6 @@ class Employee:
             raise ValueError(f"role должен быть одним из {ROLES}")
         if (self.login is None) != (self.password_hash is None):
             raise ValueError("login и password_hash задаются только вместе")
-        if self.role == NURSE and self.login is not None:
-            raise ValueError("у медсестры не может быть логина")
         if self.buh_id is not None and not self.buh_id.strip():
             raise ValueError("buh_id не может быть пустой строкой")
 

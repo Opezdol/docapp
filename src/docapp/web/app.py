@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from docapp.auth.auth import Authenticator, InvalidCredentials
-from docapp.domain.employee import Employee
+from docapp.domain.employee import NURSE, Employee
 from docapp.records.service import AnesthesiaService
 from docapp.storage.sqlite_store import (
     SqliteActiveNurseStore,
@@ -69,6 +69,23 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
         if user is None:
             return RedirectResponse("/login", status_code=303)
         state = request.app.state
+        flash = request.session.pop("flash", None)
+
+        # Медсестра видит только свои анестезии (только просмотр, ADR-5)
+        if user.role == NURSE:
+            records = state.service.list_for_nurse(user.id)
+            doctor_by_id = {d.id: d for d in state.employees.list_all()}
+            records_with_doctors = [(r, doctor_by_id.get(r.doctor_id)) for r in records]
+            return TEMPLATES.TemplateResponse(
+                request,
+                "nurse.html",
+                {
+                    "user": user,
+                    "records": records_with_doctors,
+                    "flash": flash,
+                },
+            )
+
         nurses = state.employees.list_nurses()
         nurse_by_id = {n.id: n for n in nurses}
         active_nurse_id = state.active_nurse.get_active_nurse(user.id)
@@ -76,7 +93,6 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
         records_with_nurses = [
             (r, nurse_by_id.get(r.nurse_id)) for r in records
         ]
-        flash = request.session.pop("flash", None)
         return TEMPLATES.TemplateResponse(
             request,
             "index.html",
@@ -94,6 +110,9 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
     def choose_nurse(request: Request, user: Annotated[Employee, Depends(current_user)], nurse_id: Annotated[int, Form()]):
         if user is None:
             return RedirectResponse("/login", status_code=303)
+        if user.role == NURSE:
+            request.session["flash"] = "Выбор сестры доступен только врачам"
+            return RedirectResponse("/", status_code=303)
         request.app.state.active_nurse.set_active_nurse(user.id, nurse_id)
         return RedirectResponse("/", status_code=303)
 

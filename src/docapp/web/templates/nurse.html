@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}docapp — мои анестезии{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h1>Здравствуйте, {{ user.short_name }}</h1>
+  <p class="empty">Здесь анестезии, в которых вы участвовали как медсестра.
+  Данные вводит врач — если видите расхождение, скажите ему.</p>
+</div>
+
+<div class="card">
+  <h2>Анестезии с моим участием</h2>
+  {% if records %}
+  <ul class="records">
+    {% for record, doctor in records %}
+    <li class="record">
+      <div class="record-main">
+        <span class="record-date">{{ record.date }}</span>
+        <span class="record-patient">{{ record.patient_name }}</span>
+        <span class="record-history">и/б {{ record.history_number }}</span>
+        {% if doctor %}
+        <span class="record-nurse">врач: {{ doctor.short_name }}</span>
+        {% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">Пока нет записей с вашим участием.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

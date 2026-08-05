@@ -63,17 +63,39 @@ def _create_user(args: argparse.Namespace) -> int:
 
 
 def _create_nurse(args: argparse.Namespace) -> int:
-    """Создать медсестру (без логина — она не входит в систему)."""
+    """Создать медсестру. С --login она сможет входить и видеть свои анестезии."""
+    if args.password and not args.login:
+        print("Ошибка: --password задан, но нет --login", file=sys.stderr)
+        return 2
+
+    password = None
+    password_hash = None
+    if args.login:
+        password = args.password or _random_password()
+        password_hash = hash_password(password)
+
     employee = Employee(
         last_name=args.last_name,
         first_name=args.first_name,
         middle_name=args.middle_name,
         role=NURSE,
+        login=args.login,
+        password_hash=password_hash,
         buh_id=args.buh_id or None,
     )
-    with SqliteEmployeeStore(db_path()) as store:
-        saved = store.add(employee)
+    try:
+        with SqliteEmployeeStore(db_path()) as store:
+            saved = store.add(employee)
+    except sqlite3.IntegrityError:
+        print(f"Ошибка: логин «{args.login}» уже занят", file=sys.stderr)
+        return 2
     print(f"Создана: {saved.full_name} (id={saved.id}, роль: nurse)")
+    if args.login:
+        print(f"Логин: {saved.login}")
+        if args.password:
+            print("Пароль: задан вами")
+        else:
+            print(f"Пароль: {password}  ← передайте его сотруднице")
     return 0
 
 
@@ -115,6 +137,8 @@ def main() -> int:
     p_user.set_defaults(func=_create_user)
 
     p_nurse = sub.add_parser("nurse", parents=[common], help="Создать медсестру")
+    p_nurse.add_argument("--login", help="Логин (если нужен доступ к просмотру)")
+    p_nurse.add_argument("--password", help="Пароль (если не задан — сгенерируется)")
     p_nurse.set_defaults(func=_create_nurse)
 
     p_buh = sub.add_parser("buh-id", help="Проставить номер в бухгалтерии")

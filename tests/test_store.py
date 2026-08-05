@@ -163,6 +163,21 @@ class TestAnesthesiaStore:
         ids = [a.id for a in an_store.list_by_doctor(doctor1.id)]
         assert len(ids) == 1
 
+    def test_list_by_nurse_filters_and_sorts(self, an_store, emp_store):
+        doctor = emp_store.add(make_employee(role=DOCTOR))
+        nurse1 = emp_store.add(make_employee(role=NURSE, last_name="Сидорова"))
+        nurse2 = emp_store.add(make_employee(role=NURSE, last_name="Козлова"))
+        a1 = an_store.add(make_anesthesia(date=date(2026, 8, 1), doctor_id=doctor.id, nurse_id=nurse1.id))
+        an_store.add(make_anesthesia(date=date(2026, 8, 2), doctor_id=doctor.id, nurse_id=nurse2.id))
+        a3 = an_store.add(make_anesthesia(date=date(2026, 8, 3), doctor_id=doctor.id, nurse_id=nurse1.id))
+
+        ids = [a.id for a in an_store.list_by_nurse(nurse1.id)]
+        assert ids == [a3.id, a1.id]  # только свои, свежие сверху
+
+    def test_list_by_nurse_empty(self, an_store, emp_store):
+        nurse = emp_store.add(make_employee(role=NURSE))
+        assert an_store.list_by_nurse(nurse.id) == []
+
     def test_update_changes_fields_keeps_id(self, an_store, emp_store):
         doctor_id, nurse_id = add_doctor_and_nurse(emp_store)
         saved = an_store.add(make_anesthesia(doctor_id=doctor_id, nurse_id=nurse_id))

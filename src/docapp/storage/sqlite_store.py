@@ -174,6 +174,13 @@ class SqliteAnesthesiaStore(AnesthesiaStore):
         ).fetchall()
         return [self._row_to_anesthesia(r) for r in rows]
 
+    def list_by_nurse(self, nurse_id: int) -> list[Anesthesia]:
+        rows = self._conn.execute(
+            "SELECT * FROM anesthesia WHERE nurse_id = ? ORDER BY date DESC, id DESC",
+            (nurse_id,),
+        ).fetchall()
+        return [self._row_to_anesthesia(r) for r in rows]
+
     def update(self, anesthesia: Anesthesia) -> None:
         cur = self._conn.execute(
             "UPDATE anesthesia SET date = ?, patient_name = ?, history_number = ?, "

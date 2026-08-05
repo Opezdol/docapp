@@ -94,6 +94,25 @@ class TestCreateNurse:
             assert nurses[0].role == NURSE
             assert nurses[0].login is None
 
+    def test_creates_nurse_with_login(self, cli_env):
+        code, out, _ = _run_cli("nurse", "Сидорова", "Анна", "--login", "anna")
+        assert code == 0
+        assert "Логин: anna" in out
+        assert "Пароль:" in out  # сгенерирован и напечатан один раз
+
+        with SqliteEmployeeStore(cli_env) as store:
+            emp = store.get_by_login("anna")
+            assert emp is not None
+            assert emp.role == NURSE
+            password_line = [l for l in out.splitlines() if l.startswith("Пароль:")][0]
+            password = password_line.split(":", 1)[1].split("←")[0].strip()
+            assert verify_password(password, emp.password_hash)
+
+    def test_nurse_password_without_login_rejected(self, cli_env):
+        code, _, err = _run_cli("nurse", "Сидорова", "Анна", "--password", "x")
+        assert code == 2
+        assert "--password задан, но нет --login" in err
+
     def test_duplicate_login_rejected(self, cli_env):
         _run_cli("user", "Иванов", "Иван", "--login", "ivanov")
         code, _, err = _run_cli("user", "Иванов", "Пётр", "--login", "ivanov")

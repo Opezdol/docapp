@@ -10,7 +10,7 @@ from docapp.web.app import create_app
 
 
 def _seed(db_path) -> dict:
-    """Создать врача, медсестру и заведующего, вернуть их данные."""
+    """Создать врача, медсестру (с логином) и заведующего, вернуть их данные."""
     with SqliteEmployeeStore(db_path) as es:
         doctor = es.add(
             Employee(
@@ -26,7 +26,10 @@ def _seed(db_path) -> dict:
             Employee(
                 last_name="Сидорова",
                 first_name="Анна",
+                middle_name="Петровна",
                 role=NURSE,
+                login="anna",
+                password_hash=hash_password("anna_pass"),
             )
         )
         head = es.add(
@@ -196,6 +199,82 @@ class TestAnesthesiaFlow:
         assert r.status_code == 303
         page = client.get("/")
         assert "Нельзя изменять чужую запись" in page.text
+
+
+class TestNurseView:
+    """Медсестра входит и видит свои анестезии — только просмотр (ADR-5)."""
+
+    def _add_as_doctor(self, client, nurse_id=2, **overrides):
+        _login(client)
+        client.post("/nurse", data={"nurse_id": nurse_id})
+        data = {
+            "procedure_date": "2026-08-04",
+            "patient_name": "Петров Петр Петрович",
+            "history_number": "12345",
+        }
+        data.update(overrides)
+        return client.post("/anesthesia", data=data)
+
+    def test_nurse_can_login(self, client):
+        r = _login(client, login="anna", password="anna_pass")
+        assert r.status_code == 303
+        page = client.get("/")
+        assert "Здравствуйте, Анна Петровна" in page.text
+
+    def test_nurse_sees_only_own_records(self, client):
+        self._add_as_doctor(client, nurse_id=2, patient_name="Пациент Свой")
+        # вторая медсестра — через хранилище приложения
+        other = Employee(
+            last_name="Козлова", first_name="Мария", role=NURSE,
+            login="masha", password_hash=hash_password("masha_pass"),
+        )
+        other = client.app.state.employees.add(other)
+        assert other.id is not None
+        self._add_as_doctor(client, nurse_id=other.id, patient_name="Пациент Чужой")
+
+        _login(client, login="anna", password="anna_pass")
+        page = client.get("/")
+        assert "Пациент Свой" in page.text
+        assert "Пациент Чужой" not in page.text
+
+    def test_nurse_has_no_input_form(self, client):
+        _login(client, login="anna", password="anna_pass")
+        page = client.get("/")
+        assert "Новая анестезия" not in page.text
+        assert "Моя медсестра" not in page.text
+        assert "Изменить" not in page.text
+        assert "Удалить" not in page.text
+
+    def test_nurse_cannot_edit_foreign(self, client):
+        self._add_as_doctor(client)
+        _login(client, login="anna", password="anna_pass")
+        r = client.post(
+            "/anesthesia/1/update",
+            data={
+                "procedure_date": "2026-08-04",
+                "patient_name": "Взлом",
+                "history_number": "1",
+                "nurse_id": 2,
+            },
+        )
+        assert r.status_code == 303
+        page = client.get("/")
+        assert "Нельзя изменять чужую запись" in page.text
+
+    def test_nurse_cannot_delete(self, client):
+        self._add_as_doctor(client)
+        _login(client, login="anna", password="anna_pass")
+        r = client.post("/anesthesia/1/delete")
+        assert r.status_code == 303
+        page = client.get("/")
+        assert "Нельзя изменять чужую запись" in page.text
+
+    def test_nurse_cannot_choose_nurse(self, client):
+        _login(client, login="anna", password="anna_pass")
+        r = client.post("/nurse", data={"nurse_id": 2})
+        assert r.status_code == 303
+        page = client.get("/")
+        assert "Выбор сестры доступен только врачам" in page.text
 
 
 class TestPwa:

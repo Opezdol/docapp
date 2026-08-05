@@ -57,6 +57,10 @@ class AnesthesiaStore(ABC):
         """Все записи врача, свежие по дате сверху."""
 
     @abstractmethod
+    def list_by_nurse(self, nurse_id: int) -> list[Anesthesia]:
+        """Все записи, где сестра — nurse_id, свежие по дате сверху."""
+
+    @abstractmethod
     def update(self, anesthesia: Anesthesia) -> None:
         """Перезаписать запись с тем же id.
 
