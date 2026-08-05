@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Мои данные — docapp{% endblock %}
+{% block content %}
+<div class="card narrow">
+  <h1>Мои данные</h1>
+  <dl class="kv">
+    <dt>ФИО</dt>
+    <dd>{{ user.full_name }}</dd>
+    <dt>Роль</dt>
+    <dd>
+      {% if user.role == 'doctor' %}Врач
+      {% elif user.role == 'head' %}Заведующий
+      {% elif user.role == 'nurse' %}Медсестра
+      {% endif %}
+    </dd>
+    {% if user.login %}
+    <dt>Логин</dt>
+    <dd>{{ user.login }}</dd>
+    {% endif %}
+    <dt>Номер в бухгалтерии</dt>
+    <dd>{{ user.buh_id or '— не задан —' }}</dd>
+  </dl>
+  <p class="empty">Данные вводит заведующий. Если найдена ошибка — сообщите ему.</p>
+  <p><a href="/">← Назад</a></p>
+</div>
+{% endblock %}

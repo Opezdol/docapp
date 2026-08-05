@@ -64,6 +64,26 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
         request.session.clear()
         return RedirectResponse("/login", status_code=303)
 
+    @app.get("/me", response_class=HTMLResponse)
+    def my_data(request: Request, user: Annotated[Employee, Depends(current_user)]):
+        """Мои данные: просмотр (ФИО, роль, логин, номер в бухгалтерии)."""
+        if user is None:
+            return RedirectResponse("/login", status_code=303)
+        return TEMPLATES.TemplateResponse(
+            request, "me.html", {"user": user, "flash": None}
+        )
+
+    @app.get("/orders", response_class=HTMLResponse)
+    def orders_stub(request: Request, user: Annotated[Employee, Depends(current_user)]):
+        """Заглушка будущего подприложения «Приказы» (ADR-9)."""
+        if user is None:
+            return RedirectResponse("/login", status_code=303)
+        return TEMPLATES.TemplateResponse(
+            request,
+            "stub.html",
+            {"user": user, "flash": None, "stub_title": "Приказы"},
+        )
+
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, user: Annotated[Employee, Depends(current_user)]):
         if user is None:

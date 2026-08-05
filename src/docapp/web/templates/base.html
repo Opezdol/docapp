@@ -16,7 +16,7 @@
       <div class="brand">docapp</div>
       {% if user %}
       <div class="who">
-        <span>{{ user.short_name }}</span>
+        <a class="me-link" href="/me">{{ user.short_name }}</a>
         <form method="post" action="/logout" class="inline">
           <button type="submit" class="linklike">Выйти</button>
         </form>
@@ -28,9 +28,21 @@
     <div class="flash">{{ flash }}</div>
     {% endif %}
 
+    {% if user %}
+    <div class="layout">
+      <nav class="apps">
+        <a href="/" class="app-link {% if request.url.path == '/' or request.url.path.startswith('/anesthesia') %}active{% endif %}">Анестезии</a>
+        <a href="/orders" class="app-link {% if request.url.path == '/orders' %}active{% endif %}">Приказы</a>
+      </nav>
+    {% endif %}
+
     <main>
       {% block content %}{% endblock %}
     </main>
+
+    {% if user %}
+    </div>
+    {% endif %}
   </div>
 
   <script>

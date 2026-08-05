@@ -9,6 +9,36 @@ body {
 
 .app { max-width: 560px; margin: 0 auto; padding: 0 12px 24px; }
 
+/* Меню подприложений: на телефоне — строка сверху, на широких экранах — слева */
+.layout { display: flex; flex-direction: column; gap: 12px; }
+
+.apps {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 0;
+}
+
+.app-link {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #fff;
+  color: #1a1a2e;
+  text-decoration: none;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  border: 1px solid #e3e8ef;
+}
+
+.app-link.active { background: #1565c0; color: #fff; border-color: #1565c0; }
+
+@media (min-width: 820px) {
+  .app { max-width: 960px; }
+  .layout { flex-direction: row; align-items: flex-start; }
+  .apps { flex-direction: column; width: 180px; flex-shrink: 0; }
+  main { flex: 1; min-width: 0; }
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -19,6 +49,20 @@ body {
 .brand { font-weight: 700; font-size: 1.2rem; color: #1565c0; }
 
 .who { display: flex; align-items: center; gap: 10px; font-size: 0.95rem; }
+
+.me-link {
+  color: #1565c0;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 4px;
+}
+
+.me-link:active { color: #0d47a1; }
+
+/* «Мои данные»: пара термин-значение */
+.kv { margin: 0 0 12px; }
+.kv dt { font-size: 0.85rem; color: #777; margin-top: 10px; }
+.kv dd { margin: 2px 0 0; font-size: 1.05rem; }
 
 .card {
   background: #fff;

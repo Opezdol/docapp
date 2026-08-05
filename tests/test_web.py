@@ -277,6 +277,72 @@ class TestNurseView:
         assert "Выбор сестры доступен только врачам" in page.text
 
 
+class TestMyData:
+    """Страница «Мои данные» — просмотр личных данных (ADR-9)."""
+
+    def test_me_page_shows_data(self, client):
+        _login(client)
+        r = client.get("/me")
+        assert r.status_code == 200
+        assert "Мои данные" in r.text
+        assert "Иванов Иван Иванович" in r.text  # полное ФИО
+        assert "Врач" in r.text
+        assert "ivanov" in r.text  # логин
+        assert "— не задан —" in r.text  # buh_id пуст
+
+    def test_me_shows_buh_id_when_set(self, client):
+        _login(client)
+        client.app.state.employees.update_buh_id(1, "B-1042")
+        r = client.get("/me")
+        assert "B-1042" in r.text
+        assert "— не задан —" not in r.text
+
+    def test_me_requires_login(self, client):
+        r = client.get("/me", follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == "/login"
+
+    def test_nurse_sees_own_data(self, client):
+        _login(client, login="anna", password="anna_pass")
+        r = client.get("/me")
+        assert "Сидорова Анна Петровна" in r.text
+        assert "Медсестра" in r.text
+
+
+class TestAppMenu:
+    """Меню подприложений и заглушки (ADR-9)."""
+
+    def test_menu_on_main_page(self, client):
+        _login(client)
+        r = client.get("/")
+        assert "Анестезии" in r.text
+        assert "Приказы" in r.text
+        assert 'href="/me"' in r.text  # кликабельное имя
+
+    def test_active_item_on_main(self, client):
+        _login(client)
+        r = client.get("/")
+        # у пункта «Анестезии» класс active
+        assert 'class="app-link active"' in r.text
+
+    def test_orders_stub(self, client):
+        _login(client)
+        r = client.get("/orders")
+        assert r.status_code == 200
+        assert "Приказы" in r.text
+        assert "в разработке" in r.text
+
+    def test_orders_requires_login(self, client):
+        r = client.get("/orders", follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == "/login"
+
+    def test_no_menu_on_login_page(self, client):
+        r = client.get("/login")
+        assert "Приказы" not in r.text
+        assert "Анестезии" not in r.text
+
+
 class TestPwa:
     def test_manifest(self, client):
         r = client.get("/static/manifest.json")
