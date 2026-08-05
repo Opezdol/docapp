@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}docapp — главная{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h1>Здравствуйте, {{ user.short_name }}</h1>
+
+  <form method="post" action="/nurse" class="stack">
+    <label>Моя медсестра
+      <select name="nurse_id" required>
+        <option value="" disabled {% if not active_nurse_id %}selected{% endif %}>— выберите сестру —</option>
+        {% for nurse in nurses %}
+        <option value="{{ nurse.id }}" {% if nurse.id == active_nurse_id %}selected{% endif %}>
+          {{ nurse.full_name }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit" class="primary">Выбрать сестру</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Новая анестезия</h2>
+  <form method="post" action="/anesthesia" class="stack">
+    <label>Дата
+      <input type="date" name="procedure_date" required value="{{ today }}">
+    </label>
+    <label>Пациент (ФИО полностью)
+      <input type="text" name="patient_name" required placeholder="Иванов Иван Иванович">
+    </label>
+    <label>Номер истории болезни
+      <input type="text" name="history_number" required placeholder="12345">
+    </label>
+    <button type="submit" class="primary">Добавить</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Мои записи</h2>
+  {% if records %}
+  <ul class="records">
+    {% for record, nurse in records %}
+    <li class="record">
+      <div class="record-main">
+        <span class="record-date">{{ record.date }}</span>
+        <span class="record-patient">{{ record.patient_name }}</span>
+        <span class="record-history">и/б {{ record.history_number }}</span>
+        {% if nurse %}
+        <span class="record-nurse">{{ nurse.short_name }}</span>
+        {% endif %}
+      </div>
+      <div class="record-actions">
+        <a class="btn" href="/anesthesia/{{ record.id }}/edit">Изменить</a>
+        <form method="post" action="/anesthesia/{{ record.id }}/delete" class="inline"
+              onsubmit="return confirm('Удалить запись?');">
+          <button type="submit" class="btn danger">Удалить</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">Пока нет записей.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

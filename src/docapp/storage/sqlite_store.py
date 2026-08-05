@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS active_nurse (
 
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
+    # check_same_thread=False: FastAPI обрабатывает запросы в пуле потоков,
+    # соединение не может быть привязано к одному потоку.
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(_SCHEMA)

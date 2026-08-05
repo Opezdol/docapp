@@ -1,0 +1,119 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #eef2f7;
+  color: #1a1a2e;
+}
+
+.app { max-width: 560px; margin: 0 auto; padding: 0 12px 24px; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 4px;
+}
+
+.brand { font-weight: 700; font-size: 1.2rem; color: #1565c0; }
+
+.who { display: flex; align-items: center; gap: 10px; font-size: 0.95rem; }
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+
+.card.narrow { max-width: 420px; margin-left: auto; margin-right: auto; margin-top: 24px; }
+
+h1 { font-size: 1.25rem; margin: 0 0 12px; }
+h2 { font-size: 1.05rem; margin: 0 0 12px; }
+
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.stack label { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; color: #444; }
+
+input, select {
+  font-size: 1rem;
+  padding: 12px;
+  border: 1px solid #c5cdd9;
+  border-radius: 8px;
+  min-height: 44px;
+  background: #fff;
+  width: 100%;
+}
+
+button.primary {
+  font-size: 1rem;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  background: #1565c0;
+  color: #fff;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+button.primary:active { background: #0d47a1; }
+
+.inline { display: inline; }
+
+button.linklike {
+  background: none;
+  border: none;
+  color: #1565c0;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.flash {
+  background: #fff3cd;
+  border: 1px solid #ffe082;
+  color: #6d4c00;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  font-size: 0.95rem;
+}
+
+.flash.error { background: #fdecea; border-color: #f5c6cb; color: #8b0000; }
+
+.records { list-style: none; margin: 0; padding: 0; }
+
+.record {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid #eef1f5;
+}
+
+.record:last-child { border-bottom: none; }
+
+.record-main { display: flex; flex-direction: column; gap: 2px; }
+.record-date { font-size: 0.8rem; color: #777; }
+.record-patient { font-weight: 600; }
+.record-history, .record-nurse { font-size: 0.85rem; color: #555; }
+
+.record-actions { display: flex; gap: 8px; align-items: center; }
+
+.btn {
+  font-size: 0.85rem;
+  padding: 8px 10px;
+  border: 1px solid #c5cdd9;
+  border-radius: 8px;
+  background: #fff;
+  color: #1a1a2e;
+  text-decoration: none;
+  display: inline-block;
+  cursor: pointer;
+}
+
+.btn.danger { color: #b71c1c; border-color: #ef9a9a; }
+
+.empty { color: #888; font-size: 0.95rem; }
