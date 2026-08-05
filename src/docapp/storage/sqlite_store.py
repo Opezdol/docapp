@@ -108,6 +108,14 @@ class SqliteEmployeeStore(EmployeeStore):
         ).fetchall()
         return [self._row_to_employee(r) for r in rows]
 
+    def update_buh_id(self, employee_id: int, buh_id: str) -> None:
+        cur = self._conn.execute(
+            "UPDATE employees SET buh_id = ? WHERE id = ?", (buh_id, employee_id)
+        )
+        self._conn.commit()
+        if cur.rowcount == 0:
+            raise KeyError(f"Сотрудник с id {employee_id} не найден")
+
     @staticmethod
     def _row_to_employee(row: sqlite3.Row) -> Employee:
         return Employee(

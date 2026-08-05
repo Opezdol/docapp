@@ -41,6 +41,7 @@ def _create_user(args: argparse.Namespace) -> int:
         role=args.role,
         login=args.login,
         password_hash=hash_password(password),
+        buh_id=args.buh_id or None,
     )
 
     try:
@@ -68,10 +69,31 @@ def _create_nurse(args: argparse.Namespace) -> int:
         first_name=args.first_name,
         middle_name=args.middle_name,
         role=NURSE,
+        buh_id=args.buh_id or None,
     )
     with SqliteEmployeeStore(db_path()) as store:
         saved = store.add(employee)
     print(f"Создана: {saved.full_name} (id={saved.id}, роль: nurse)")
+    return 0
+
+
+def _set_buh_id(args: argparse.Namespace) -> int:
+    """Проставить/заменить номер в бухгалтерии у существующего сотрудника."""
+    if not args.buh_id.strip():
+        print("Ошибка: номер в бухгалтерии не может быть пустым", file=sys.stderr)
+        return 2
+    with SqliteEmployeeStore(db_path()) as store:
+        try:
+            store.update_buh_id(args.employee_id, args.buh_id.strip())
+        except KeyError:
+            print(f"Ошибка: сотрудник с id {args.employee_id} не найден", file=sys.stderr)
+            return 2
+        employee = store.get_by_id(args.employee_id)
+        if employee is None:  # не может случиться после успешного update, но для типов
+            print("Ошибка: сотрудник не найден", file=sys.stderr)
+            return 2
+    print(f"Обновлено: {employee.full_name} (id={employee.id})")
+    print(f"Номер в бухгалтерии: {employee.buh_id}")
     return 0
 
 
@@ -84,6 +106,7 @@ def main() -> int:
     common.add_argument("last_name", help="Фамилия")
     common.add_argument("first_name", help="Имя")
     common.add_argument("middle_name", nargs="?", default="", help="Отчество (необязательно)")
+    common.add_argument("--buh-id", help="Номер в бухгалтерии (можно добавить позже)")
 
     p_user = sub.add_parser("user", parents=[common], help="Создать врача или заведующего")
     p_user.add_argument("--role", choices=[DOCTOR, HEAD], default=DOCTOR)
@@ -93,6 +116,11 @@ def main() -> int:
 
     p_nurse = sub.add_parser("nurse", parents=[common], help="Создать медсестру")
     p_nurse.set_defaults(func=_create_nurse)
+
+    p_buh = sub.add_parser("buh-id", help="Проставить номер в бухгалтерии")
+    p_buh.add_argument("employee_id", type=int, help="id сотрудника (виден при создании)")
+    p_buh.add_argument("buh_id", help="Номер в бухгалтерии")
+    p_buh.set_defaults(func=_set_buh_id)
 
     args = parser.parse_args()
     return args.func(args)

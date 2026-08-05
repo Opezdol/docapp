@@ -152,4 +152,6 @@ uv run python -m docapp.cli user Петров Пётр Иванович --role h
 uv run python -m docapp.cli user Иванов Иван Иванович --role doctor --login ivanov
 # медсестра (логин не нужен — она не входит в систему)
 uv run python -m docapp.cli nurse Сидорова Анна Петровна
+# номер из бухгалтерии (можно сразу или позже, когда бухгалтерия пришлёт)
+uv run python -m docapp.cli buh-id 1 B-1042
 ```

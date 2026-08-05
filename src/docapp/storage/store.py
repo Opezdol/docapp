@@ -33,6 +33,13 @@ class EmployeeStore(ABC):
     def list_nurses(self) -> list[Employee]:
         """Только медсёстры, отсортированы по фамилии, затем имени."""
 
+    @abstractmethod
+    def update_buh_id(self, employee_id: int, buh_id: str) -> None:
+        """Проставить/заменить номер в бухгалтерии.
+
+        Поднимает KeyError, если сотрудника с таким id нет.
+        """
+
 
 class AnesthesiaStore(ABC):
     """Контракт хранилища записей об анестезиях."""

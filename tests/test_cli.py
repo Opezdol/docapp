@@ -97,5 +97,56 @@ class TestCreateNurse:
     def test_duplicate_login_rejected(self, cli_env):
         _run_cli("user", "Иванов", "Иван", "--login", "ivanov")
         code, _, err = _run_cli("user", "Иванов", "Пётр", "--login", "ivanov")
-        # sqlite3.IntegrityError не перехвачен — скрипт падает с ошибкой
-        assert code != 0
+        # sqlite3.IntegrityError перехвачен скриптом — человеческое сообщение
+        assert code == 2
+        assert "уже занят" in err
+
+    def test_create_with_buh_id(self, cli_env):
+        code, out, _ = _run_cli(
+            "user", "Иванов", "Иван", "--role", DOCTOR,
+            "--login", "ivanov", "--buh-id", "B-100",
+        )
+        assert code == 0
+        with SqliteEmployeeStore(cli_env) as store:
+            emp = store.get_by_login("ivanov")
+            assert emp is not None
+            assert emp.buh_id == "B-100"
+
+    def test_create_nurse_with_buh_id(self, cli_env):
+        code, _, _ = _run_cli("nurse", "Сидорова", "Анна", "--buh-id", "S-7")
+        assert code == 0
+        with SqliteEmployeeStore(cli_env) as store:
+            nurses = store.list_nurses()
+            assert len(nurses) == 1
+            assert nurses[0].buh_id == "S-7"
+
+
+class TestSetBuhId:
+    def test_set_and_replace(self, cli_env):
+        _run_cli("user", "Иванов", "Иван", "--role", DOCTOR, "--login", "ivanov")
+        code, out, _ = _run_cli("buh-id", "1", "B-100")
+        assert code == 0
+        assert "Номер в бухгалтерии: B-100" in out
+        with SqliteEmployeeStore(cli_env) as store:
+            emp = store.get_by_id(1)
+            assert emp is not None
+            assert emp.buh_id == "B-100"
+
+        # замена номера
+        code, out, _ = _run_cli("buh-id", "1", "B-200")
+        assert code == 0
+        with SqliteEmployeeStore(cli_env) as store:
+            emp = store.get_by_id(1)
+            assert emp is not None
+            assert emp.buh_id == "B-200"
+
+    def test_unknown_employee(self, cli_env):
+        code, _, err = _run_cli("buh-id", "999", "B-100")
+        assert code == 2
+        assert "не найден" in err
+
+    def test_empty_buh_id_rejected(self, cli_env):
+        _run_cli("user", "Иванов", "Иван", "--role", DOCTOR, "--login", "ivanov")
+        code, _, err = _run_cli("buh-id", "1", "   ")
+        assert code == 2
+        assert "не может быть пустым" in err
