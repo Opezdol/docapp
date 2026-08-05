@@ -12,7 +12,7 @@ from pathlib import Path
 
 from docapp.domain.anesthesia import Anesthesia
 from docapp.domain.employee import Employee
-from docapp.storage.store import AnesthesiaStore, EmployeeStore
+from docapp.storage.store import ActiveNurseStore, AnesthesiaStore, EmployeeStore
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS employees (
@@ -33,6 +33,10 @@ CREATE TABLE IF NOT EXISTS anesthesia (
     doctor_id      INTEGER NOT NULL REFERENCES employees(id),
     nurse_id       INTEGER NOT NULL REFERENCES employees(id),
     created_at     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS active_nurse (
+    doctor_id INTEGER PRIMARY KEY REFERENCES employees(id),
+    nurse_id  INTEGER NOT NULL REFERENCES employees(id)
 );
 """
 
@@ -198,3 +202,34 @@ class SqliteAnesthesiaStore(AnesthesiaStore):
             nurse_id=row["nurse_id"],
             created_at=created_at,
         )
+
+
+class SqliteActiveNurseStore(ActiveNurseStore):
+    """«Активная сестра» врача в SQLite-файле (ADR-4)."""
+
+    def __init__(self, db_path: str | Path) -> None:
+        self._conn = _connect(db_path)
+
+    def close(self) -> None:
+        self._conn.close()
+
+    def __enter__(self) -> "SqliteActiveNurseStore":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def get_active_nurse(self, doctor_id: int) -> int | None:
+        row = self._conn.execute(
+            "SELECT nurse_id FROM active_nurse WHERE doctor_id = ?",
+            (doctor_id,),
+        ).fetchone()
+        return row["nurse_id"] if row else None
+
+    def set_active_nurse(self, doctor_id: int, nurse_id: int) -> None:
+        self._conn.execute(
+            "INSERT INTO active_nurse (doctor_id, nurse_id) VALUES (?, ?) "
+            "ON CONFLICT(doctor_id) DO UPDATE SET nurse_id = excluded.nurse_id",
+            (doctor_id, nurse_id),
+        )
+        self._conn.commit()

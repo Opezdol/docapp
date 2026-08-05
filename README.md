@@ -111,8 +111,8 @@ PWA (Progressive Web App) — страница, которая устанавл�
 ```
 src/docapp/
   domain/          # Employee, Anesthesia, Payment — без зависимостей
-  storage/         # порты (ABC) + SqliteEmployeeStore/SqliteAnesthesiaStore
-  auth/            # логин/пароль, хеши, роли
+  storage/         # порты (ABC) + Sqlite*Store (employees, anesthesia, active_nurse)
+  auth/            # хеши паролей (pbkdf2), вход, активная сестра
   records/         # ввод анестезий (врач + активная сестра)
   allocation/      # импорт Excel, матчинг, разноска, экспорт, сводки
   web/             # FastAPI + PWA-интерфейс (мобильный)

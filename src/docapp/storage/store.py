@@ -59,3 +59,15 @@ class AnesthesiaStore(ABC):
     @abstractmethod
     def delete(self, anesthesia_id: int) -> None:
         """Удалить запись. Несуществующий id — просто ничего."""
+
+
+class ActiveNurseStore(ABC):
+    """Контракт хранилища «активной сестры» врача (ADR-4)."""
+
+    @abstractmethod
+    def get_active_nurse(self, doctor_id: int) -> int | None:
+        """Вернуть id медсестры, выбранной врачом последней, или None."""
+
+    @abstractmethod
+    def set_active_nurse(self, doctor_id: int, nurse_id: int) -> None:
+        """Запомнить выбор врача. Повторный вызов перезаписывает (upsert)."""
