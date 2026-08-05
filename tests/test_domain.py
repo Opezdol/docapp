@@ -9,7 +9,7 @@ from docapp.domain.anesthesia import Anesthesia
 
 
 def make_employee(**overrides):
-    base = dict(full_name="Иванов Иван Иванович", role=DOCTOR)
+    base = dict(last_name="Иванов", first_name="Иван", role=DOCTOR)
     base.update(overrides)
     return Employee(**base)
 
@@ -30,7 +30,9 @@ def make_anesthesia(**overrides):
 class TestEmployeeValid:
     def test_minimal_doctor(self):
         emp = make_employee()
-        assert emp.full_name == "Иванов Иван Иванович"
+        assert emp.last_name == "Иванов"
+        assert emp.first_name == "Иван"
+        assert emp.middle_name == ""
         assert emp.role == DOCTOR
         assert emp.id is None
         assert emp.login is None
@@ -41,7 +43,9 @@ class TestEmployeeValid:
         assert emp.password_hash == "abc"
 
     def test_nurse_without_login(self):
-        emp = make_employee(role=NURSE, full_name="Сидорова Анна")
+        emp = make_employee(
+            role=NURSE, last_name="Сидорова", first_name="Анна", middle_name="Петровна"
+        )
         assert emp.role == NURSE
         assert emp.login is None
         assert emp.password_hash is None
@@ -50,16 +54,34 @@ class TestEmployeeValid:
         emp = make_employee(role=HEAD, buh_id="B-100")
         assert emp.buh_id == "B-100"
 
+    def test_full_name_with_middle(self):
+        emp = make_employee(middle_name="Иванович")
+        assert emp.full_name == "Иванов Иван Иванович"
+
+    def test_full_name_without_middle(self):
+        emp = make_employee(middle_name="")
+        assert emp.full_name == "Иванов Иван"
+
+    def test_short_name_with_middle(self):
+        emp = make_employee(middle_name="Иванович")
+        assert emp.short_name == "Иван Иванович"
+
+    def test_short_name_without_middle(self):
+        emp = make_employee(middle_name="")
+        assert emp.short_name == "Иван"
+
 
 class TestEmployeeInvalid:
     @pytest.mark.parametrize(
         "kwargs",
         [
-            {"full_name": ""},
-            {"full_name": "   "},
+            {"last_name": ""},
+            {"last_name": "   "},
+            {"first_name": ""},
+            {"first_name": "  "},
         ],
     )
-    def test_empty_full_name(self, kwargs):
+    def test_empty_names(self, kwargs):
         with pytest.raises(ValueError):
             make_employee(**kwargs)
 
@@ -130,7 +152,7 @@ class TestFrozen:
     def test_employee_is_frozen(self):
         emp = make_employee()
         with pytest.raises(Exception):
-            emp.full_name = "Другой"
+            emp.last_name = "Другой"
 
     def test_anesthesia_is_frozen(self):
         an = make_anesthesia()
