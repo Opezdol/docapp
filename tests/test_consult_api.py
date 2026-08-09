@@ -113,7 +113,11 @@ def _seed(db_path) -> dict:
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, monkeypatch):
+    # Консультант полностью в tmp: пересборка индекса (reindex/upload)
+    # не должна трогать реальную data/consult и сеть.
+    monkeypatch.setenv("CONSULT_INDEX_DIR", str(tmp_path / "consult"))
+    monkeypatch.setenv("CONSULT_DOCS_DIR", str(tmp_path / "consult" / "documents"))
     db_path = tmp_path / "web.db"
     _seed(db_path)
     app = create_app(db_path=db_path, secret="test-secret")
@@ -197,7 +201,28 @@ class TestReindex:
         _login(client, login="petrov", password="pass123")  # заведующий
         r = client.post("/orders/reindex")
         assert r.status_code == 200
-        assert r.json()["ok"] is True
+        body = r.json()
+        assert body["ok"] is True
+        assert body["busy"] is True  # пересборка ушла в фон
+
+
+class TestStatus:
+    """GET /orders/status — статус фоновой пересборки индекса (F11)."""
+
+    def test_status_endpoint(self, client):
+        _login(client)
+        r = client.get("/orders/status")
+        assert r.status_code == 200
+        body = r.json()
+        assert "busy" in body
+        assert body["busy"] is False
+        assert "documents" in body
+        assert body["documents"] == 1  # из FakeService.index_stats
+        assert "chunks" in body
+
+    def test_status_requires_login(self, client):
+        r = client.get("/orders/status")
+        assert r.status_code == 401
 
 
 class TestDocuments:

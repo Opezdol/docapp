@@ -209,6 +209,20 @@
   line-height: 1.4;
 }
 
+/* Загрузка документов заведующим (F11): форма и индикатор пересборки */
+#consult-upload-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+#consult-busy {
+  font-style: italic;
+  color: #888;
+}
+
 @media (min-width: 820px) {
   .consult-card { max-height: 640px; }
 }

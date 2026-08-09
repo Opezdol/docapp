@@ -10,6 +10,7 @@ pytest-asyncio не нужен: TestClient выполняет async-цепочк
 
 import json
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -97,6 +98,21 @@ def _sse_events(body: str) -> list[dict]:
     return events
 
 
+def _wait_ready(client, timeout: float = 20.0) -> dict:
+    """Ждать завершения фоновой пересборки: busy=False в GET /orders/status.
+
+    Цикл с паузой 0.2 с; при превышении timeout — AssertionError (тест падает
+    по таймауту, а не молча проходит мимо незавершённой пересборки).
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        body = client.get("/orders/status").json()
+        if not body.get("busy"):
+            return body
+        time.sleep(0.2)
+    raise AssertionError("Фоновая пересборка индекса не завершилась за timeout")
+
+
 @pytest.fixture
 def e2e(tmp_path, monkeypatch, sample_docx):
     """Полная цепочка: собранный индекс -> приложение -> подмена сети -> клиент."""
@@ -108,6 +124,9 @@ def e2e(tmp_path, monkeypatch, sample_docx):
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
     shutil.copy(sample_docx, docs_dir / "prikaz_123.docx")
+    # Папка приказов конфига — та же (env до create_app): веб-загрузка
+    # и фоновая пересборка (_run_rebuild) работают с ней.
+    monkeypatch.setenv("CONSULT_DOCS_DIR", str(docs_dir))
 
     # 3. Эмбеддер в build — фейк (сеть не используется).
     monkeypatch.setattr(build, "EmbeddingClient", FakeEmbed)
@@ -208,9 +227,13 @@ class TestE2E:
         assert r.status_code == 200
         body = r.json()
         assert body["ok"] is True
-        # Сервис пересоздан из реального consult.db (без сети — фейки в state).
-        assert body["documents"] == 1
-        assert body["chunks"] > 0
+        assert body["busy"] is True  # пересборка ушла в фон
+        # Фоновая пересборка завершилась: индекс пересоздан из папки приказов
+        # (без сети — фейки в state и build.EmbeddingClient).
+        _wait_ready(e2e)
+        status = e2e.get("/orders/status").json()
+        assert status["documents"] == 1
+        assert status["chunks"] > 0
 
 
 class TestDocumentPages:
@@ -244,3 +267,95 @@ class TestDocumentPages:
         # id нужен для ссылок «Читать»/«Скачать» в карточке документа.
         assert isinstance(doc["id"], int)
         assert doc["id"] > 0
+
+
+class TestUploadAndRebuild:
+    """F11 (T15): веб-загрузка документов, фоновая авто-пересборка, миграция истории.
+
+    Полный цикл без сети: фейки (build.EmbeddingClient, state embed/llm)
+    активны и в фоновой пересборке (_run_rebuild -> build_index).
+    """
+
+    def test_upload_new_document_indexed(self, e2e):
+        _login(e2e)
+        # Второй приказ: python-docx -> байты для загрузки.
+        from docx import Document
+        import io
+        buf = io.BytesIO()
+        doc = Document()
+        doc.add_heading("ПРИКАЗ № 999 от 20.08.2026", level=0)
+        doc.add_paragraph("О новом порядке дежурств.")
+        doc.save(buf)
+        payload = buf.getvalue()
+
+        r = e2e.post(
+            "/orders/documents/upload",
+            files=[("files", ("prikaz_999.docx", payload, "application/octet-stream"))],
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is True
+        assert body["busy"] is True
+        assert body["saved"] == 1
+
+        _wait_ready(e2e)
+
+        # Новый документ попал в индекс (авто-пересборка из папки приказов).
+        r = e2e.get("/orders/documents")
+        assert r.status_code == 200
+        docs = r.json()["documents"]
+        assert len(docs) == 2
+        new_doc = next(d for d in docs if d["filename"] == "prikaz_999.docx")
+
+        # Скачивание оригинала: байт-в-байт равен загруженному файлу.
+        r = e2e.get(f"/orders/documents/{new_doc['id']}/download")
+        assert r.status_code == 200
+        assert r.content == payload
+
+    def test_upload_requires_head(self, e2e):
+        _login(e2e, login="doc", password="secret")
+        r = e2e.post(
+            "/orders/documents/upload",
+            files=[("files", ("prikaz.docx", b"data", "application/octet-stream"))],
+        )
+        assert r.status_code == 403
+        assert r.json()["error"] == "Только заведующий"
+
+    def test_upload_bad_extension(self, e2e):
+        _login(e2e)
+        r = e2e.post(
+            "/orders/documents/upload",
+            files=[("files", ("notes.txt", b"hello", "text/plain"))],
+        )
+        assert r.status_code == 400
+        assert r.json()["error"] == "Только .docx и .pdf"
+
+    def test_messages_preserved_after_reindex(self, e2e):
+        """Скрытый баг: пересборка не стирает историю диалогов и токены."""
+        _login(e2e)
+        r = e2e.post("/orders/ask", json={"question": "что должен сделать анестезиолог?"})
+        done = [e for e in _sse_events(r.text) if e["type"] == "done"][0]
+        conv_id = done["conversation_id"]
+
+        r = e2e.post("/orders/reindex")
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+
+        _wait_ready(e2e)
+
+        # История на месте: миграция messages из старого файла в новый.
+        r = e2e.get(f"/orders/conversation?conversation_id={conv_id}")
+        assert r.status_code == 200
+        messages = r.json()["messages"]
+        assert len(messages) == 2  # вопрос и ответ
+        assert messages[0]["role"] == "user"
+        assert messages[0]["content"] == "что должен сделать анестезиолог?"
+        assert messages[1]["role"] == "assistant"
+        assert messages[1]["content"] == "Ответ [1]"
+        assert messages[1]["citations"][0]["doc_number"] == "123"
+
+        # Учёт токенов (F5) тоже мигрировал: usage фейкового LLM на месте.
+        store = e2e.app.state.consult["service"].store
+        rows = store.list_messages(conv_id)
+        assert rows[1]["prompt_tokens"] == 5
+        assert rows[1]["completion_tokens"] == 3

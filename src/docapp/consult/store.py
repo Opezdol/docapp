@@ -147,6 +147,10 @@ class SqliteConsultStore:
             (conversation_id,),
         ).fetchall()
 
+    def all_messages(self) -> list[sqlite3.Row]:
+        """Все сообщения диалогов (для миграции истории при пересборке индекса)."""
+        return self._conn.execute("SELECT * FROM messages ORDER BY id").fetchall()
+
     def list_conversations(self, employee_id: int) -> list[sqlite3.Row]:
         """Беседы сотрудника: conversation_id, последнее сообщение, created_at.
 

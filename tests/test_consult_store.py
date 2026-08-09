@@ -135,6 +135,27 @@ class TestMessages:
         assert row["prompt_tokens"] == 0
         assert row["completion_tokens"] == 0
 
+    def test_all_messages_across_conversations(self, store):
+        """all_messages() возвращает все сообщения всех бесед (для миграции истории)."""
+        store.add_message(1, "conv-1", "user", "Вопрос один", "[]", 0, 0, "2026-08-03T10:00:00")
+        store.add_message(1, "conv-1", "assistant", "Ответ один", '[{"doc": "001"}]', 5, 7, "2026-08-03T10:00:01")
+        store.add_message(2, "conv-2", "user", "Вопрос два", "[]", 0, 0, "2026-08-03T11:00:00")
+        rows = store.all_messages()
+        assert len(rows) == 3  # все беседы, все роли
+        # Все поля сохраняются для миграции в новый файл.
+        assert [r["conversation_id"] for r in rows] == ["conv-1", "conv-1", "conv-2"]
+        second = rows[1]
+        assert second["employee_id"] == 1
+        assert second["role"] == "assistant"
+        assert second["content"] == "Ответ один"
+        assert second["citations"] == '[{"doc": "001"}]'
+        assert second["prompt_tokens"] == 5
+        assert second["completion_tokens"] == 7
+        assert second["created_at"] == "2026-08-03T10:00:01"
+
+    def test_all_messages_empty(self, store):
+        assert store.all_messages() == []
+
 
 class TestConversations:
     def test_list_conversations_latest_message(self, store):

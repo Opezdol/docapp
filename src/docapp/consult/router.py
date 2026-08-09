@@ -2,23 +2,29 @@
 
 Задача T9 ТЗ-консультанта: GET /orders (F1 — страница консультанта),
 POST /orders/ask (F2/F3/F5 — стриминг ответа с цитатами), GET /orders/documents
-(F6 — список документов индекса), POST /orders/reindex (F7 — перезагрузка
-индекса, только заведующий). Авторизация — current_user из docapp.web.app;
-редиректы и коды ошибок — в стиле остального приложения.
+(F6 — список документов индекса), POST /orders/reindex (F7 — пересборка
+индекса, только заведующий), POST /orders/documents/upload (F11 — веб-загрузка
+документов с авто-переиндексацией, только заведующий), GET /orders/status
+(F11 — статус фоновой пересборки). Авторизация — current_user из
+docapp.web.app; редиректы и коды ошибок — в стиле остального приложения.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import threading
 import uuid
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 import docapp.web.app
+from docapp.consult.build import build_index
 from docapp.consult.service import ConsultService
 from docapp.consult.store import SqliteConsultStore
 from docapp.domain.employee import HEAD
@@ -54,6 +60,37 @@ def _content_disposition(filename: str) -> str:
     except UnicodeEncodeError:
         return f"attachment; filename*=UTF-8''{quote(name)}"
     return f'attachment; filename="{name}"'
+
+
+def _run_rebuild(state: dict) -> None:
+    """Пересобрать индекс из статичной папки и переключить сервис.
+
+    Сборка идёт во временный файл (старый остаётся рабочим при сбое),
+    затем атомарно заменяется; история диалогов (messages) мигрирует
+    из старого файла в новый. Состояние пишется в state['status'].
+    """
+    try:
+        config = state["config"]
+        temp_db = state["db_path"].with_suffix(".db.new")
+        build_index(config.docs_dir, config, temp_db)     # временный файл
+        old = state["service"]
+        messages = old.store.all_messages()               # история ДО закрытия
+        old.store.close()
+        os.replace(temp_db, state["db_path"])             # атомарная замена
+        store = SqliteConsultStore(state["db_path"])
+        for row in messages:                              # миграция истории
+            store.add_message(
+                row["employee_id"], row["conversation_id"], row["role"],
+                row["content"], row["citations"], row["prompt_tokens"],
+                row["completion_tokens"], row["created_at"],
+            )
+        service = ConsultService(store, state["embed"], state["llm"])
+        service.reload_index()
+        state["service"] = service
+        state["status"].update(busy=False, finished_at=datetime.now().isoformat(timespec="seconds"), error=None)
+    except Exception as exc:
+        state["status"].update(busy=False, error=str(exc))
+        # старый сервис/файл остаются работать — сборка шла во временный файл
 
 
 @router.get("/orders", response_class=HTMLResponse)
@@ -191,12 +228,14 @@ def document_download(request: Request, document_id: int):
     return HTMLResponse("Документ не найден", status_code=404)
 
 
-@router.post("/orders/reindex")
-def reindex(request: Request):
-    """Перезагрузить индекс из data/consult/consult.db (F7). Только заведующий.
+@router.post("/orders/documents/upload")
+async def upload_documents(request: Request, files: list[UploadFile] = File(...)):
+    """Веб-загрузка приказов с авто-переиндексацией (F11). Только заведующий.
 
-    Закрывает старое хранилище, пересоздаёт SqliteConsultStore и сервис
-    поверх существующих клиентов эмбеддингов/LLM, перестраивает индекс.
+    Сохраняет .docx/.pdf в статичную папку приказов (CONSULT_DOCS_DIR)
+    и запускает фоновую пересборку индекса (эмбеддинги через RouterAI).
+    Пока идёт пересборка, статус — GET /orders/status; повторный запуск
+    до завершения — 409. Возвращает {"ok": True, "busy": True, "saved": N}.
     """
     user = docapp.web.app.current_user(request)
     if user is None:
@@ -204,13 +243,71 @@ def reindex(request: Request):
     if user.role != HEAD:
         return JSONResponse({"error": "Только заведующий"}, status_code=403)
     state = request.app.state.consult
-    old = state["service"]
-    old.store.close()
-    store = SqliteConsultStore(state["db_path"])
-    service = ConsultService(store, state["embed"], state["llm"])
-    service.reload_index()
-    state["service"] = service
-    return {"ok": True, **service.index_stats()}
+    config = state["config"]
+    with state["lock"]:
+        if state["status"]["busy"]:
+            return JSONResponse({"error": "Индексация уже идёт"}, status_code=409)
+        # Сначала валидация всех файлов (имя — только basename, расширение
+        # .docx/.pdf), затем запись — при ошибке ничего не сохраняется.
+        payloads: list[tuple[str, bytes]] = []
+        for f in files:
+            name = Path(f.filename or "").name
+            if Path(name).suffix.lower() not in {".docx", ".pdf"}:
+                return JSONResponse({"error": "Только .docx и .pdf"}, status_code=400)
+            payloads.append((name, await f.read()))
+        docs_dir = Path(config.docs_dir)
+        docs_dir.mkdir(parents=True, exist_ok=True)
+        for name, data in payloads:
+            (docs_dir / name).write_bytes(data)
+        state["status"] = {
+            "busy": True,
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "finished_at": None,
+            "error": None,
+        }
+    threading.Thread(target=_run_rebuild, args=(state,), daemon=True).start()
+    return {"ok": True, "busy": True, "saved": len(payloads)}
+
+
+@router.get("/orders/status")
+def status(request: Request):
+    """Статус фоновой пересборки индекса (F11): всем ролям.
+
+    Возвращает busy/started_at/finished_at/error из state плюс статистику
+    индекса (documents/chunks) из сервиса.
+    """
+    user = docapp.web.app.current_user(request)
+    if user is None:
+        return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
+    state = request.app.state.consult
+    return {**state["status"], **state["service"].index_stats()}
+
+
+@router.post("/orders/reindex")
+def reindex(request: Request):
+    """Пересобрать индекс из статичной папки приказов (F7/F11). Только заведующий.
+
+    Запускает фоновую пересборку (thread + _run_rebuild): сборка во
+    временный файл, атомарная замена, миграция истории диалогов.
+    Пока идёт пересборка — 409; статус — GET /orders/status.
+    """
+    user = docapp.web.app.current_user(request)
+    if user is None:
+        return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
+    if user.role != HEAD:
+        return JSONResponse({"error": "Только заведующий"}, status_code=403)
+    state = request.app.state.consult
+    with state["lock"]:
+        if state["status"]["busy"]:
+            return JSONResponse({"error": "Индексация уже идёт"}, status_code=409)
+        state["status"] = {
+            "busy": True,
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "finished_at": None,
+            "error": None,
+        }
+    threading.Thread(target=_run_rebuild, args=(state,), daemon=True).start()
+    return {"ok": True, "busy": True}
 
 
 @router.get("/orders/questions")

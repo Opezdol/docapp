@@ -307,30 +307,89 @@
       });
   }
 
-  /* --- переиндексация (head) --- */
+  /* --- переиндексация и загрузка документов (head, F11) --- */
 
-  var reindexBtn = document.getElementById('consult-reindex');
-  if (reindexBtn) {
-    reindexBtn.addEventListener('click', function () {
-      if (!window.confirm('Перезагрузить индекс из consult.db?')) return;
-      reindexBtn.disabled = true;
-      fetch('/orders/reindex', { method: 'POST' })
+  var busyEl = document.getElementById('consult-busy');
+
+  function pollStatus() {
+    fetch('/orders/status')
+      .then(function (r) {
+        if (r.status === 401) { location.href = '/login'; return null; }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        if (data.busy) {
+          if (busyEl) busyEl.hidden = false;
+          setTimeout(pollStatus, 2000);
+          return;
+        }
+        if (busyEl) busyEl.hidden = true;
+        if (data.error) {
+          window.alert('Ошибка переиндексации: ' + data.error);
+        } else {
+          window.alert(
+            'Индекс обновлён: ' + data.documents + ' документов, ' +
+            data.chunks + ' фрагментов'
+          );
+        }
+        location.reload();
+      })
+      .catch(function (err) {
+        if (busyEl) busyEl.hidden = true;
+        window.alert('Ошибка проверки статуса: ' + err.message);
+      });
+  }
+
+  function parseError(r) {
+    return r.json().catch(function () { return {}; }).then(function (body) {
+      throw new Error(body.error || ('HTTP ' + r.status));
+    });
+  }
+
+  var uploadForm = document.getElementById('consult-upload-form');
+  var uploadInput = document.getElementById('consult-upload-input');
+  if (uploadForm && uploadInput) {
+    uploadForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var files = uploadInput.files;
+      if (!files || !files.length) return;
+      var fd = new FormData();
+      for (var i = 0; i < files.length; i++) fd.append('files', files[i]);
+      fetch('/orders/documents/upload', { method: 'POST', body: fd })
         .then(function (r) {
           if (r.status === 401) { location.href = '/login'; return null; }
-          if (!r.ok) {
-            return r.json().catch(function () { return {}; }).then(function (body) {
-              throw new Error(body.error || ('HTTP ' + r.status));
-            });
-          }
+          if (!r.ok) return parseError(r);
           return r.json();
         })
         .then(function (data) {
           if (!data) return;
-          window.alert(
-            'Индекс перезагружен: ' + data.documents + ' документов, ' +
-            data.chunks + ' фрагментов'
-          );
-          location.reload();
+          uploadInput.value = '';            // очистить выбор после отправки
+          if (busyEl) busyEl.hidden = false;
+          pollStatus();
+        })
+        .catch(function (err) {
+          window.alert('Ошибка загрузки: ' + err.message);
+        });
+    });
+  }
+
+  var reindexBtn = document.getElementById('consult-reindex');
+  if (reindexBtn) {
+    reindexBtn.addEventListener('click', function () {
+      if (!window.confirm('Пересобрать индекс из папки приказов?')) return;
+      reindexBtn.disabled = true;
+      fetch('/orders/reindex', { method: 'POST' })
+        .then(function (r) {
+          if (r.status === 401) { location.href = '/login'; return null; }
+          if (!r.ok) return parseError(r);
+          return r.json();
+        })
+        .then(function (data) {
+          if (!data) return;
+          if (busyEl) busyEl.hidden = false;
+          pollStatus();
         })
         .catch(function (err) {
           window.alert('Ошибка: ' + err.message);

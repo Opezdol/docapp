@@ -29,6 +29,13 @@
   </div>
 
   <div id="view-docs" class="consult-view" hidden>
+    {% if is_head %}
+    <form id="consult-upload-form">
+      <input type="file" id="consult-upload-input" accept=".docx,.pdf" multiple>
+      <button type="submit" class="primary">Загрузить и переиндексировать</button>
+    </form>
+    <p id="consult-busy" class="hint" hidden>Идёт индексация, это может занять несколько минут…</p>
+    {% endif %}
     <div id="docs-list"></div>
     <p class="hint">Полный текст приказа и оригинальный файл доступны по ссылкам в списке.</p>
     {% if is_head %}

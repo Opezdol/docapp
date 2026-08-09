@@ -1,5 +1,6 @@
 """FastAPI-приложение docapp: маршруты, сессии, PWA-интерфейс."""
 
+import threading
 from datetime import date
 from pathlib import Path
 from typing import Annotated
@@ -212,11 +213,14 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
     consult_llm = LLMClient(consult_config)
     app.state.consult = {
         "db_path": consult_db,
+        "config": consult_config,
         "embed": consult_embed,
         "llm": consult_llm,
         "service": ConsultService(
             SqliteConsultStore(consult_db), consult_embed, consult_llm
         ),
+        "lock": threading.Lock(),
+        "status": {"busy": False, "started_at": None, "finished_at": None, "error": None},
     }
     app.include_router(consult_router)
 
