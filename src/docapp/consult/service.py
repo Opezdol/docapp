@@ -74,6 +74,14 @@ class ConsultService:
             "chunks": self.store.count_chunks(),
         }
 
+    def documents(self) -> list[dict]:
+        """Список документов индекса для страницы «Документы»."""
+        return [
+            {"filename": row["filename"], "doc_number": row["doc_number"],
+             "title": row["title"], "added_at": row["added_at"]}
+            for row in self.store.list_documents()
+        ]
+
     async def ask(
         self,
         employee_id: int,

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Приказы — консультант — docapp{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Консультант по приказам</h1>
+  <p class="empty">Индекс: {{ stats.documents }} документов, {{ stats.chunks }} фрагментов.</p>
+  {% if is_head %}<p class="empty">Вы заведующий: доступно управление индексом.</p>{% endif %}
+  <div id="consult-chat"></div>
+</div>
+{% endblock %}

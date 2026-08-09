@@ -325,12 +325,11 @@ class TestAppMenu:
         # у пункта «Анестезии» класс active
         assert 'class="app-link active"' in r.text
 
-    def test_orders_stub(self, client):
+    def test_orders_page(self, client):
         _login(client)
         r = client.get("/orders")
         assert r.status_code == 200
-        assert "Приказы" in r.text
-        assert "в разработке" in r.text
+        assert "Консультант" in r.text
 
     def test_orders_requires_login(self, client):
         r = client.get("/orders", follow_redirects=False)

@@ -73,17 +73,6 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
             request, "me.html", {"user": user, "flash": None}
         )
 
-    @app.get("/orders", response_class=HTMLResponse)
-    def orders_stub(request: Request, user: Annotated[Employee, Depends(current_user)]):
-        """Заглушка будущего подприложения «Приказы» (ADR-9)."""
-        if user is None:
-            return RedirectResponse("/login", status_code=303)
-        return TEMPLATES.TemplateResponse(
-            request,
-            "stub.html",
-            {"user": user, "flash": None, "stub_title": "Приказы"},
-        )
-
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, user: Annotated[Employee, Depends(current_user)]):
         if user is None:
@@ -204,6 +193,32 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
         except ValueError as exc:
             request.session["flash"] = str(exc)
         return RedirectResponse("/", status_code=303)
+
+    # Подприложение «Приказы»: ИИ-консультант (задача T9 ТЗ-консультанта).
+    # Инициализация дешёвая и без сети: EmbeddingClient/LLMClient только
+    # создают HTTP-транспорт, ConsultService строит индекс из пустой БД.
+    # Импорты локальные: consult.router импортирует docapp.web.app (current_user),
+    # поэтому на уровне модуля был бы круговой импорт.
+    from docapp.consult.config import load_consult_config
+    from docapp.consult.embed import EmbeddingClient
+    from docapp.consult.llm import LLMClient
+    from docapp.consult.router import router as consult_router
+    from docapp.consult.service import ConsultService
+    from docapp.consult.store import SqliteConsultStore
+
+    consult_config = load_consult_config()
+    consult_db = consult_config.index_dir / "consult.db"
+    consult_embed = EmbeddingClient(consult_config)
+    consult_llm = LLMClient(consult_config)
+    app.state.consult = {
+        "db_path": consult_db,
+        "embed": consult_embed,
+        "llm": consult_llm,
+        "service": ConsultService(
+            SqliteConsultStore(consult_db), consult_embed, consult_llm
+        ),
+    }
+    app.include_router(consult_router)
 
     return app
 
