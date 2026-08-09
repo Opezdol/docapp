@@ -173,3 +173,24 @@ class TestTokenTotals:
 
     def test_token_totals_empty(self, store):
         assert store.token_totals() == []
+
+
+class TestDocumentFullText:
+    def test_add_document_with_full_text_and_source(self, store):
+        doc_id = store.add_document(
+            "x.docx", "1", "T", "2026-08-01",
+            full_text="текст", source=b"%PDF-1.4", source_name="x.docx",
+        )
+        row = store.get_document(doc_id)
+        assert row is not None
+        assert row["full_text"] == "текст"
+        assert row["source"] == b"%PDF-1.4"
+        assert row["source_name"] == "x.docx"
+
+    def test_defaults_empty(self, store):
+        doc_id = store.add_document("y.docx", "", "", "2026-08-01")
+        row = store.get_document(doc_id)
+        assert row is not None
+        assert row["full_text"] == ""
+        assert row["source"] is None
+        assert row["source_name"] == ""

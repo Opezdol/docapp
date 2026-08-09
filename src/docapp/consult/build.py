@@ -31,8 +31,8 @@ def _parse_file(path: Path):
 
 
 def build_index(
-    docs_dir: str | Path,
-    config: ConsultConfig,
+    docs_dir: str | Path | None = None,
+    config: ConsultConfig | None = None,
     db_path: str | Path | None = None,
 ) -> int:
     """Полностью пересобрать индекс консультанта из документов в docs_dir.
@@ -43,9 +43,21 @@ def build_index(
     с фрагментами в новую БД. Существующий файл БД удаляется — пересборка
     всегда полная, как в ТЗ. Возвращает общее число фрагментов.
 
+    docs_dir по умолчанию — config.docs_dir (статичная папка приказов, F9);
+    если папка не существует, она создаётся (пустая папка — не ошибка).
+    Помимо фрагментов в БД сохраняются полный текст документа (full_text)
+    и байты исходного файла (source) с именем (source_name) — для чтения
+    и скачивания приказов (F10).
+
     db_path по умолчанию — config.index_dir / "consult.db".
     """
+    if docs_dir is None:
+        if config is None:
+            raise ValueError("build_index: нужен config, если docs_dir не передан")
+        docs_dir = config.docs_dir
+    assert config is not None
     docs_dir = Path(docs_dir)
+    docs_dir.mkdir(parents=True, exist_ok=True)
     target = Path(db_path) if db_path is not None else config.index_dir / "consult.db"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.unlink(missing_ok=True)
@@ -77,6 +89,9 @@ def build_index(
                 doc_number=doc_number,
                 title=doc_title,
                 added_at=datetime.now().isoformat(timespec="seconds"),
+                full_text="\n".join(b.text for b in blocks),
+                source=path.read_bytes(),
+                source_name=path.name,
             )
             store.add_chunks(
                 document_id,

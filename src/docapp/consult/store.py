@@ -13,7 +13,10 @@ CREATE TABLE IF NOT EXISTS documents (
     filename    TEXT NOT NULL,
     doc_number  TEXT NOT NULL DEFAULT '',
     title       TEXT NOT NULL DEFAULT '',
-    added_at    TEXT NOT NULL
+    added_at    TEXT NOT NULL,
+    full_text   TEXT NOT NULL DEFAULT '',   -- полный текст (чтение «Приказа» целиком)
+    source      BLOB,                        -- оригинальный файл (.docx/.pdf)
+    source_name TEXT NOT NULL DEFAULT ''     -- имя файла для скачивания
 );
 CREATE TABLE IF NOT EXISTS chunks (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,16 +69,35 @@ class SqliteConsultStore:
     def __exit__(self, *exc) -> None:
         self.close()
 
-    def add_document(self, filename: str, doc_number: str, title: str, added_at: str) -> int:
-        """Добавить документ, вернуть его id."""
+    def add_document(
+        self,
+        filename: str,
+        doc_number: str,
+        title: str,
+        added_at: str,
+        full_text: str = "",
+        source: bytes | None = None,
+        source_name: str = "",
+    ) -> int:
+        """Добавить документ, вернуть его id.
+
+        full_text — полный текст приказа для страницы «Читать»; source — байты
+        оригинального файла (.docx/.pdf) для скачивания; source_name — имя файла.
+        """
         cur = self._conn.execute(
-            "INSERT INTO documents (filename, doc_number, title, added_at) "
-            "VALUES (?, ?, ?, ?)",
-            (filename, doc_number, title, added_at),
+            "INSERT INTO documents (filename, doc_number, title, added_at, "
+            "full_text, source, source_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (filename, doc_number, title, added_at, full_text, source, source_name),
         )
         self._conn.commit()
         assert cur.lastrowid is not None
         return cur.lastrowid
+
+    def get_document(self, document_id: int) -> sqlite3.Row | None:
+        """Документ по id со всеми полями (включая full_text/source) или None."""
+        return self._conn.execute(
+            "SELECT * FROM documents WHERE id = ?", (document_id,)
+        ).fetchone()
 
     def add_chunks(self, document_id: int, chunks: list[tuple[int, str, str, bytes]]) -> None:
         """Добавить чанки документа: (chunk_index, section, text, embedding)."""
