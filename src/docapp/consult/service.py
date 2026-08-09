@@ -75,12 +75,24 @@ class ConsultService:
         }
 
     def documents(self) -> list[dict]:
-        """Список документов индекса для страницы «Документы»."""
+        """Список документов индекса для страницы «Документы» (с id для ссылок)."""
         return [
-            {"filename": row["filename"], "doc_number": row["doc_number"],
+            {"id": row["id"], "filename": row["filename"], "doc_number": row["doc_number"],
              "title": row["title"], "added_at": row["added_at"]}
             for row in self.store.list_documents()
         ]
+
+    def document_text(self, document_id: int) -> str | None:
+        """Полный текст приказа для страницы «Читать» (None, если нет)."""
+        row = self.store.get_document(document_id)
+        return row["full_text"] if row is not None else None
+
+    def document_source(self, document_id: int) -> dict | None:
+        """Оригинальный файл приказа: {"source": bytes, "source_name": str} или None."""
+        row = self.store.get_document(document_id)
+        if row is None or row["source"] is None:
+            return None
+        return {"source": row["source"], "source_name": row["source_name"] or row["filename"]}
 
     def conversation(self, employee_id: int, conversation_id: str) -> list[dict]:
         """Сообщения беседы сотрудника (для восстановления диалога в интерфейсе)."""

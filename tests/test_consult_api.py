@@ -33,12 +33,21 @@ class FakeService:
     def documents(self) -> list[dict]:
         return [
             {
+                "id": 1,
                 "filename": "prikaz-001.docx",
                 "doc_number": "001",
                 "title": "О графике",
                 "added_at": "2026-08-01T10:00:00",
             }
         ]
+
+    def document_text(self, document_id):
+        return {1: "Полный текст приказа о графике.", 2: "текст"}.get(document_id)
+
+    def document_source(self, document_id):
+        if document_id == 1:
+            return {"source": b"%PDF-1.4 fake", "source_name": "prikaz-001.pdf"}
+        return None
 
     def index_stats(self) -> dict:
         return {"documents": 1, "chunks": 3}
@@ -249,4 +258,46 @@ class TestQuestions:
     def test_questions_requires_login(self, client):
         r = client.get("/orders/questions")
         assert r.status_code == 401
+
+
+class TestDocumentReadDownload:
+    """Чтение и скачивание приказов (F10): страница текста и оригинальный файл."""
+
+    def test_document_page_renders(self, client):
+        _login(client)
+        r = client.get("/orders/documents/1")
+        assert r.status_code == 200
+        assert "Полный текст приказа" in r.text
+        assert "Скачать оригинал" in r.text
+        assert "Приказ №001" in r.text
+
+    def test_document_page_missing_404(self, client):
+        _login(client)
+        r = client.get("/orders/documents/999")
+        assert r.status_code == 404
+
+    def test_document_download_original(self, client):
+        _login(client)
+        r = client.get("/orders/documents/1/download")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/pdf"
+        assert "prikaz-001.pdf" in r.headers["content-disposition"]
+        assert r.content == b"%PDF-1.4 fake"
+
+    def test_document_download_txt_fallback(self, client):
+        _login(client)
+        r = client.get("/orders/documents/2/download")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/plain")
+        assert r.content == b"\xd1\x82\xd0\xb5\xd0\xba\xd1\x81\xd1\x82"
+
+    def test_document_page_requires_login(self, client):
+        r = client.get("/orders/documents/1", follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == "/login"
+
+    def test_document_download_requires_login(self, client):
+        r = client.get("/orders/documents/1/download", follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == "/login"
 

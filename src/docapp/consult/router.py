@@ -12,9 +12,10 @@ from __future__ import annotations
 import json
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 import docapp.web.app
@@ -34,6 +35,25 @@ router = APIRouter()
 def _service(request: Request) -> ConsultService:
     """Сервис консультанта из state приложения."""
     return request.app.state.consult["service"]
+
+
+def _media_type(filename: str) -> str:
+    """Media type по расширению файла для Content-Type при скачивании (F10)."""
+    return {
+        ".pdf": "application/pdf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".doc": "application/msword",
+    }.get(Path(filename).suffix.lower(), "application/octet-stream")
+
+
+def _content_disposition(filename: str) -> str:
+    """Заголовок Content-Disposition: ASCII-имя в кавычках, кириллица — RFC 5987 (filename*)."""
+    name = Path(filename).name
+    try:
+        name.encode("latin-1")
+    except UnicodeEncodeError:
+        return f"attachment; filename*=UTF-8''{quote(name)}"
+    return f'attachment; filename="{name}"'
 
 
 @router.get("/orders", response_class=HTMLResponse)
@@ -118,6 +138,57 @@ def documents_list(request: Request):
         "documents": service.documents(),
         "chunks": service.index_stats()["chunks"],
     }
+
+
+@router.get("/orders/documents/{document_id}", response_class=HTMLResponse)
+def document_page(request: Request, document_id: int):
+    """Страница полного текста приказа (F10): «Читать» из списка документов.
+
+    Доступна всем ролям. Если документа с таким id нет — 404.
+    """
+    user = docapp.web.app.current_user(request)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    service = _service(request)
+    meta = next((d for d in service.documents() if d["id"] == document_id), None)
+    if meta is None:
+        return HTMLResponse("Документ не найден", status_code=404)
+    text = service.document_text(document_id) or ""
+    return TEMPLATES.TemplateResponse(
+        request,
+        "document.html",
+        {"user": user, "flash": None, "doc": {**meta, "text": text}},
+    )
+
+
+@router.get("/orders/documents/{document_id}/download")
+def document_download(request: Request, document_id: int):
+    """Скачивание приказа (F10): оригинальный файл из source, иначе .txt из full_text.
+
+    Имя файла — только basename, в Content-Disposition в кавычках. Если
+    оригинала нет — отдаётся текстовый файл; если нет и текста — 404.
+    """
+    user = docapp.web.app.current_user(request)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    service = _service(request)
+    src = service.document_source(document_id)
+    if src is not None:
+        headers = {"Content-Disposition": _content_disposition(src["source_name"])}
+        return Response(
+            content=src["source"],
+            media_type=_media_type(src["source_name"]),
+            headers=headers,
+        )
+    text = service.document_text(document_id)
+    if text:
+        headers = {"Content-Disposition": _content_disposition(f"приказ-{document_id}.txt")}
+        return Response(
+            content=text,
+            media_type="text/plain; charset=utf-8",
+            headers=headers,
+        )
+    return HTMLResponse("Документ не найден", status_code=404)
 
 
 @router.post("/orders/reindex")

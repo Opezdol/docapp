@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{% if doc.doc_number %}Приказ №{{ doc.doc_number }} — docapp{% else %}Документ — docapp{% endif %}{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>{% if doc.doc_number %}Приказ №{{ doc.doc_number }}{% else %}{{ doc.title or 'Документ' }}{% endif %}</h1>
+  <p class="empty">{{ doc.filename }}{% if doc.added_at %} · добавлен {{ doc.added_at }}{% endif %}</p>
+  <p><a href="/orders">← К списку документов</a></p>
+  <p><a class="primary" href="/orders/documents/{{ doc.id }}/download">Скачать оригинал</a></p>
+
+  {% if doc.text %}
+  <pre class="doc-text" style="white-space: pre-wrap; word-wrap: break-word;">{{ doc.text }}</pre>
+  {% else %}
+  <p class="empty">Полный текст недоступен (возможно, скан). Скачайте оригинал.</p>
+  {% endif %}
+</div>
+{% endblock %}
