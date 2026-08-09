@@ -128,8 +128,9 @@ class ConsultService:
             yield {
                 "type": "delta",
                 "text": (
-                    "Индекс пуст. Соберите индекс командой "
-                    "python -m docapp.consult <папка> и перезагрузите его."
+                    "Индекс пуст. Положите .docx/.pdf в папку "
+                    "data/consult/documents/ и выполните python -m docapp.consult, "
+                    "затем нажмите «Перезагрузить индекс»."
                 ),
             }
             yield {"type": "done", "citations": [], "prompt_tokens": 0, "completion_tokens": 0}

@@ -7,13 +7,13 @@
   <h1>Консультант по приказам</h1>
   <p class="empty">Индекс: {{ stats.documents }} документов, {{ stats.chunks }} фрагментов.</p>
 
-  {% if is_head %}
   <div class="consult-tabs">
     <button type="button" class="consult-tab active" data-view="chat">Чат</button>
     <button type="button" class="consult-tab" data-view="docs">Документы</button>
+    {% if is_head %}
     <button type="button" class="consult-tab" data-view="questions">Вопросы</button>
+    {% endif %}
   </div>
-  {% endif %}
 
   <div id="view-chat" class="consult-view">
     <div id="consult-messages"></div>
@@ -30,9 +30,10 @@
 
   <div id="view-docs" class="consult-view" hidden>
     <div id="docs-list"></div>
+    <p class="hint">Полный текст приказа и оригинальный файл доступны по ссылкам в списке.</p>
     {% if is_head %}
     <button type="button" id="consult-reindex" class="btn">Перезагрузить индекс</button>
-    <p class="hint">Индекс обновляется офлайн: python -m docapp.consult &lt;папка&gt;, затем загрузите consult.db на сервер и нажмите кнопку.</p>
+    <p class="hint">Индекс обновляется офлайн: python -m docapp.consult (папка data/consult/documents), затем загрузите consult.db на сервер и нажмите кнопку.</p>
     {% endif %}
   </div>
 

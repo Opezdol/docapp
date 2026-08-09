@@ -229,10 +229,17 @@
           return;
         }
         list.innerHTML = docs.map(function (d) {
+          var title = d.doc_number ? 'Приказ №' + d.doc_number : d.filename;
+          var meta = [d.title, d.filename, String(d.added_at || '').slice(0, 10)]
+            .filter(Boolean).join(' · ');
           return '<div class="doc-item">' +
-            '<div class="doc-title">' + esc(d.doc_number ? 'Приказ №' + d.doc_number : d.filename) + '</div>' +
-            '<div class="doc-meta">' + esc(d.title || '') + '</div>' +
-            '<div class="doc-meta">' + esc(d.filename || '') + ' · ' + esc(String(d.added_at || '').slice(0, 10)) + '</div>' +
+            '<div class="doc-title">' + esc(title) + '</div>' +
+            '<div class="doc-meta">' + esc(meta) + '</div>' +
+            '<div class="doc-links">' +
+            '<a href="/orders/documents/' + d.id + '">Читать</a>' +
+            ' · ' +
+            '<a href="/orders/documents/' + d.id + '/download" download>Скачать</a>' +
+            '</div>' +
             '</div>';
         }).join('');
       })

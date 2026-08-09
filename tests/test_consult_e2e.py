@@ -211,3 +211,36 @@ class TestE2E:
         # Сервис пересоздан из реального consult.db (без сети — фейки в state).
         assert body["documents"] == 1
         assert body["chunks"] > 0
+
+
+class TestDocumentPages:
+    """F10 (T14): чтение и скачивание приказов всем ролям — страница полного
+
+    текста, оригинальный файл (source из индекса, собранного build.build_index
+    из sample_docx) и id в списке /orders/documents для ссылок.
+    """
+
+    def test_document_page_full_text(self, e2e):
+        _login(e2e)
+        r = e2e.get("/orders/documents/1")
+        assert r.status_code == 200
+        # Полный текст — из реального индекса (full_text, сохранённый build'ом).
+        assert "осмотреть пациента" in r.text
+        assert "Скачать оригинал" in r.text
+
+    def test_document_download_original_bytes(self, e2e, sample_docx):
+        _login(e2e)
+        r = e2e.get("/orders/documents/1/download")
+        assert r.status_code == 200
+        # Оригинал .docx: байт-в-байт равен файлу-источнику (source из индекса).
+        assert r.content == sample_docx.read_bytes()
+        assert "prikaz_123.docx" in r.headers["content-disposition"]
+
+    def test_documents_list_has_ids(self, e2e):
+        _login(e2e)
+        r = e2e.get("/orders/documents")
+        assert r.status_code == 200
+        doc = r.json()["documents"][0]
+        # id нужен для ссылок «Читать»/«Скачать» в карточке документа.
+        assert isinstance(doc["id"], int)
+        assert doc["id"] > 0

@@ -211,16 +211,24 @@ uv run python -m docapp.cli buh-id 1 B-1042
 для заведующего есть страница «Вопросы» — что спрашивают сотрудники
 и расход токенов. ТЗ: `docs/ТЗ-консультант.md`.
 
+Все сотрудники видят список приказов во вкладке «Документы»: «Читать» —
+полный текст, «Скачать» — оригинальный файл (.docx/.pdf сохраняется
+в индекс при сборке).
+
 ### Как собрать индекс (на рабочей станции с интернетом)
 
 Сборка выполняется офлайн от сервера — на любой машине с доступом
-к RouterAI (эмбеддинги):
+к RouterAI (эмбеддинги). Положите .docx/.pdf приказы в папку
+`data/consult/documents/` (или `CONSULT_DOCS_DIR`) и выполните:
 
 ```bash
 export CONSULT_API_KEY=<ключ RouterAI>
 export CONSULT_EMBED_MODEL=text-embedding-3-small   # модель эмбеддингов RouterAI
-uv run python -m docapp.consult <папка_с_приказами>
+uv run python -m docapp.consult
 ```
+
+CLI возьмёт статичную папку по умолчанию. После обновления папки повторите
+команду — индекс пересоберётся полностью.
 
 Результат: `data/consult/consult.db` — документы, фрагменты и эмбеддинги
 (файл переносится между машинами).
@@ -239,6 +247,7 @@ uv run python -m docapp.consult <папка_с_приказами>
 | `CONSULT_LLM_MODEL` | модель ответов | `gpt-4o-mini` |
 | `CONSULT_EMBED_MODEL` | модель эмбеддингов | `text-embedding-3-small` |
 | `CONSULT_INDEX_DIR` | каталог индекса | `data/consult` |
+| `CONSULT_DOCS_DIR` | папка приказов | `data/consult/documents` |
 
 Примечание: сканы PDF без текстового слоя не индексируются (нужен OCR —
 фаза 2).
