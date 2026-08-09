@@ -43,6 +43,24 @@ class FakeService:
     def index_stats(self) -> dict:
         return {"documents": 1, "chunks": 3}
 
+    def conversation(self, employee_id, conversation_id):
+        return [
+            {
+                "role": "user",
+                "content": "Старый вопрос",
+                "citations": [],
+                "created_at": "2026-08-01T10:00:00",
+            }
+        ]
+
+    def recent_questions(self, limit=100):
+        return [{"employee_id": 1, "content": "Что?"}]
+
+    def token_totals(self):
+        return [
+            {"employee_id": 1, "total_prompt": 10, "total_completion": 4, "count": 2}
+        ]
+
     async def ask(self, employee_id, conversation_id, question, history=None):
         self.calls.append(
             {
@@ -187,3 +205,48 @@ class TestDocuments:
     def test_documents_requires_login(self, client):
         r = client.get("/orders/documents")
         assert r.status_code == 401
+
+
+class TestConversation:
+    """GET /orders/conversation — восстановление диалога (F3)."""
+
+    def test_conversation_returns_messages(self, client):
+        _login(client)
+        r = client.get("/orders/conversation?conversation_id=conv-1")
+        assert r.status_code == 200
+        messages = r.json()["messages"]
+        assert messages[0]["content"] == "Старый вопрос"
+        assert messages[0]["role"] == "user"
+
+    def test_conversation_empty_without_id(self, client):
+        _login(client)
+        r = client.get("/orders/conversation")
+        assert r.status_code == 200
+        assert r.json()["messages"] == []
+
+    def test_conversation_requires_login(self, client):
+        r = client.get("/orders/conversation?conversation_id=conv-1")
+        assert r.status_code == 401
+
+
+class TestQuestions:
+    """GET /orders/questions — аналитика заведующего (F4)."""
+
+    def test_questions_head_only(self, client):
+        _login(client)  # врач — доступ запрещён
+        r = client.get("/orders/questions")
+        assert r.status_code == 403
+        assert r.json()["error"] == "Только заведующий"
+
+        _login(client, login="petrov", password="pass123")  # заведующий
+        r = client.get("/orders/questions")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["questions"][0]["content"] == "Что?"
+        assert body["totals"][0]["total_prompt"] == 10
+        assert body["totals"][0]["total_completion"] == 4
+
+    def test_questions_requires_login(self, client):
+        r = client.get("/orders/questions")
+        assert r.status_code == 401
+

@@ -82,6 +82,19 @@ class ConsultService:
             for row in self.store.list_documents()
         ]
 
+    def conversation(self, employee_id: int, conversation_id: str) -> list[dict]:
+        """Сообщения беседы сотрудника (для восстановления диалога в интерфейсе)."""
+        rows = self.store.list_messages(conversation_id)
+        if not rows:
+            return []
+        if rows[0]["employee_id"] != employee_id:
+            return []
+        return [
+            {"role": row["role"], "content": row["content"],
+             "citations": json.loads(row["citations"] or "[]"), "created_at": row["created_at"]}
+            for row in rows
+        ]
+
     async def ask(
         self,
         employee_id: int,

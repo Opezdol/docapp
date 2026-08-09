@@ -89,6 +89,24 @@ async def ask_question(request: Request):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+@router.get("/orders/conversation")
+def conversation(request: Request):
+    """Сообщения беседы сотрудника (F3): восстановление диалога при открытии страницы.
+
+    Возвращает {"messages": [...]} — role/content/citations/created_at по
+    возрастанию времени; пустой список, если conversation_id не задан или
+    беседа принадлежит другому сотруднику.
+    """
+    user = docapp.web.app.current_user(request)
+    if user is None:
+        return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
+    conv_id = request.query_params.get("conversation_id") or ""
+    if not conv_id:
+        return {"messages": []}
+    service = _service(request)
+    return {"messages": service.conversation(user.id, conv_id)}
+
+
 @router.get("/orders/documents")
 def documents_list(request: Request):
     """Список документов индекса (F6): файлы и число фрагментов (всем ролям)."""
@@ -122,3 +140,23 @@ def reindex(request: Request):
     service.reload_index()
     state["service"] = service
     return {"ok": True, **service.index_stats()}
+
+
+@router.get("/orders/questions")
+def questions(request: Request):
+    """Аналитика для заведующего (F4): вопросы сотрудников и расход токенов.
+
+    Возвращает {"questions": [...]} — последние вопросы с датами и
+    {"totals": [...]} — сумму prompt/completion токенов по сотрудникам.
+    Только заведующий (HEAD).
+    """
+    user = docapp.web.app.current_user(request)
+    if user is None:
+        return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
+    if user.role != HEAD:
+        return JSONResponse({"error": "Только заведующий"}, status_code=403)
+    service = _service(request)
+    return {
+        "questions": service.recent_questions(limit=100),
+        "totals": service.token_totals(),
+    }

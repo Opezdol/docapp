@@ -1,10 +1,51 @@
 {% extends "base.html" %}
 {% block title %}Приказы — консультант — docapp{% endblock %}
 {% block content %}
-<div class="card">
+<link rel="stylesheet" href="/static/consult.css">
+
+<div class="card consult-card">
   <h1>Консультант по приказам</h1>
   <p class="empty">Индекс: {{ stats.documents }} документов, {{ stats.chunks }} фрагментов.</p>
-  {% if is_head %}<p class="empty">Вы заведующий: доступно управление индексом.</p>{% endif %}
-  <div id="consult-chat"></div>
+
+  {% if is_head %}
+  <div class="consult-tabs">
+    <button type="button" class="consult-tab active" data-view="chat">Чат</button>
+    <button type="button" class="consult-tab" data-view="docs">Документы</button>
+    <button type="button" class="consult-tab" data-view="questions">Вопросы</button>
+  </div>
+  {% endif %}
+
+  <div id="view-chat" class="consult-view">
+    <div id="consult-messages"></div>
+    <form id="consult-form" autocomplete="off">
+      <div class="consult-input-row">
+        <textarea id="consult-input" rows="1" placeholder="Ваш вопрос о приказах…" required></textarea>
+        <button type="submit" id="consult-send" class="primary">Спросить</button>
+      </div>
+    </form>
+    <div class="consult-actions">
+      <button type="button" id="consult-new" class="btn">Новый разговор</button>
+    </div>
+  </div>
+
+  <div id="view-docs" class="consult-view" hidden>
+    <div id="docs-list"></div>
+    {% if is_head %}
+    <button type="button" id="consult-reindex" class="btn">Перезагрузить индекс</button>
+    <p class="hint">Индекс обновляется офлайн: python -m docapp.consult &lt;папка&gt;, затем загрузите consult.db на сервер и нажмите кнопку.</p>
+    {% endif %}
+  </div>
+
+  {% if is_head %}
+  <div id="view-questions" class="consult-view" hidden>
+    <div id="questions-list"></div>
+    <div id="token-totals"></div>
+  </div>
+  {% endif %}
 </div>
+
+<script>
+  window.CONSULT = {isHead: {{ 'true' if is_head else 'false' }}};
+</script>
+<script src="/static/consult.js"></script>
 {% endblock %}
