@@ -6,6 +6,7 @@ TestClient(follow_redirects=False), tmp_path БД, _seed.
 """
 
 import json
+import logging
 
 import pytest
 from fastapi.testclient import TestClient
@@ -325,4 +326,40 @@ class TestDocumentReadDownload:
         r = client.get("/orders/documents/1/download", follow_redirects=False)
         assert r.status_code == 303
         assert r.headers["location"] == "/login"
+
+
+class TestStartupChecks:
+    """Проверки при старте приложения: предупреждения и лимиты (гигиена VPS)."""
+
+    def test_missing_api_key_logs_warning(self, monkeypatch, tmp_path, caplog):
+        # Без ключа RouterAI приложение стартует, но пишет warning.
+        monkeypatch.delenv("CONSULT_API_KEY", raising=False)
+        monkeypatch.setenv("CONSULT_INDEX_DIR", str(tmp_path / "consult"))
+        monkeypatch.setenv("CONSULT_DOCS_DIR", str(tmp_path / "consult" / "documents"))
+        with caplog.at_level(logging.WARNING):
+            create_app(tmp_path / "w.db", "s")
+        assert any("CONSULT_API_KEY" in r.message for r in caplog.records)
+
+    def test_upload_size_limit(self, monkeypatch, client):
+        # Файл больше лимита — 400 ДО запуска фоновой пересборки (сети нет).
+        monkeypatch.setattr("docapp.consult.router.MAX_UPLOAD_BYTES", 100)
+        _login(client, login="petrov", password="pass123")  # заведующий
+        r = client.post(
+            "/orders/documents/upload",
+            files=[("files", ("big.pdf", b"x" * 200, "application/pdf"))],
+        )
+        assert r.status_code == 400
+        assert "слишком большой" in r.text
+
+    def test_upload_ok_size(self, monkeypatch, client):
+        # Файл в пределах лимита не даёт 400 по размеру: врач получает 403
+        # (роль не та) — до запуска пересборки и сети дело не доходит.
+        monkeypatch.setattr("docapp.consult.router.MAX_UPLOAD_BYTES", 100)
+        _login(client)  # врач
+        r = client.post(
+            "/orders/documents/upload",
+            files=[("files", ("small.pdf", b"x" * 50, "application/pdf"))],
+        )
+        assert r.status_code == 403
+        assert r.json()["error"] == "Только заведующий"
 

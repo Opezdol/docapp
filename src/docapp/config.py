@@ -15,6 +15,11 @@ def db_path() -> Path:
     return Path(override) if override else DATA_DIR / "docapp.db"
 
 
+def https_only() -> bool:
+    """Требовать HTTPS-куки сессий: env DOCAPP_HTTPS_ONLY=1 (продакшн за TLS)."""
+    return os.environ.get("DOCAPP_HTTPS_ONLY", "") == "1"
+
+
 def session_secret() -> str:
     """Секрет подписи сессий. Хранится в data/secret.key, чтобы
     перезапуски сервера не убивали сессии врачей."""

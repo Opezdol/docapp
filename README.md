@@ -166,8 +166,9 @@ README.md          # этот файл
 
 1. ✅ Этап 1 (MVP): домен, авторизация, форма ввода (врач + активная
    сестра), «мои записи» с правкой, PWA-интерфейс
-2. 🔧 Этап 2 (ядро): импорт Excel, автосопоставление, экран разноски,
-   экспорт файла бухгалтерии + сводки по бригадам, контроль сумм,
+2. ⏳ Этап 2 (ядро): импорт Excel, автосопоставление, разноска, экспорт —
+   НЕ реализовано, запланирован отдельным циклом после запуска MVP+консультанта;
+   остальное: экспорт файла бухгалтерии + сводки по бригадам, контроль сумм,
    статусы оплат для врачей
 3. Этап 3: роли и права, админ-панель (правка «моих данных»,
    управление сотрудниками), бэкапы, полировка интерфейса
@@ -201,6 +202,53 @@ uv run python -m docapp.cli nurse Козлова Мария --login masha
 # номер из бухгалтерии (можно сразу или позже, когда бухгалтерия пришлёт)
 uv run python -m docapp.cli buh-id 1 B-1042
 ```
+
+## Запуск на сервере (VPS)
+
+Приложение живёт на VPS за TLS (ADR-7). HTTPS терминирует обратный прокси,
+uvicorn слушает 127.0.0.1:8000.
+
+**TLS-терминатор — Caddy** (авто-TLS, сертификаты Let's Encrypt сами):
+
+```caddyfile
+docapp.example.ru {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+Или **nginx** — server block с ssl-сертификатом и `proxy_pass http://127.0.0.1:8000;`
+(плюс обычные для FastAPI заголовки: `X-Forwarded-Proto https` и т.п.).
+
+**systemd-юнит** (`/etc/systemd/system/docapp.service`):
+
+```ini
+[Unit]
+Description=docapp
+After=network.target
+
+[Service]
+User=docapp
+WorkingDirectory=/путь/к/docapp
+EnvironmentFile=/путь/к/docapp/.env
+ExecStart=/usr/bin/uv run --directory /путь/к/docapp python main.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+> **ВАЖНО**: при работе за TLS выставить `DOCAPP_HTTPS_ONLY=1` в `.env` —
+> куки сессий получат атрибут Secure и будут передаваться только по HTTPS.
+
+**Бэкап** (ADR-6: БД — один файл, бэкап — копия). Ежедневно в 3:00 через cron:
+
+```cron
+0 3 * * * cd /путь/к/docapp && ./scripts/backup.sh >> logs/backup.log 2>&1
+```
+
+`scripts/backup.sh` снимает консистентную копию `data/docapp.db` и
+`data/consult/consult.db` в `backups/` (sqlite `.backup`, безопасен при WAL);
+хранятся 14 дней, старые удаляются автоматически.
 
 ## Консультант по приказам (подприложение «Приказы»)
 

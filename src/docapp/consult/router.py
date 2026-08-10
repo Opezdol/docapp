@@ -37,6 +37,8 @@ TEMPLATES = Jinja2Templates(directory=[consult_templates_dir, web_templates_dir]
 
 router = APIRouter()
 
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 МБ
+
 
 def _service(request: Request) -> ConsultService:
     """Сервис консультанта из state приложения."""
@@ -234,6 +236,7 @@ async def upload_documents(request: Request, files: list[UploadFile] = File(...)
 
     Сохраняет .docx/.pdf в статичную папку приказов (CONSULT_DOCS_DIR)
     и запускает фоновую пересборку индекса (эмбеддинги через RouterAI).
+    Лимит размера файла — 50 МБ (MAX_UPLOAD_BYTES), больше — 400.
     Пока идёт пересборка, статус — GET /orders/status; повторный запуск
     до завершения — 409. Возвращает {"ok": True, "busy": True, "saved": N}.
     """
@@ -254,7 +257,12 @@ async def upload_documents(request: Request, files: list[UploadFile] = File(...)
             name = Path(f.filename or "").name
             if Path(name).suffix.lower() not in {".docx", ".pdf"}:
                 return JSONResponse({"error": "Только .docx и .pdf"}, status_code=400)
-            payloads.append((name, await f.read()))
+            data = await f.read(MAX_UPLOAD_BYTES + 1)
+            if len(data) > MAX_UPLOAD_BYTES:
+                return JSONResponse(
+                    {"error": "Файл слишком большой (максимум 50 МБ)"}, status_code=400
+                )
+            payloads.append((name, data))
         docs_dir = Path(config.docs_dir)
         docs_dir.mkdir(parents=True, exist_ok=True)
         for name, data in payloads:

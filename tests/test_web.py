@@ -360,3 +360,30 @@ class TestPwa:
         _login(client)
         r = client.get("/")
         assert 'rel="manifest"' in r.text
+
+
+class TestSessionConfig:
+    """Конфигурация сессий: https_only управляется DOCAPP_HTTPS_ONLY (ADR-7)."""
+
+    def _make_app(self, tmp_path, monkeypatch):
+        # Консультант в tmp, чтобы не трогать реальные data/consult
+        monkeypatch.setenv("CONSULT_INDEX_DIR", str(tmp_path / "consult"))
+        monkeypatch.setenv("CONSULT_DOCS_DIR", str(tmp_path / "consult" / "documents"))
+        return create_app(tmp_path / "w.db", "s")
+
+    def _session_middleware(self, app):
+        # В starlette 1.3.x параметры middleware лежат в .kwargs (не .options)
+        mw = [m for m in app.user_middleware if m.cls.__name__ == "SessionMiddleware"][0]
+        return mw.kwargs
+
+    def test_https_only_default_false(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("DOCAPP_HTTPS_ONLY", raising=False)
+        app = self._make_app(tmp_path, monkeypatch)
+        mw = self._session_middleware(app)
+        assert mw.get("https_only") is False
+
+    def test_https_only_true_when_env_set(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("DOCAPP_HTTPS_ONLY", "1")
+        app = self._make_app(tmp_path, monkeypatch)
+        mw = self._session_middleware(app)
+        assert mw.get("https_only") is True

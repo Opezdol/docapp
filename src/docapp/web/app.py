@@ -1,5 +1,6 @@
 """FastAPI-приложение docapp: маршруты, сессии, PWA-интерфейс."""
 
+import logging
 import threading
 from datetime import date
 from pathlib import Path
@@ -12,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from docapp.auth.auth import Authenticator, InvalidCredentials
+from docapp.config import https_only
 from docapp.domain.employee import NURSE, Employee
 from docapp.records.service import AnesthesiaService
 from docapp.storage.sqlite_store import (
@@ -20,6 +22,8 @@ from docapp.storage.sqlite_store import (
     SqliteEmployeeStore,
 )
 
+logger = logging.getLogger(__name__)
+
 BASE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
@@ -27,7 +31,12 @@ TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 def create_app(db_path: str | Path, secret: str) -> FastAPI:
     """Собрать приложение с хранилищами на одном SQLite-файле."""
     app = FastAPI(title="docapp")
-    app.add_middleware(SessionMiddleware, secret_key=secret, max_age=60 * 60 * 24 * 30)
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=secret,
+        max_age=60 * 60 * 24 * 30,
+        https_only=https_only(),
+    )
 
     employees = SqliteEmployeeStore(db_path)
     anesthesia = SqliteAnesthesiaStore(db_path)
@@ -208,6 +217,11 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
     from docapp.consult.store import SqliteConsultStore
 
     consult_config = load_consult_config()
+    if not consult_config.api_key:
+        logger.warning(
+            "CONSULT_API_KEY не задан: консультант по приказам будет возвращать "
+            "ошибки до его настройки в .env"
+        )
     consult_db = consult_config.index_dir / "consult.db"
     consult_embed = EmbeddingClient(consult_config)
     consult_llm = LLMClient(consult_config)
