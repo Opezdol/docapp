@@ -1,8 +1,67 @@
 {% extends "base.html" %}
 {% block title %}Потребности — docapp{% endblock %}
 {% block content %}
-<div class="card">
-  <h1>Потребности</h1>
-  <p class="empty">Раздел «Потребности» в разработке — интерфейс появится в T8.</p>
+<link rel="stylesheet" href="/static/needs.css">
+
+<div id="needs-app" class="needs-app" data-role="{{ user.role }}" data-user-id="{{ user.id }}">
+  <div class="card">
+    <h1>Потребности</h1>
+    <p class="hint">Еженедельные заявки на расходку от точек пополнения баз (пн–вс).</p>
+  </div>
+
+  <div id="needs-banner" class="needs-banner" hidden></div>
+
+  {% if user.role in ('head_nurse', 'head') %}
+  <div class="card">
+    <h2>Доска старшей</h2>
+    <div id="needs-board" class="needs-board"><p class="empty">Загрузка…</p></div>
+  </div>
+
+  <div class="card">
+    <h2>Отчёт и аналитика</h2>
+    <div class="needs-actions" id="needs-report-links"></div>
+    <p class="hint">Отчёт-форма для аптеки — по базе за неделю; аналитика — за период недель.</p>
+  </div>
+  {% endif %}
+
+  {% if user.role != 'doctor' %}
+  <div class="card">
+    <h2>Заявка на неделю</h2>
+    <form id="needs-form" autocomplete="off">
+      <label class="field">
+        <span>Точка пополнения</span>
+        <select id="needs-point" required>
+          <option value="" selected>Загрузка…</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Поиск препарата</span>
+        <input type="text" id="needs-search" placeholder="Например: атро" autocomplete="off">
+      </label>
+      <div id="needs-search-results" class="needs-search-results" hidden></div>
+
+      <div class="table-wrap">
+        <table class="needs-table">
+          <thead>
+            <tr><th>Название</th><th>Ед.</th><th>Количество</th><th></th></tr>
+          </thead>
+          <tbody id="needs-lines">
+            <tr><td colspan="4" class="empty">Выберите точку пополнения.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p id="needs-request-status" class="hint"></p>
+
+      <div class="needs-actions">
+        <button type="button" id="needs-save" class="btn">Сохранить</button>
+        <button type="button" id="needs-submit" class="primary">Отправить</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
 </div>
+
+<script src="/static/needs.js"></script>
 {% endblock %}

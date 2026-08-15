@@ -1,8 +1,49 @@
 {% extends "base.html" %}
 {% block title %}Аналитика потребностей — docapp{% endblock %}
 {% block content %}
-<div class="card">
-  <h1>Аналитика потребностей</h1>
-  <p class="empty">Аналитика в разработке — API готово, интерфейс появится в T8.</p>
+<link rel="stylesheet" href="/static/needs.css">
+
+<div id="analytics-app" class="needs-app">
+  <div class="card">
+    <h1>Аналитика потребностей</h1>
+    <p class="hint">Учитываются только отправленные заявки. Период задаётся неделями
+      (даты — понедельники), фильтры комбинируются.</p>
+
+    <div id="analytics-banner" class="needs-banner" hidden></div>
+
+    <form id="analytics-form" autocomplete="off">
+      <div class="analytics-filters">
+        <label class="field">
+          <span>Неделя с</span>
+          <input type="date" id="analytics-from">
+        </label>
+        <label class="field">
+          <span>Неделя по</span>
+          <input type="date" id="analytics-to">
+        </label>
+        <label class="field">
+          <span>База</span>
+          <select id="analytics-base"><option value="">Загрузка…</option></select>
+        </label>
+        <label class="field">
+          <span>Точка</span>
+          <select id="analytics-point"><option value="">Все точки</option></select>
+        </label>
+        <label class="field">
+          <span>Группа</span>
+          <select id="analytics-group"><option value="">Загрузка…</option></select>
+        </label>
+      </div>
+
+      <div class="needs-actions">
+        <button type="submit" id="analytics-show" class="primary">Показать</button>
+        <a id="analytics-xlsx" class="btn" href="/needs/api/analytics.xlsx" download>Скачать .xlsx</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="card" id="analytics-result" hidden></div>
 </div>
+
+<script src="/static/needs.js"></script>
 {% endblock %}

@@ -1,0 +1,213 @@
+/* Потребности (needs.html, analytics.html, report.html): форма сестры,
+   доска старшей, отчёты. Отдельный файл — style.css не трогаем.
+   Палитра проекта: #1565c0, #eef2f7; мобильная вёрстка (F10), без CDN. */
+
+[hidden] { display: none !important; }
+
+/* Поля формы: подпись над контролом, как .stack label в style.css */
+.needs-app .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+  color: #444;
+  margin-bottom: 12px;
+}
+
+/* Баннер сообщений: успех / предупреждение / ошибка */
+.needs-banner {
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+.needs-banner.ok { background: #e8f5e9; border: 1px solid #a5d6a7; color: #1b5e20; }
+.needs-banner.warn { background: #fff3cd; border: 1px solid #ffe082; color: #6d4c00; }
+.needs-banner.error { background: #fdecea; border: 1px solid #f5c6cb; color: #8b0000; }
+
+/* Таблица выбранных позиций и отчётов: компактная, с границами-линиями */
+.table-wrap { overflow-x: auto; }
+
+table.needs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  margin: 6px 0 12px;
+}
+.needs-table th, .needs-table td {
+  padding: 8px 8px;
+  text-align: left;
+  border-bottom: 1px solid #eef1f5;
+  vertical-align: middle;
+}
+.needs-table th { color: #555; font-weight: 600; white-space: nowrap; }
+.needs-table td:first-child { min-width: 140px; }
+
+/* Поле количества: узкое, числовая клавиатура на телефоне */
+.needs-qty {
+  width: 76px;
+  min-height: 40px;
+  font-size: 1rem;
+  padding: 8px;
+  border: 1px solid #c5cdd9;
+  border-radius: 8px;
+  text-align: center;
+}
+.needs-qty:focus { outline: none; border-color: #1565c0; }
+.needs-qty:disabled { background: #eef2f7; color: #666; }
+
+/* Кнопка удаления позиции */
+.needs-remove {
+  width: 36px;
+  height: 36px;
+  border: 1px solid #c5cdd9;
+  border-radius: 8px;
+  background: #fff;
+  color: #b71c1c;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.needs-remove:active { background: #fdecea; }
+.needs-remove:disabled { color: #aaa; background: #eef2f7; }
+
+/* Кнопки действий: сохранить/отправить, закрыть/открыть, ссылки отчёта */
+.needs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.needs-actions .btn {
+  font-size: 0.9rem;
+  padding: 10px 14px;
+  border: 1px solid #c5cdd9;
+  border-radius: 8px;
+  background: #fff;
+  color: #1a1a2e;
+  text-decoration: none;
+  display: inline-block;
+  cursor: pointer;
+}
+.needs-actions .btn:active { background: #eef2f7; }
+
+/* Поиск препарата: поле и выпадающий список найденного */
+#needs-search { margin-bottom: 0; }
+
+.needs-search-results {
+  background: #fff;
+  border: 1px solid #e3e8ef;
+  border-radius: 8px;
+  margin-top: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  box-shadow: 0 2px 6px rgba(0,0,0,.08);
+}
+.needs-search-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid #eef1f5;
+  background: #fff;
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+}
+.needs-search-item:last-child { border-bottom: none; }
+.needs-search-item:active { background: #eef2f7; }
+.needs-search-name { font-weight: 600; }
+.needs-search-meta { font-size: 0.8rem; color: #888; white-space: nowrap; }
+
+/* Статус заявки под таблицей */
+#needs-request-status { margin: 8px 0 0; }
+
+/* ── доска старшей ─────────────────────────────────────────────── */
+
+.needs-base {
+  border: 1px solid #e3e8ef;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.needs-base h3 { margin: 0 0 8px; font-size: 1rem; }
+
+.needs-closed-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #8b0000;
+  background: #fdecea;
+  border: 1px solid #f5c6cb;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* Сетка точек: карточка-кнопка с цветной меткой */
+.needs-board-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.needs-board-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e3e8ef;
+  border-radius: 8px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+.needs-board-cell:active { background: #eef2f7; }
+
+/* Метка-точка статуса: серый — нет заявки, жёлтый — черновик, зелёный — отправлено */
+.needs-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid rgba(0,0,0,.15);
+}
+.needs-dot.none { background: #b0b7c3; }
+.needs-dot.draft { background: #f9a825; }
+.needs-dot.sent { background: #2e7d32; }
+
+.needs-cell-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.needs-cell-point { font-weight: 600; }
+.needs-cell-author { font-size: 0.78rem; color: #777; }
+
+/* ── аналитика ─────────────────────────────────────────────────── */
+
+.needs-app h3.analytics-period { margin: 0 0 10px; color: #1565c0; }
+.needs-app h4 { margin: 14px 0 4px; font-size: 0.98rem; }
+
+/* Под-строка «Итого по группе» в таблицах аналитики */
+.needs-table .needs-subtotal td {
+  font-weight: 600;
+  border-top: 2px solid #c5cdd9;
+  border-bottom: none;
+  background: #f7f9fc;
+}
+
+/* ── отчёт (report.html) ───────────────────────────────────────── */
+
+.needs-report h2 { margin: 0 0 4px; }
+.needs-report .report-meta { color: #666; font-size: 0.9rem; margin-bottom: 10px; }
+
+@media (min-width: 820px) {
+  .needs-board-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+}
