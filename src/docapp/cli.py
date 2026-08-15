@@ -16,7 +16,7 @@ import sys
 
 from docapp.auth.passwords import hash_password
 from docapp.config import db_path
-from docapp.domain.employee import DOCTOR, HEAD, NURSE, Employee
+from docapp.domain.employee import DOCTOR, HEAD, HEAD_NURSE, NURSE, Employee
 from docapp.storage.sqlite_store import SqliteEmployeeStore
 
 _CHARS = string.ascii_letters + string.digits
@@ -30,7 +30,7 @@ def _random_password(length: int = 10) -> str:
 def _create_user(args: argparse.Namespace) -> int:
     """Создать врача или заведующего (с логином и паролем)."""
     if not args.login:
-        print("Ошибка: для роли doctor/head обязателен --login", file=sys.stderr)
+        print("Ошибка: для роли doctor/head/head_nurse обязателен --login", file=sys.stderr)
         return 2
 
     password = args.password or _random_password()
@@ -130,8 +130,10 @@ def main() -> int:
     common.add_argument("middle_name", nargs="?", default="", help="Отчество (необязательно)")
     common.add_argument("--buh-id", help="Номер в бухгалтерии (можно добавить позже)")
 
-    p_user = sub.add_parser("user", parents=[common], help="Создать врача или заведующего")
-    p_user.add_argument("--role", choices=[DOCTOR, HEAD], default=DOCTOR)
+    p_user = sub.add_parser(
+        "user", parents=[common], help="Создать врача, заведующего или старшую сестру"
+    )
+    p_user.add_argument("--role", choices=[DOCTOR, HEAD, HEAD_NURSE], default=DOCTOR)
     p_user.add_argument("--login", help="Логин для входа")
     p_user.add_argument("--password", help="Пароль (если не задан — сгенерируется)")
     p_user.set_defaults(func=_create_user)

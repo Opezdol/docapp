@@ -5,7 +5,7 @@ import os
 import pytest
 
 from docapp.auth.passwords import verify_password
-from docapp.domain.employee import DOCTOR, HEAD, NURSE, Employee
+from docapp.domain.employee import DOCTOR, HEAD, HEAD_NURSE, NURSE, Employee
 from docapp.storage.sqlite_store import SqliteEmployeeStore
 
 
@@ -69,6 +69,21 @@ class TestCreateUser:
             emp = store.get_by_login("petrov")
             assert emp is not None
             assert emp.role == HEAD
+            assert verify_password("secret", emp.password_hash)
+
+    def test_creates_head_nurse(self, cli_env):
+        code, out, _ = _run_cli(
+            "user", "Орлова", "Елена", "Викторовна",
+            "--role", HEAD_NURSE, "--login", "elena", "--password", "secret",
+        )
+        assert code == 0
+        assert "Орлова Елена Викторовна" in out
+        assert "Пароль: задан вами" in out
+
+        with SqliteEmployeeStore(cli_env) as store:
+            emp = store.get_by_login("elena")
+            assert emp is not None
+            assert emp.role == HEAD_NURSE
             assert verify_password("secret", emp.password_hash)
 
     def test_missing_login_returns_error(self, cli_env):

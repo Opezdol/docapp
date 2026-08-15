@@ -14,7 +14,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from docapp.auth.auth import Authenticator, InvalidCredentials
 from docapp.config import https_only
-from docapp.domain.employee import NURSE, Employee
+from docapp.domain.employee import HEAD_NURSE, NURSE, Employee
 from docapp.records.service import AnesthesiaService
 from docapp.storage.sqlite_store import (
     SqliteActiveNurseStore,
@@ -90,8 +90,9 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
         state = request.app.state
         flash = request.session.pop("flash", None)
 
-        # Медсестра видит только свои анестезии (только просмотр, ADR-5)
-        if user.role == NURSE:
+        # Медсестра и старшая сестра видят только свои анестезии
+        # (только просмотр, ADR-5; старшая сестра — тоже медсестра, ADR-11)
+        if user.role in (NURSE, HEAD_NURSE):
             records = state.service.list_for_nurse(user.id)
             doctor_by_id = {d.id: d for d in state.employees.list_all()}
             records_with_doctors = [(r, doctor_by_id.get(r.doctor_id)) for r in records]
@@ -129,7 +130,7 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
     def choose_nurse(request: Request, user: Annotated[Employee, Depends(current_user)], nurse_id: Annotated[int, Form()]):
         if user is None:
             return RedirectResponse("/login", status_code=303)
-        if user.role == NURSE:
+        if user.role in (NURSE, HEAD_NURSE):
             request.session["flash"] = "Выбор сестры доступен только врачам"
             return RedirectResponse("/", status_code=303)
         request.app.state.active_nurse.set_active_nurse(user.id, nurse_id)
@@ -237,6 +238,29 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
         "status": {"busy": False, "started_at": None, "finished_at": None, "error": None},
     }
     app.include_router(consult_router)
+
+    # Подприложение «Потребности» (задача T6 ТЗ-потребностей).
+    # Инициализация дешёвая и без сети: чтение YAML-каталога и создание
+    # SQLite-файла заявок (как консультант создаёт свой consult.db).
+    # Импорты локальные: needs.router импортирует docapp.web.app (current_user),
+    # поэтому на уровне модуля был бы круговой импорт.
+    from docapp.needs.catalog import Catalog
+    from docapp.needs.config import load_needs_config
+    from docapp.needs.router import router as needs_router
+    from docapp.needs.service import NeedsService
+    from docapp.needs.store import SqliteNeedsStore
+
+    needs_config = load_needs_config()
+    needs_config.db_path.parent.mkdir(parents=True, exist_ok=True)
+    needs_store = SqliteNeedsStore(needs_config.db_path)
+    needs_catalog = Catalog(needs_config.catalog_path)
+    app.state.needs = {
+        "config": needs_config,
+        "catalog": needs_catalog,
+        "store": needs_store,
+        "service": NeedsService(needs_store, needs_catalog),
+    }
+    app.include_router(needs_router)
 
     return app
 
