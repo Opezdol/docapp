@@ -216,12 +216,15 @@ README.md          # этот файл
 
 ```bash
 uv run pytest -q          # тесты (329 шт.)
-uv run python main.py     # сервер на http://0.0.0.0:8000
+uv run python main.py     # сервер на http://127.0.0.1:8000 (за reverse-proxy)
+# для доступа с телефона по локальной сети при разработке:
+DOCAPP_HOST=0.0.0.0 uv run python main.py
 ```
 
 Настройки: путь к БД — переменная окружения DOCAPP_DB (по умолчанию
 data/docapp.db), секрет сессий — data/secret.key (создаётся сам при
-первом запуске).
+первом запуске). Полный список переменных — в `.env.example` (скопируйте
+его в `.env` на сервере).
 
 Создание сотрудников (до админ-панели в этапе 3):
 
@@ -256,6 +259,11 @@ docapp.example.ru {
 Или **nginx** — server block с ssl-сертификатом и `proxy_pass http://127.0.0.1:8000;`
 (плюс обычные для FastAPI заголовки: `X-Forwarded-Proto https` и т.п.).
 
+> **`.env`**: полный список переменных окружения и шаблон — в `.env.example`.
+> Скопируйте его в `.env` в корне проекта (`cp .env.example .env`) и заполните
+> (`CONSULT_API_KEY`, `DOCAPP_HTTPS_ONLY=1` и т.д.) — systemd-юнит ниже читает
+> именно этот файл.
+
 **systemd-юнит** (`/etc/systemd/system/docapp.service`):
 
 ```ini
@@ -283,8 +291,9 @@ WantedBy=multi-user.target
 0 3 * * * cd /путь/к/docapp && ./scripts/backup.sh >> logs/backup.log 2>&1
 ```
 
-`scripts/backup.sh` снимает консистентную копию `data/docapp.db` и
-`data/consult/consult.db` в `backups/` (sqlite `.backup`, безопасен при WAL);
+`scripts/backup.sh` снимает консистентную копию `data/docapp.db`,
+`data/consult/consult.db`, `data/needs/needs.db` и каталога
+`data/needs/catalog.yaml` в `backups/` (sqlite `.backup`, безопасен при WAL);
 хранятся 14 дней, старые удаляются автоматически.
 
 ## Консультант по приказам (подприложение «Приказы»)

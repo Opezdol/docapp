@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Бэкап БД docapp: основная + консультант. Запуск: ./scripts/backup.sh
+# Бэкап БД docapp: основная + консультант + потребности. Запуск: ./scripts/backup.sh
 # (cron: 0 3 * * * cd /путь/к/docapp && ./scripts/backup.sh >> logs/backup.log 2>&1)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -26,5 +26,14 @@ PY
 }
 backup_db data/docapp.db "$BACKUP_DIR/docapp-$stamp.db"
 backup_db data/consult/consult.db "$BACKUP_DIR/consult-$stamp.db"
-find "$BACKUP_DIR" -name '*.db' -mtime +$KEEP_DAYS -delete
+backup_db data/needs/needs.db "$BACKUP_DIR/needs-$stamp.db"
+# Каталог «Потребностей» — YAML (правится файлом), копируем как есть
+if [ -f data/needs/catalog.yaml ]; then
+  cp data/needs/catalog.yaml "$BACKUP_DIR/catalog-$stamp.yaml"
+  echo "OK: data/needs/catalog.yaml -> $BACKUP_DIR/catalog-$stamp.yaml"
+else
+  echo "skip: data/needs/catalog.yaml (нет файла)"
+fi
+# Удаляем старые бэкапы (и .db, и .yaml) старше KEEP_DAYS дней
+find "$BACKUP_DIR" \( -name '*.db' -o -name '*.yaml' \) -mtime +$KEEP_DAYS -delete
 echo "Готово. Старые бэкапы (>$KEEP_DAYS дней) удалены."
