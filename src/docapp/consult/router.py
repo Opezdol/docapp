@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -27,7 +27,7 @@ import docapp.web.app
 from docapp.consult.build import build_index
 from docapp.consult.service import ConsultService
 from docapp.consult.store import SqliteConsultStore
-from docapp.domain.employee import HEAD
+from docapp.domain.employee import HEAD, NURSE
 
 #: Директории шаблонов: сначала консультанта, затем общие (чтобы consult.html
 #: мог наследовать base.html). Starlette принимает список директорий.
@@ -62,6 +62,16 @@ def _content_disposition(filename: str) -> str:
     except UnicodeEncodeError:
         return f"attachment; filename*=UTF-8''{quote(name)}"
     return f'attachment; filename="{name}"'
+
+
+def _require_not_nurse(user) -> None:
+    """Медсёстрам доступ к консультанту закрыт (ADR-11: «сестрам чат не нужен»).
+
+    Старшая сестра (head_nurse), врачи и заведующий — проходят.
+    Вызывается после проверки авторизации, перед основной логикой маршрута.
+    """
+    if user.role == NURSE:
+        raise HTTPException(status_code=403, detail="Медсёстрам доступ закрыт")
 
 
 def _run_rebuild(state: dict) -> None:
@@ -109,6 +119,7 @@ def orders_page(request: Request):
     user = docapp.web.app.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
+    _require_not_nurse(user)
     return TEMPLATES.TemplateResponse(
         request,
         "consult.html",
@@ -134,6 +145,7 @@ async def ask_question(request: Request):
     user = docapp.web.app.current_user(request)
     if user is None:
         return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
+    _require_not_nurse(user)
     body = await request.json()
     question = str(body.get("question") or "")
     if not question.strip():
@@ -167,6 +179,7 @@ def conversation(request: Request):
     user = docapp.web.app.current_user(request)
     if user is None:
         return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
+    _require_not_nurse(user)
     conv_id = request.query_params.get("conversation_id") or ""
     if not conv_id:
         return {"messages": []}
@@ -180,6 +193,7 @@ def documents_list(request: Request):
     user = docapp.web.app.current_user(request)
     if user is None:
         return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
+    _require_not_nurse(user)
     service = _service(request)
     return {
         "documents": service.documents(),
@@ -196,6 +210,7 @@ def document_page(request: Request, document_id: int):
     user = docapp.web.app.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
+    _require_not_nurse(user)
     service = _service(request)
     meta = next((d for d in service.documents() if d["id"] == document_id), None)
     if meta is None:
@@ -218,6 +233,7 @@ def document_download(request: Request, document_id: int):
     user = docapp.web.app.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
+    _require_not_nurse(user)
     service = _service(request)
     src = service.document_source(document_id)
     if src is not None:
@@ -295,6 +311,7 @@ def status(request: Request):
     user = docapp.web.app.current_user(request)
     if user is None:
         return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
+    _require_not_nurse(user)
     state = request.app.state.consult
     return {**state["status"], **state["service"].index_stats()}
 

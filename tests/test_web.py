@@ -4,13 +4,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from docapp.auth.passwords import hash_password
-from docapp.domain.employee import DOCTOR, NURSE, Employee
+from docapp.domain.employee import DOCTOR, HEAD, HEAD_NURSE, NURSE, Employee
 from docapp.storage.sqlite_store import SqliteEmployeeStore
 from docapp.web.app import create_app
 
 
 def _seed(db_path) -> dict:
-    """Создать врача, медсестру (с логином) и заведующего, вернуть их данные."""
+    """Создать врача, медсестру (с логином), заведующего, старшую сестру и заведующего отделением."""
     with SqliteEmployeeStore(db_path) as es:
         doctor = es.add(
             Employee(
@@ -41,7 +41,33 @@ def _seed(db_path) -> dict:
                 password_hash=hash_password("pass123"),
             )
         )
-    return {"doctor_id": doctor.id, "nurse_id": nurse.id, "head_id": head.id}
+        head_nurse = es.add(
+            Employee(
+                last_name="Волкова",
+                first_name="Вера",
+                middle_name="Сергеевна",
+                role=HEAD_NURSE,
+                login="vera",
+                password_hash=hash_password("vera_pass"),
+            )
+        )
+        zav = es.add(
+            Employee(
+                last_name="Зайцев",
+                first_name="Захар",
+                middle_name="Захарович",
+                role=HEAD,
+                login="zav",
+                password_hash=hash_password("zav_pass"),
+            )
+        )
+    return {
+        "doctor_id": doctor.id,
+        "nurse_id": nurse.id,
+        "head_id": head.id,
+        "head_nurse_id": head_nurse.id,
+        "zav_id": zav.id,
+    }
 
 
 @pytest.fixture
@@ -324,6 +350,33 @@ class TestAppMenu:
         r = client.get("/")
         # у пункта «Анестезии» класс active
         assert 'class="app-link active"' in r.text
+
+    def test_nurse_menu_hides_orders_shows_needs(self, client):
+        # ADR-11: медсёстрам «Приказы» закрыты, «Потребности» — открыты.
+        _login(client, login="anna", password="anna_pass")
+        r = client.get("/")
+        assert "Приказы" not in r.text
+        assert "Потребности" in r.text
+        assert 'href="/needs"' in r.text
+
+    def test_doctor_menu_shows_orders_hides_needs(self, client):
+        # ADR-11: врачам «Потребности» закрыты, «Приказы» — открыты.
+        _login(client)  # врач ivanov
+        r = client.get("/")
+        assert "Приказы" in r.text
+        assert "Потребности" not in r.text
+
+    def test_head_nurse_menu_has_both(self, client):
+        _login(client, login="vera", password="vera_pass")
+        r = client.get("/")
+        assert "Приказы" in r.text
+        assert "Потребности" in r.text
+
+    def test_head_menu_has_both(self, client):
+        _login(client, login="zav", password="zav_pass")
+        r = client.get("/")
+        assert "Приказы" in r.text
+        assert "Потребности" in r.text
 
     def test_orders_page(self, client):
         _login(client)

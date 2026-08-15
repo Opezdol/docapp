@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from docapp.auth.passwords import hash_password
-from docapp.domain.employee import DOCTOR, HEAD, Employee
+from docapp.domain.employee import DOCTOR, HEAD, HEAD_NURSE, NURSE, Employee
 from docapp.storage.sqlite_store import SqliteEmployeeStore
 from docapp.web.app import create_app
 
@@ -89,7 +89,7 @@ class FakeService:
 
 
 def _seed(db_path) -> dict:
-    """Создать врача и заведующего (HEAD), вернуть их id."""
+    """Создать врача, заведующего (HEAD), медсестру и старшую сестру, вернуть их id."""
     with SqliteEmployeeStore(db_path) as es:
         doctor = es.add(
             Employee(
@@ -110,7 +110,30 @@ def _seed(db_path) -> dict:
                 password_hash=hash_password("pass123"),
             )
         )
-    return {"doctor_id": doctor.id, "head_id": head.id}
+        nurse = es.add(
+            Employee(
+                last_name="Сидорова",
+                first_name="Анна",
+                role=NURSE,
+                login="sidorova",
+                password_hash=hash_password("anna_pass"),
+            )
+        )
+        head_nurse = es.add(
+            Employee(
+                last_name="Волкова",
+                first_name="Вера",
+                role=HEAD_NURSE,
+                login="vera",
+                password_hash=hash_password("vera_pass"),
+            )
+        )
+    return {
+        "doctor_id": doctor.id,
+        "head_id": head.id,
+        "nurse_id": nurse.id,
+        "head_nurse_id": head_nurse.id,
+    }
 
 
 @pytest.fixture
@@ -188,6 +211,26 @@ class TestAsk:
     def test_ask_requires_login(self, client):
         r = client.post("/orders/ask", json={"question": "вопрос"})
         assert r.status_code == 401
+
+
+class TestNurseAccess:
+    """Медсёстры к консультанту не допускаются (ADR-11); старшая сестра — допускается."""
+
+    def test_nurse_orders_page_403(self, client):
+        _login(client, login="sidorova", password="anna_pass")
+        r = client.get("/orders")
+        assert r.status_code == 403
+
+    def test_nurse_ask_403(self, client):
+        _login(client, login="sidorova", password="anna_pass")
+        r = client.post("/orders/ask", json={"question": "вопрос"})
+        assert r.status_code == 403
+
+    def test_head_nurse_orders_page_200(self, client):
+        _login(client, login="vera", password="vera_pass")
+        r = client.get("/orders")
+        assert r.status_code == 200
+        assert "Консультант" in r.text
 
 
 class TestReindex:
