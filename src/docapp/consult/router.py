@@ -77,8 +77,16 @@ def _run_rebuild(state: dict) -> None:
         build_index(config.docs_dir, config, temp_db)     # временный файл
         old = state["service"]
         messages = old.store.all_messages()               # история ДО закрытия
+        old.store.checkpoint()                            # WAL -> основной файл
         old.store.close()
         os.replace(temp_db, state["db_path"])             # атомарная замена
+        # Осиротевшие WAL-сайдкары старого файла: если к consult.db ещё
+        # открыто другое соединение (напр. созданное create_app и не
+        # закрытое), они переживают os.replace, и SQLite «отыгрывает» их
+        # в новый файл при первом открытии — дублируя мигрированные
+        # сообщения. Удаляем их сразу после замены.
+        for suffix in (".db-wal", ".db-shm"):
+            Path(f"{state['db_path']}{suffix}").unlink(missing_ok=True)
         store = SqliteConsultStore(state["db_path"])
         for row in messages:                              # миграция истории
             store.add_message(

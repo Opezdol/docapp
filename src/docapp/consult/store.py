@@ -65,6 +65,15 @@ class SqliteConsultStore:
     def close(self) -> None:
         self._conn.close()
 
+    def checkpoint(self) -> None:
+        """Сбросить WAL в основной файл (перед атомарной заменой файла БД).
+
+        PRAGMA wal_checkpoint(TRUNCATE): страницы WAL записываются в главный
+        файл, WAL обнуляется — осиротевший сайдкар после os.replace не сможет
+        «воскреснуть» в новом файле (иначе дублируются сообщения при миграции).
+        """
+        self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
     def __enter__(self) -> "SqliteConsultStore":
         return self
 

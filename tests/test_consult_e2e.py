@@ -146,6 +146,10 @@ def e2e(tmp_path, monkeypatch, sample_docx):
 
     # 7. Подмена сети: фейковые эмбеддер и LLM, сервис поверх реального индекса.
     state = app.state.consult
+    # Гигиена фикстуры: закрыть соединение, созданное create_app (иначе оно
+    # держит WAL-сайдкары consult.db, что при пересборке индекса приводит
+    # к «воскрешению» старого WAL в новом файле — дубли сообщений).
+    state["service"].store.close()
     store = SqliteConsultStore(config.index_dir / "consult.db")
     state["embed"] = FakeEmbed()
     state["llm"] = FakeLLM()
