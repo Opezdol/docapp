@@ -5,8 +5,9 @@ from dataclasses import dataclass
 DOCTOR = "doctor"
 NURSE = "nurse"
 HEAD = "head"
+HEAD_NURSE = "head_nurse"
 
-ROLES = (DOCTOR, NURSE, HEAD)
+ROLES = (DOCTOR, NURSE, HEAD, HEAD_NURSE)
 
 
 @dataclass(frozen=True)
