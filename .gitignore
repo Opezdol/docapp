@@ -23,6 +23,8 @@ data/consult/
 !.env.example
 *.pem
 *.key
+# Параметры сервера (доступы по SSH) — не коммитить и не переносить на сервер
+scripts/server.conf
 
 # IDE и ОС
 .idea/

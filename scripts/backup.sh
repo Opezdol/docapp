@@ -7,11 +7,20 @@ BACKUP_DIR="backups"
 KEEP_DAYS=14
 mkdir -p "$BACKUP_DIR" logs
 stamp=$(date +%Y%m%d-%H%M%S)
-# Бэкап через sqlite3 .backup (безопасен при WAL: консистентная копия)
+# Бэкап через sqlite3 .backup (безопасен при WAL: консистентная копия).
+# Нужен Python >= 3.7 (в 3.6 у sqlite3.Connection нет метода .backup).
+# На сервере AlmaLinux системный python3 — 3.6, поэтому предпочитаем python3.12.
+if command -v python3.12 >/dev/null 2>&1; then
+  PY_BIN=python3.12
+elif command -v python3.11 >/dev/null 2>&1; then
+  PY_BIN=python3.11
+else
+  PY_BIN=python3
+fi
 backup_db() {
   local db="$1" out="$2"
   if [ -f "$db" ]; then
-    python3 - "$db" "$out" <<'PY'
+    "$PY_BIN" - "$db" "$out" <<'PY'
 import sqlite3, sys
 src, dst = sys.argv[1], sys.argv[2]
 con = sqlite3.connect(src)

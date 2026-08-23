@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# ── docapp: параметры сервера ─────────────────────────────────────────────
+# Скопируйте в scripts/server.conf и заполните. Файл server.conf в .gitignore
+# (содержит доступы) — на сервер он НЕ переносится и НЕ коммитится.
+#
+# Все локальные скрипты (deploy.sh, status.sh, install-cron.sh, restore.sh)
+# читают этот файл: . scripts/server.conf
+
+# IP или домен VPS (из панели reg.ru: «Мои серверы» → VPS → IP-адрес)
+DOCAPP_HOST=37.140.192.212
+
+# SSH-пользователь. ВАЖНО: на reg.ru это НЕ root, а логин вида uXXXXXXX
+# (например u3617050) — из письма reg.ru при заказе VDS или из раздела
+# «Доступы» в панели reg.ru.
+DOCAPP_SSH_USER=uXXXXXXX
+
+# Порт SSH (по умолчанию 22)
+DOCAPP_SSH_PORT=22
+
+# Путь к SSH-ключу на локальной машине (если вход по ключу).
+# Если вход по паролю — оставьте пустым и задайте DOCAPP_SSH_PASSWORD ниже.
+DOCAPP_SSH_KEY=
+
+# Пароль SSH (если вход по паролю). Для скриптов нужен sshpass:
+#   macOS:  brew install hudochenkov/sshpass/sshpass
+#   Ubuntu: sudo apt install sshpass
+# Рекомендация: после первого входа настроить ключ (ssh-copy-id) и очистить
+# эту переменную, оставив DOCAPP_SSH_KEY.
+DOCAPP_SSH_PASSWORD=
+
+# Каталог приложения на сервере (= ~/docapp пользователя на ISPmanager-сервере)
+DOCAPP_DEPLOY_DIR=/var/www/uXXXXXXX/data/docapp
+
+# Корень сайта (PassengerAppRoot, где лежат passenger_wsgi.py и venv)
+DOCAPP_SITE_ROOT=/var/www/uXXXXXXX/data/www/ВАШ_ДОМЕН
+
+# Домен сайта (для проверки HTTPS; можно оставить пустым до настройки DNS)
+DOCAPP_DOMAIN=
+
+# Имя systemd-юнита приложения
+DOCAPP_SERVICE=docapp
+
+# Дней хранения бэкапов (должно совпадать с KEEP_DAYS в scripts/backup.sh)
+DOCAPP_BACKUP_KEEP_DAYS=14
