@@ -375,6 +375,20 @@ PassengerPython /opt/python/python-3.12/bin/python   ← системный pyth
    новый код при следующем запросе.
 6. **Проверка HTTPS** домена.
 
+### Обновление с GitHub (`scripts/git-update.sh`)
+
+Если код в git-репозитории на GitHub, обновление делается прямо **на сервере**:
+
+```bash
+ssh u3617050@37.140.192.212
+cd /var/www/u3617050/data/docapp
+./scripts/git-update.sh
+```
+
+Скрипт: `git pull --ff-only` → обновление зависимостей в обоих venv →
+миграции БД → перезапуск Passenger → проверка HTTPS. Требует настроенный
+remote `origin` и SSH-ключ сервера в GitHub (deploy key репозитория).
+
 ### Миграции схемы БД
 
 Версия схемы хранится в `PRAGMA user_version` каждой БД. Текущая версия —
