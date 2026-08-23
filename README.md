@@ -296,6 +296,108 @@ WantedBy=multi-user.target
 `data/needs/catalog.yaml` в `backups/` (sqlite `.backup`, безопасен при WAL);
 хранятся 14 дней, старые удаляются автоматически.
 
+## Запуск на shared-хостинге reg.ru (Phusion Passenger)
+
+На виртуальном хостинге reg.ru (панель ISPmanager) нет root и systemd,
+а фоновые nohup-процессы хостинг убивает через ~30 секунд. Рабочий способ —
+**Phusion Passenger** (панель включает его при выборе «Версия Python» в
+настройках сайта). Проверено на `https://phhmn.ru`.
+
+### Схема
+
+```
+~/data/www/ДОМЕН/            ← корень сайта (DocumentRoot)
+├── passenger_wsgi.py        ← точка входа Passenger
+└── venv/                    ← виртуальное окружение Python (в корне сайта!)
+~/data/docapp/               ← код приложения (вне корня сайта)
+```
+
+Панель генерирует для сайта:
+
+```
+PassengerEnabled On
+PassengerAppRoot ~/data/www/ДОМЕН
+PassengerStartupFile passenger_wsgi.py
+PassengerPython /opt/python/python-3.12/bin/python   ← системный python
+```
+
+### Подготовка (по SSH)
+
+```bash
+# 1. venv в корне сайта (именно так ожидает Passenger)
+/opt/python/python-3.12/bin/python -m venv ~/data/www/ДОМЕН/venv
+
+# 2. зависимости
+~/data/www/ДОМЕН/venv/bin/pip install -e ~/data/docapp
+~/data/www/ДОМЕН/venv/bin/pip install a2wsgi
+
+# 3. passenger_wsgi.py — из репозитория (см. файл): он сам
+#    - ограничивает потоки numpy (OPENBLAS_NUM_THREADS=1) ДО импорта,
+#      иначе numpy зависает под Passenger;
+#    - добавляет site-packages venv в sys.path (PassengerPython — системный);
+#    - грузит .env из каталога приложения;
+#    - оборачивает FastAPI в WSGI через a2wsgi.ASGIMiddleware
+#      (НЕ WSGIMiddleware — это не тот класс!)
+```
+
+### Ключевые грабли (найдены эмпирически)
+
+1. **`a2wsgi.WSGIMiddleware` — не тот класс.** Нужен `a2wsgi.ASGIMiddleware`
+   (конвертит ASGI→WSGI). `WSGIMiddleware` даёт 502 «Incomplete response».
+2. **`import numpy` зависает под Passenger** (OpenBLAS создаёт пул потоков).
+   Обязательно `OPENBLAS_NUM_THREADS=1` + `OMP_NUM_THREADS=1` в самом начале
+   `passenger_wsgi.py`, до импорта numpy.
+3. **venv — в корне сайта** (`~/data/www/ДОМЕН/venv`), не в `~/data/docapp`.
+4. **os.execl на venv-python НЕ нужен** — Passenger запускает системным
+   python, а site-packages venv добавляется в sys.path (иначе 502).
+5. После замены `passenger_wsgi.py` убить старый wsgi-loader:
+   `pkill -f "u3617050.*wsgi-loader"` — Passenger перезапустит с новым кодом.
+
+Полезные ссылки: [инструкция reg.ru по Flask](https://help.reg.ru/support/hosting/php-asp-net-i-skripty/kak-ustanovit-flask-na-hosting),
+[рабочий пример FastAPI на reg.ru](https://github.com/devlumba/fastapi-tracking-time-1).
+
+### Обновление на сервере (`scripts/update.sh`)
+
+Полный цикл обновления (запускать с локальной машины из корня docapp):
+
+```bash
+./scripts/update.sh
+```
+
+Скрипт делает по порядку:
+
+1. **Бэкап БД** на сервере (`scripts/backup.sh` — docapp/consult/needs).
+2. **rsync кода** на сервер (исключая `.venv`, `data`, `.env`).
+3. **Обновление зависимостей** в обоих venv (приложения и Passenger-корня сайта).
+4. **Миграции схемы БД**: `docapp migrate` — применяет миграции ко всем трём
+   БД (docapp/consult/needs), создаёт их при отсутствии. Идемпотентно.
+5. **Перезапуск Passenger**: убивает `wsgi-loader` — Passenger подхватывает
+   новый код при следующем запросе.
+6. **Проверка HTTPS** домена.
+
+### Миграции схемы БД
+
+Версия схемы хранится в `PRAGMA user_version` каждой БД. Текущая версия —
+`SCHEMA_VERSION` в `src/docapp/storage/sqlite_store.py`,
+`src/docapp/consult/store.py`, `src/docapp/needs/store.py`.
+
+**Как добавить миграцию** (при изменении схемы):
+
+1. Увеличьте `SCHEMA_VERSION` на 1.
+2. Добавьте кортеж в список `_MIGRATIONS` соответствующего хранилища:
+   ```python
+   _MIGRATIONS = [
+       # (2, "добавить колонку X", [
+       #     "ALTER TABLE employees ADD COLUMN x TEXT NOT NULL DEFAULT ''",
+       # ]),
+   ]
+   ```
+3. Примените на сервере: `./scripts/update.sh` (или `docapp migrate`).
+
+> **ВАЖНО**: не редактируйте уже опубликованные миграции — добавляйте новые.
+> Миграции применяются по порядку при подключении к БД, так что ручной
+> запуск `docapp migrate` нужен только чтобы не ждать первого запроса.
+
 ## Консультант по приказам (подприложение «Приказы»)
 
 Вопрос-ответ по внутренним приказам отделения (ADR-10): сотрудник задаёт

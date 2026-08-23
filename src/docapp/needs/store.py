@@ -57,8 +57,35 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.executescript(_SCHEMA)
+    _apply_migrations(conn)
     conn.commit()
     return conn
+
+
+# Версия схемы БД потребностей. Увеличивайте при изменении схемы
+# и добавляйте миграцию в _MIGRATIONS.
+SCHEMA_VERSION = 1
+
+# Миграции: (версия_после_применения, название, [SQL...])
+_MIGRATIONS: list[tuple[int, str, list[str]]] = [
+    # (1, "initial schema", [])
+]
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Применить миграции схемы, если user_version устарел."""
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version == 0:
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.commit()
+        return
+    for target, name, statements in _MIGRATIONS:
+        if version < target:
+            for stmt in statements:
+                conn.execute(stmt)
+            conn.execute(f"PRAGMA user_version = {target}")
+            conn.commit()
+            version = target
 
 
 class SqliteNeedsStore:

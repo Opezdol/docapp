@@ -40,6 +40,39 @@ CREATE TABLE IF NOT EXISTS active_nurse (
 );
 """
 
+# Версия схемы основной БД (PRAGMA user_version). Увеличивайте на 1 при
+# каждом изменении схемы и добавляйте миграцию в _MIGRATIONS ниже.
+SCHEMA_VERSION = 1
+
+# Миграции: каждая — (версия_после_применения, название, список SQL).
+# Применяются по порядку, только если user_version < версии миграции.
+# ВАЖНО: не редактируйте уже опубликованные миграции — добавляйте новые.
+_MIGRATIONS: list[tuple[int, str, list[str]]] = [
+    # (1, "initial schema", [])  # базовая схема создаётся _SCHEMA выше
+]
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Применить миграции схемы, если user_version устарел.
+
+    Новая БД (user_version=0) считается созданной на текущей версии схемы:
+    _SCHEMA выше уже создал все таблицы. Старые БД с user_version < текущей
+    проходят через миграции из _MIGRATIONS по порядку.
+    """
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version == 0:
+        # БД только что создана _SCHEMA — сразу помечаем текущей версией
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.commit()
+        return
+    for target, name, statements in _MIGRATIONS:
+        if version < target:
+            for stmt in statements:
+                conn.execute(stmt)
+            conn.execute(f"PRAGMA user_version = {target}")
+            conn.commit()
+            version = target
+
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
     # check_same_thread=False: FastAPI обрабатывает запросы в пуле потоков,
@@ -50,6 +83,7 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.executescript(_SCHEMA)
+    _apply_migrations(conn)
     conn.commit()
     return conn
 
