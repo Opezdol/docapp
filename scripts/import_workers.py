@@ -80,6 +80,12 @@ def main() -> int:
     workers = load_workers(args.json)
     db = args.db if args.db else Path("data/docapp.db")
 
+    # Считаем частоту фамилий: если фамилия встречается несколько раз,
+    # всем носителям даём логин с инициалами (фамилия + 1-я буква имени + отчества),
+    # иначе логин = просто фамилия.
+    from collections import Counter
+    last_counts = Counter(w["last_name"] for w in workers)
+
     # Уникальные логины
     used_logins = set()
     # Уже существующие табельные (для идемпотентности)
@@ -111,11 +117,17 @@ def main() -> int:
             skipped += 1
             continue
 
-        # логин: фамилия транслитом, уникализируем
+        # логин: фамилия транслитом; если фамилия не уникальна в списке —
+        # сразу добавляем инициалы (первая буква имени + первая буква отчества),
+        # напр. Иванова Елена -> ivanovaev, Иванова Татьяна -> ivanovatv
         base = translit(last)
         if not base:
             base = translit(first) or "user"
-        login = base
+        if last_counts[last] > 1:
+            initials = (translit(first)[:1] + translit(middle)[:1])
+            login = base + initials
+        else:
+            login = base
         n = 2
         while login in used_logins:
             login = f"{base}{n}"
