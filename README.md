@@ -443,7 +443,7 @@ remote `origin` и SSH-ключ сервера в GitHub (deploy key репоз�
 
 ```bash
 export CONSULT_API_KEY=<ключ RouterAI>
-export CONSULT_EMBED_MODEL=text-embedding-3-small   # модель эмбеддингов RouterAI
+export CONSULT_EMBED_MODEL=openai/text-embedding-3-small   # модель эмбеддингов RouterAI
 uv run python -m docapp.consult
 ```
 
@@ -462,8 +462,8 @@ CLI возьмёт статичную папку по умолчанию. Пос
 |---|---|---|
 | `CONSULT_API_KEY` | ключ RouterAI (обязателен) | — |
 | `CONSULT_BASE_URL` | базовый URL API RouterAI | `https://routerai.ru/api/v1` |
-| `CONSULT_LLM_MODEL` | модель ответов | `gpt-4o-mini` |
-| `CONSULT_EMBED_MODEL` | модель эмбеддингов | `text-embedding-3-small` |
+| `CONSULT_LLM_MODEL` | модель ответов | `openai/gpt-4o-mini` |
+| `CONSULT_EMBED_MODEL` | модель эмбеддингов | `openai/text-embedding-3-small` |
 | `CONSULT_INDEX_DIR` | каталог индекса | `data/consult` |
 | `CONSULT_DOCS_DIR` | папка приказов | `data/consult/documents` |
 

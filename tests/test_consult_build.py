@@ -31,7 +31,7 @@ def make_config(tmp_path) -> ConsultConfig:
     return ConsultConfig(
         api_key="key",
         base_url="https://routerai.ru/api/v1",
-        embed_model="text-embedding-3-small",
+        embed_model="openai/text-embedding-3-small",
         index_dir=tmp_path / "index",
     )
 

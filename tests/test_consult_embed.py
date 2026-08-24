@@ -14,7 +14,7 @@ def make_config(**overrides) -> ConsultConfig:
     kwargs: dict = dict(
         api_key="key",
         base_url="https://routerai.ru/api/v1",
-        embed_model="text-embedding-3-small",
+        embed_model="openai/text-embedding-3-small",
     )
     kwargs.update(overrides)
     return ConsultConfig(**kwargs)
@@ -69,7 +69,7 @@ def test_request_shape():
     client.embed(["привет"])
     assert seen["url"].endswith("/embeddings")
     assert seen["auth"] == "Bearer key"
-    assert seen["payload"]["model"] == "text-embedding-3-small"
+    assert seen["payload"]["model"] == "openai/text-embedding-3-small"
     assert seen["payload"]["input"] == ["привет"]
 
 

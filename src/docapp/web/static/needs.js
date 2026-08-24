@@ -74,7 +74,7 @@
 
   // Состояние страницы.
   var catalog = { bases: {}, groups: {}, allItems: [] }; // каталог из API
-  var lines = [];          // выбранные позиции: {item, unit, group}
+  var lines = [];          // выбранные позиции: {item, unit, group, qty}
   var currentBase = '';    // база выбранной точки
   var currentPoint = '';   // выбранная точка пополнения
   var week = iso(mondayOfWeek(new Date())); // текущая неделя (пн)
@@ -155,7 +155,7 @@
     return apiFetch(url).then(function (req) {
       if (!req) return;
       lines = (req.lines || []).map(function (l) {
-        return { item: l.item, unit: l.unit || '', group: l.grp || '' };
+        return { item: l.item, unit: l.unit || '', group: l.grp || '', qty: l.qty || 0 };
       });
       // Чужой отправленный — просмотр; свои и чужие черновики (полная роль)
       // и свои отправленные — правка. Закрытая база — просмотр.
@@ -195,7 +195,8 @@
         '<td>' + esc(line.item) + '</td>' +
         '<td>' + esc(line.unit) + '</td>' +
         '<td><input type="number" inputmode="numeric" min="0" step="1" ' +
-          'class="needs-qty" data-i="' + i + '" value="0"' +
+          'class="needs-qty" data-i="' + i + '" value="' +
+          (line.qty > 0 ? line.qty : '0') + '"' +
           (readOnly ? ' disabled' : '') + '></td>' +
         '<td><button type="button" class="needs-remove" data-i="' + i + '" ' +
           'aria-label="Удалить"' + (readOnly ? ' disabled' : '') + '>×</button></td>' +
@@ -341,6 +342,7 @@
         item: itemName,
         unit: found ? found.unit : '',
         group: found ? found.group : '',
+        qty: 0,
       });
       renderLines();
       idx = lines.length - 1;
@@ -548,6 +550,15 @@
     if (isNaN(i) || i < 0 || i >= lines.length) return;
     lines.splice(i, 1);
     renderLines();
+  });
+
+  // Ввод количества — синхронизировать в состояние строк, чтобы значения
+  // не терялись при перерисовке (добавление строки, смена точки и т.п.).
+  linesTbody.addEventListener('input', function (e) {
+    if (!e.target.classList || !e.target.classList.contains('needs-qty')) return;
+    var i = parseInt(e.target.getAttribute('data-i'), 10);
+    if (isNaN(i) || i < 0 || i >= lines.length) return;
+    lines[i].qty = parseQty(e.target.value);
   });
 
   saveBtn.addEventListener('click', saveDraft);

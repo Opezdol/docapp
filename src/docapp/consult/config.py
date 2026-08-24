@@ -13,12 +13,17 @@ from docapp.config import DATA_DIR
 
 @dataclass(frozen=True)
 class ConsultConfig:
-    """Конфигурация консультанта: RouterAI, модели и каталоги индекса и приказов."""
+    """Конфигурация консультанта: RouterAI, модели и каталоги индекса и приказов.
+
+    RouterAI использует полные идентификаторы моделей вида
+    «провайдер/модель» (напр. openai/gpt-4o-mini, openai/text-embedding-3-small);
+    голое имя без префикса провайдера RouterAI не принимает (400).
+    """
 
     api_key: str = ""
     base_url: str = "https://routerai.ru/api/v1"
-    llm_model: str = "gpt-4o-mini"
-    embed_model: str = "text-embedding-3-small"
+    llm_model: str = "openai/gpt-4o-mini"
+    embed_model: str = "openai/text-embedding-3-small"
     index_dir: Path = DATA_DIR / "consult"
     docs_dir: Path = DATA_DIR / "consult" / "documents"
 
@@ -40,8 +45,10 @@ def load_consult_config() -> ConsultConfig:
     return ConsultConfig(
         api_key=os.environ.get("CONSULT_API_KEY", ""),
         base_url=os.environ.get("CONSULT_BASE_URL", "https://routerai.ru/api/v1"),
-        llm_model=os.environ.get("CONSULT_LLM_MODEL", "gpt-4o-mini"),
-        embed_model=os.environ.get("CONSULT_EMBED_MODEL", "text-embedding-3-small"),
+        llm_model=os.environ.get("CONSULT_LLM_MODEL", "openai/gpt-4o-mini"),
+        embed_model=os.environ.get(
+            "CONSULT_EMBED_MODEL", "openai/text-embedding-3-small"
+        ),
         index_dir=index_dir,
         docs_dir=docs_dir,
     )
