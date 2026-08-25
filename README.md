@@ -215,7 +215,7 @@ README.md          # этот файл
 ## Запуск
 
 ```bash
-uv run pytest -q          # тесты (329 шт.)
+uv run pytest -q          # тесты (332 шт.)
 uv run python main.py     # сервер на http://127.0.0.1:8000 (за reverse-proxy)
 # для доступа с телефона по локальной сети при разработке:
 DOCAPP_HOST=0.0.0.0 uv run python main.py

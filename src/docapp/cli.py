@@ -175,23 +175,6 @@ def _migrate(args: argparse.Namespace) -> int:
             all_ok = False
 
     return 0 if all_ok else 1
-    """Проставить/заменить номер в бухгалтерии у существующего сотрудника."""
-    if not args.buh_id.strip():
-        print("Ошибка: номер в бухгалтерии не может быть пустым", file=sys.stderr)
-        return 2
-    with SqliteEmployeeStore(db_path()) as store:
-        try:
-            store.update_buh_id(args.employee_id, args.buh_id.strip())
-        except KeyError:
-            print(f"Ошибка: сотрудник с id {args.employee_id} не найден", file=sys.stderr)
-            return 2
-        employee = store.get_by_id(args.employee_id)
-        if employee is None:  # не может случиться после успешного update, но для типов
-            print("Ошибка: сотрудник не найден", file=sys.stderr)
-            return 2
-    print(f"Обновлено: {employee.full_name} (id={employee.id})")
-    print(f"Номер в бухгалтерии: {employee.buh_id}")
-    return 0
 
 
 def main() -> int:
