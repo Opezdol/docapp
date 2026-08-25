@@ -65,10 +65,10 @@ class TestNursePointGrid:
         # Сетка точек присутствует; старый <select id="needs-point"> убран.
         assert 'id="needs-points"' in r.text
         assert 'id="needs-point"' not in r.text
-        # Карточки точек из каталога отрисовываются клиентом (JS),
-        # но блок-контейнер и данные точки присутствуют в разметке? Нет —
-        # точки грузятся через API; проверяем контейнер сетки и отсутствие select.
         assert "Точки пополнения" in r.text
+        # У медсестры НЕТ доски старшей (#needs-board): needs.js должен это
+        # выдерживать (раньше безусловный boardEl.addEventListener ронял скрипт).
+        assert 'id="needs-board"' not in r.text
 
     def test_head_nurse_has_board_not_point_grid(self, client):
         _login(client, "elena", "elena_pass")

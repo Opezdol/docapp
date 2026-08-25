@@ -443,18 +443,21 @@
     boardEl.innerHTML = html;
   }
 
-  // Клик по точке доски — открыть её в форме заявки.
-  boardEl.addEventListener('click', function (e) {
-    var cell = e.target.closest('.needs-board-cell');
-    if (cell) {
-      selectPoint(cell.getAttribute('data-base'), cell.getAttribute('data-point'));
-      return;
-    }
-    var closeBtn = e.target.closest('.needs-close');
-    if (closeBtn) { closeBase(closeBtn.getAttribute('data-base')); return; }
-    var reopenBtn = e.target.closest('.needs-reopen');
-    if (reopenBtn) { reopenBase(reopenBtn.getAttribute('data-base')); return; }
-  });
+  // Клик по точке доски — открыть её в форме заявки (только у полных ролей,
+  // где блок #needs-board есть; у медсестры boardEl отсутствует).
+  if (boardEl) {
+    boardEl.addEventListener('click', function (e) {
+      var cell = e.target.closest('.needs-board-cell');
+      if (cell) {
+        selectPoint(cell.getAttribute('data-base'), cell.getAttribute('data-point'));
+        return;
+      }
+      var closeBtn = e.target.closest('.needs-close');
+      if (closeBtn) { closeBase(closeBtn.getAttribute('data-base')); return; }
+      var reopenBtn = e.target.closest('.needs-reopen');
+      if (reopenBtn) { reopenBase(reopenBtn.getAttribute('data-base')); return; }
+    });
+  }
 
   // Клик по карточке точки в сетке медсестры — выбрать её.
   if (pointsEl) {
