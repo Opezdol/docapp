@@ -7,7 +7,7 @@
 #   1. git pull (обновление кода с GitHub)
 #   2. обновление зависимостей (venv приложения + venv Passenger)
 #   3. миграции схемы БД (docapp/consult/needs)
-#   4. перезапуск Passenger (убивает wsgi-loader — подхватит новый код)
+#   4. перезапуск Passenger (touch tmp/restart.txt в корне сайта)
 #   5. проверка HTTPS
 #
 # Требует: git, SSH-ключ сервера в GitHub (deploy key), настроенный remote.
@@ -36,10 +36,9 @@ echo "==> 4/6: миграции схемы БД"
 export $(grep -v '^#' .env | xargs) 2>/dev/null || true
 .venv/bin/python -m docapp.cli migrate
 
-echo "==> 5/6: перезапуск Passenger"
-pkill -f "u3617050.*wsgi-loader" 2>/dev/null || true
-sleep 2
-echo "  wsgi-loader убиты — Passenger перезапустит приложение по запросу"
+echo "==> 5/6: перезапуск Passenger (touch tmp/restart.txt)"
+./scripts/restart-passenger.sh "$SITE_ROOT"
+echo "  Passenger перезагрузит приложение при следующем запросе"
 
 echo "==> 6/6: проверка HTTPS"
 sleep 3

@@ -52,15 +52,13 @@ export $(grep -v '^#' .env | xargs) 2>/dev/null || true
 .venv/bin/python -m docapp.cli migrate
 EOF
 
-echo "==> 5/6: перезапуск Passenger (убиваем wsgi-loader — Passenger подхватит новый код)"
-$SSH_BIN "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s "$DOCAPP_SSH_USER" <<'EOF'
-set -euo pipefail
-USER="$1"
-# убиваем ВСЕ wsgi-loader процессы нашего пользователя
-pkill -f "${USER}.*wsgi-loader" 2>/dev/null || true
-sleep 2
-echo "  процессы wsgi-loader убиты, Passenger перезапустит приложение по запросу"
-EOF
+echo "==> 5/6: перезапуск Passenger (touch tmp/restart.txt)"
+if [ -n "${DOCAPP_SITE_ROOT:-}" ]; then
+  $SSH_BIN "${SSH_ARGS[@]}" "$SSH_TARGET" \
+    "cd $DOCAPP_DEPLOY_DIR && ./scripts/restart-passenger.sh '$DOCAPP_SITE_ROOT'"
+else
+  echo "  (DOCAPP_SITE_ROOT не задан — пропускаем)"
+fi
 
 echo "==> 6/6: проверка"
 sleep 3
