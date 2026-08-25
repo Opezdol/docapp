@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from docapp.auth.auth import Authenticator, InvalidCredentials
-from docapp.config import https_only
+from docapp.config import git_revision, https_only
 from docapp.domain.employee import HEAD_NURSE, NURSE, Employee
 from docapp.records.service import AnesthesiaService
 from docapp.storage.sqlite_store import (
@@ -25,7 +25,10 @@ from docapp.storage.sqlite_store import (
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).parent
-TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+TEMPLATES = Jinja2Templates(
+    directory=str(BASE_DIR / "templates"),
+    context_processors=[lambda request: {"git_revision": git_revision()}],
+)
 
 
 def create_app(db_path: str | Path, secret: str) -> FastAPI:

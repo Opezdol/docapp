@@ -190,6 +190,37 @@ table.needs-table {
 .needs-cell-point { font-weight: 600; }
 .needs-cell-author { font-size: 0.78rem; color: #777; }
 
+/* Сетка точек для медсестры: карточки выбора точки (без статусов чужих заявок) */
+.needs-points .needs-board-grid {
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+
+.needs-point-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 10px;
+  border: 1px solid #e3e8ef;
+  border-radius: 8px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 0.92rem;
+  text-align: center;
+  cursor: pointer;
+}
+.needs-point-cell:active { background: #eef2f7; }
+
+.needs-point-active {
+  border-color: #1565c0;
+  background: #e8f0fb;
+  color: #1565c0;
+  font-weight: 600;
+}
+
+/* Подпись выбранной точки в заголовке формы заявки */
+.needs-current-point { font-weight: 600; color: #1565c0; }
+
 /* ── аналитика ─────────────────────────────────────────────────── */
 
 .needs-app h3.analytics-period { margin: 0 0 10px; color: #1565c0; }

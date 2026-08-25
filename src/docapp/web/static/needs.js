@@ -62,7 +62,8 @@
   var IS_FULL = ROLE === 'head_nurse' || ROLE === 'head';
 
   var bannerEl = document.getElementById('needs-banner');
-  var pointSel = document.getElementById('needs-point');
+  var pointsEl = document.getElementById('needs-points');
+  var currentPointEl = document.getElementById('needs-current-point');
   var searchInput = document.getElementById('needs-search');
   var searchResults = document.getElementById('needs-search-results');
   var linesTbody = document.getElementById('needs-lines');
@@ -92,11 +93,8 @@
     bannerTimer = setTimeout(function () { bannerEl.hidden = true; }, 6000);
   }
 
-  /* ── каталог и селектор точки ───────────────────────────────────── */
+  /* ── каталог и выбор точки ───────────────────────────────────────── */
 
-  // Загрузить каталог и наполнить селектор «Точка пополнения»:
-  // optgroup по базам, точка → база в карте pointBase.
-  var pointBase = {};
   function loadCatalog() {
     return apiFetch('/needs/api/catalog').then(function (data) {
       if (!data) return;
@@ -112,31 +110,53 @@
           });
         });
       });
-      fillPointSelect();
+      renderPointGrid();
       if (reportLinksEl) renderReportLinks();
     }).catch(function (err) {
       showBanner('Не удалось загрузить каталог: ' + err.message, 'error');
     });
   }
 
-  function fillPointSelect() {
-    var html = '<option value="" selected>Выберите точку…</option>';
+  // Сетка точек для медсестры: карточки по базам (без статусов чужих заявок —
+  // API доски медсестре недоступен; сестра видит только названия точек).
+  function renderPointGrid() {
+    if (!pointsEl) return;
     var baseNames = Object.keys(catalog.bases);
     if (!baseNames.length) {
-      pointSel.innerHTML = '<option value="" selected>Каталог пуст</option>';
+      pointsEl.innerHTML = '<p class="empty">Каталог пуст.</p>';
       return;
     }
+    var html = '';
     baseNames.forEach(function (base) {
-      var points = catalog.bases[base];
-      if (!points || !points.length) return;
-      html += '<optgroup label="' + esc(base) + '">';
+      var points = catalog.bases[base] || [];
+      if (!points.length) return;
+      html += '<div class="needs-base">';
+      html += '<h3>' + esc(base) + '</h3>';
+      html += '<div class="needs-board-grid">';
       points.forEach(function (point) {
-        pointBase[point] = base;
-        html += '<option value="' + esc(point) + '">' + esc(point) + '</option>';
+        var active = point === currentPoint ? ' needs-point-active' : '';
+        html += '<button type="button" class="needs-point-cell' + active + '" ' +
+          'data-base="' + esc(base) + '" data-point="' + esc(point) + '">' +
+          '<span class="needs-cell-point">' + esc(point) + '</span>' +
+          '</button>';
       });
-      html += '</optgroup>';
+      html += '</div></div>';
     });
-    pointSel.innerHTML = html;
+    pointsEl.innerHTML = html;
+  }
+
+  // Выбрать точку: обновить состояние, заголовок заявки и подсветку сетки.
+  function selectPoint(base, point) {
+    currentBase = base;
+    currentPoint = point;
+    if (currentPointEl) currentPointEl.textContent = point ? ('— ' + point) : '';
+    if (pointsEl) renderPointGrid();
+    searchInput.value = '';
+    searchResults.hidden = true;
+    searchResults.innerHTML = '';
+    readOnly = !!closedBases[base];
+    if (reportLinksEl) renderReportLinks();
+    return loadRequest();
   }
 
   /* ── заявка: загрузка, отрисовка, сохранение, отправка ──────────── */
@@ -211,7 +231,6 @@
     [searchInput, saveBtn, submitBtn].forEach(function (el) {
       if (el) el.disabled = readOnly;
     });
-    if (pointSel) pointSel.disabled = false; // точку можно менять всегда
   }
 
   function setStatus(text) {
@@ -424,12 +443,11 @@
     boardEl.innerHTML = html;
   }
 
-  // Клик по точке доски — открыть её в форме сестры.
+  // Клик по точке доски — открыть её в форме заявки.
   boardEl.addEventListener('click', function (e) {
     var cell = e.target.closest('.needs-board-cell');
     if (cell) {
-      pointSel.value = cell.getAttribute('data-point');
-      pointSel.dispatchEvent(new Event('change'));
+      selectPoint(cell.getAttribute('data-base'), cell.getAttribute('data-point'));
       return;
     }
     var closeBtn = e.target.closest('.needs-close');
@@ -437,6 +455,15 @@
     var reopenBtn = e.target.closest('.needs-reopen');
     if (reopenBtn) { reopenBase(reopenBtn.getAttribute('data-base')); return; }
   });
+
+  // Клик по карточке точки в сетке медсестры — выбрать её.
+  if (pointsEl) {
+    pointsEl.addEventListener('click', function (e) {
+      var cell = e.target.closest('.needs-point-cell');
+      if (!cell) return;
+      selectPoint(cell.getAttribute('data-base'), cell.getAttribute('data-point'));
+    });
+  }
 
   // Закрыть неделю для базы: подтверждение, POST /needs/api/close,
   // затем предупреждение со списком неотправивших точек из ответа.
@@ -506,17 +533,6 @@
   }
 
   /* ── события формы ──────────────────────────────────────────────── */
-
-  pointSel.addEventListener('change', function () {
-    currentPoint = pointSel.value;
-    currentBase = currentPoint ? (pointBase[currentPoint] || '') : '';
-    searchInput.value = '';
-    searchResults.hidden = true;
-    searchResults.innerHTML = '';
-    readOnly = !!closedBases[currentBase];
-    if (reportLinksEl) renderReportLinks();
-    loadRequest();
-  });
 
   searchInput.addEventListener('input', function () {
     if (readOnly) return;

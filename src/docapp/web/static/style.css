@@ -48,6 +48,21 @@ body {
 
 .brand { font-weight: 700; font-size: 1.2rem; color: #1565c0; }
 
+/* Бейдж хэша последнего коммита рядом с брендом */
+.rev-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #555;
+  background: #eef2f7;
+  border: 1px solid #e3e8ef;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
 .who { display: flex; align-items: center; gap: 10px; font-size: 0.95rem; }
 
 .me-link {

@@ -26,6 +26,11 @@ rsync -avz --delete \
   -e "$RSYNC_SSH_CMD" \
   ./ "$SSH_TARGET:$DOCAPP_DEPLOY_DIR/"
 
+echo "==> 1.5/6: запись хэша ревизии (REVISION) на сервере"
+REV="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+printf '%s' "$REV" | $SSH_BIN "${SSH_ARGS[@]}" "$SSH_TARGET" \
+  "cat > $DOCAPP_DEPLOY_DIR/REVISION && echo '  REVISION=$REV'"
+
 echo "==> 2/6: обновление зависимостей (venv приложения)"
 $SSH_BIN "${SSH_ARGS[@]}" "$SSH_TARGET" \
   "cd $DOCAPP_DEPLOY_DIR && .venv/bin/pip install -e . --quiet 2>&1 | tail -3 || true"

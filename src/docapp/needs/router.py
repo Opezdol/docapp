@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.templating import Jinja2Templates
 
 import docapp.web.app
+from docapp.config import git_revision
 from docapp.domain.employee import DOCTOR, Employee
 from docapp.needs.analytics import summarize
 from docapp.needs.report import aggregate_requests, build_xlsx, html_table
@@ -43,7 +44,10 @@ XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 #: мог наследовать base.html). Starlette принимает список директорий.
 needs_templates_dir = Path(__file__).parent / "templates"
 web_templates_dir = Path(docapp.web.app.__file__).parent / "templates"
-TEMPLATES = Jinja2Templates(directory=[needs_templates_dir, web_templates_dir])
+TEMPLATES = Jinja2Templates(
+    directory=[needs_templates_dir, web_templates_dir],
+    context_processors=[lambda request: {"git_revision": git_revision()}],
+)
 
 router = APIRouter(prefix="/needs")
 

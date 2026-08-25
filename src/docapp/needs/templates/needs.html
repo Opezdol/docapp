@@ -24,17 +24,17 @@
   </div>
   {% endif %}
 
+  {% if user.role == 'nurse' %}
+  <div class="card">
+    <h2>Точки пополнения</h2>
+    <div id="needs-points" class="needs-points"><p class="empty">Загрузка…</p></div>
+  </div>
+  {% endif %}
+
   {% if user.role != 'doctor' %}
   <div class="card">
-    <h2>Заявка на неделю</h2>
+    <h2>Заявка на неделю <span id="needs-current-point" class="needs-current-point"></span></h2>
     <form id="needs-form" autocomplete="off">
-      <label class="field">
-        <span>Точка пополнения</span>
-        <select id="needs-point" required>
-          <option value="" selected>Загрузка…</option>
-        </select>
-      </label>
-
       <label class="field">
         <span>Поиск препарата</span>
         <input type="text" id="needs-search" placeholder="Например: атро" autocomplete="off">
@@ -47,7 +47,7 @@
             <tr><th>Название</th><th>Ед.</th><th>Количество</th><th></th></tr>
           </thead>
           <tbody id="needs-lines">
-            <tr><td colspan="4" class="empty">Выберите точку пополнения.</td></tr>
+            <tr><td colspan="4" class="empty">Выберите точку пополнения выше.</td></tr>
           </tbody>
         </table>
       </div>

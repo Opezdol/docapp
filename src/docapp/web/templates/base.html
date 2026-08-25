@@ -13,7 +13,10 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <div class="brand">docapp</div>
+      <div class="brand">
+        docapp
+        {% if git_revision %}<span class="rev-badge" title="Хэш последнего коммита">{{ git_revision }}</span>{% endif %}
+      </div>
       {% if user %}
       <div class="who">
         <a class="me-link" href="/me">{{ user.short_name }}</a>
