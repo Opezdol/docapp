@@ -7,7 +7,6 @@ from dataclasses import dataclass
 @dataclass
 class Chunk:
     text: str
-    doc_id: str
     doc_number: str
     doc_title: str
     section: str
@@ -31,7 +30,7 @@ def doc_title_of(blocks) -> str:
     return blocks[0].text[:120] if blocks else ""
 
 
-def chunk_blocks(blocks, doc_id: str, doc_number: str, doc_title: str,
+def chunk_blocks(blocks, doc_number: str, doc_title: str,
                  chunk_size: int = 600) -> list[Chunk]:
     """Нарезать блоки на фрагменты: заголовок начинает новый фрагмент и
     становится его разделом (section); при превышении chunk_size фрагмент
@@ -42,7 +41,7 @@ def chunk_blocks(blocks, doc_id: str, doc_number: str, doc_title: str,
     def flush() -> None:
         nonlocal buf, idx
         if buf.strip():
-            chunks.append(Chunk(buf.strip(), doc_id, doc_number, doc_title, section, idx))
+            chunks.append(Chunk(buf.strip(), doc_number, doc_title, section, idx))
             idx += 1
             buf = ""
 
@@ -59,7 +58,7 @@ def chunk_blocks(blocks, doc_id: str, doc_number: str, doc_title: str,
             for i in range(0, len(b.text), chunk_size):
                 part = b.text[i:i + chunk_size].strip()
                 if part:
-                    chunks.append(Chunk(part, doc_id, doc_number, doc_title, section, idx))
+                    chunks.append(Chunk(part, doc_number, doc_title, section, idx))
                     idx += 1
             continue
         buf += b.text + "\n"

@@ -5,6 +5,7 @@
 """
 
 import sqlite3
+from datetime import date, timedelta
 from pathlib import Path
 
 _SCHEMA = """
@@ -40,6 +41,10 @@ CREATE TABLE IF NOT EXISTS messages (        -- история диалогов 
 CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_msg_emp  ON messages(employee_id, created_at);
+CREATE TABLE IF NOT EXISTS settings (        -- настройки консультанта (системный промпт и параметры)
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -59,11 +64,21 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
 
 # Версия схемы БД консультанта. Увеличивайте при изменении схемы
 # и добавляйте миграцию в _MIGRATIONS.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Миграции: (версия_после_применения, название, [SQL...])
 _MIGRATIONS: list[tuple[int, str, list[str]]] = [
-    # (1, "initial schema", [])
+    # (1, "initial schema", []),
+    (
+        2,
+        "таблица settings (настройки консультанта: промпт и параметры)",
+        [
+            """CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT ''
+            )""",
+        ],
+    ),
 ]
 
 
@@ -81,6 +96,15 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             conn.execute(f"PRAGMA user_version = {target}")
             conn.commit()
             version = target
+
+
+def _next_day(day: str) -> str:
+    """Следующий календарный день после 'YYYY-MM-DD' (как 'YYYY-MM-DD').
+
+    Используется как строгий верх границы «по день включительно» при
+    сравнении created_at (ISO-метки со временем) через '<'.
+    """
+    return (date.fromisoformat(day) + timedelta(days=1)).isoformat()
 
 
 class SqliteConsultStore:
@@ -144,6 +168,11 @@ class SqliteConsultStore:
             "VALUES (?, ?, ?, ?, ?)",
             [(document_id, idx, section, text, embedding) for idx, section, text, embedding in chunks],
         )
+        self._conn.commit()
+
+    def delete_document(self, document_id: int) -> None:
+        """Удалить документ (чанки удаляются каскадом) по id."""
+        self._conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
         self._conn.commit()
 
     def add_message(
@@ -222,15 +251,86 @@ class SqliteConsultStore:
         row = self._conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()
         return row["n"]
 
-    def token_totals(self) -> list[sqlite3.Row]:
+    def token_totals(
+        self, from_date: str | None = None, to_date: str | None = None
+    ) -> list[sqlite3.Row]:
         """Расход токенов по сотрудникам для аналитики заведующего.
 
         Каждая строка: employee_id, total_prompt, total_completion, count.
+        from_date/to_date — необязательные границы 'YYYY-MM-DD' (включительно)
+        по префиксу created_at; без них — за всё время.
         """
-        return self._conn.execute(
+        sql = (
             "SELECT employee_id, "
             "       SUM(prompt_tokens) AS total_prompt, "
             "       SUM(completion_tokens) AS total_completion, "
             "       COUNT(*) AS count "
-            "FROM messages GROUP BY employee_id ORDER BY employee_id"
-        ).fetchall()
+            "FROM messages"
+        )
+        params: list[str] = []
+        conditions: list[str] = []
+        if from_date:
+            conditions.append("created_at >= ?")
+            params.append(from_date)
+        if to_date:
+            # «по день включительно»: created_at <= 'YYYY-MM-DD' не захватит
+            # весь день (метки со временем); берём следующий день как строгий верх.
+            conditions.append("created_at < ?")
+            params.append(_next_day(to_date))
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        sql += " GROUP BY employee_id ORDER BY employee_id"
+        return self._conn.execute(sql, params).fetchall()
+
+    def token_totals_by_day(
+        self, from_date: str | None = None, to_date: str | None = None
+    ) -> list[sqlite3.Row]:
+        """Расход токенов по дням (сумма prompt+completion по дате ответа).
+
+        Строки: day ('YYYY-MM-DD'), total_prompt, total_completion, count.
+        Ограничения по датам — как в token_totals.
+        """
+        sql = (
+            "SELECT substr(created_at, 1, 10) AS day, "
+            "       SUM(prompt_tokens) AS total_prompt, "
+            "       SUM(completion_tokens) AS total_completion, "
+            "       COUNT(*) AS count "
+            "FROM messages"
+        )
+        params: list[str] = []
+        conditions: list[str] = []
+        if from_date:
+            conditions.append("created_at >= ?")
+            params.append(from_date)
+        if to_date:
+            conditions.append("created_at < ?")
+            params.append(_next_day(to_date))
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        sql += " GROUP BY day ORDER BY day"
+        return self._conn.execute(sql, params).fetchall()
+
+    # ── настройки консультанта ───────────────────────────────────────
+
+    def get_setting(self, key: str) -> str | None:
+        """Значение настройки по ключу или None, если её нет."""
+        row = self._conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Записать настройку (upsert по ключу)."""
+        self._conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        self._conn.commit()
+
+    def all_settings(self) -> dict[str, str]:
+        """Все настройки как словарь ключ -> значение."""
+        return {
+            row["key"]: row["value"]
+            for row in self._conn.execute("SELECT key, value FROM settings").fetchall()
+        }

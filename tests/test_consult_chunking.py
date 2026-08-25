@@ -19,7 +19,7 @@ def test_title_from_first_heading():
 
 
 def test_chunks_carry_metadata():
-    chunks = chunk_blocks(BLOCKS, "abc", "123", "ПРИКАЗ № 123 от 15.03.2024")
+    chunks = chunk_blocks(BLOCKS, "123", "ПРИКАЗ № 123 от 15.03.2024")
     assert len(chunks) == 2
     assert chunks[1].section == "1. Общие положения"
     assert chunks[1].doc_number == "123"
@@ -29,5 +29,5 @@ def test_chunks_carry_metadata():
 
 def test_chunk_size_overflow_splits():
     long_para = [Block("para", "слово " * 200)]
-    chunks = chunk_blocks(long_para, "d", "", "", chunk_size=100)
+    chunks = chunk_blocks(long_para, "", "", chunk_size=100)
     assert len(chunks) >= 2

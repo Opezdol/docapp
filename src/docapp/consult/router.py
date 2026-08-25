@@ -87,6 +87,7 @@ def _run_rebuild(state: dict) -> None:
         build_index(config.docs_dir, config, temp_db)     # временный файл
         old = state["service"]
         messages = old.store.all_messages()               # история ДО закрытия
+        settings = old.store.all_settings()               # настройки ДО закрытия
         old.store.checkpoint()                            # WAL -> основной файл
         old.store.close()
         os.replace(temp_db, state["db_path"])             # атомарная замена
@@ -104,6 +105,8 @@ def _run_rebuild(state: dict) -> None:
                 row["content"], row["citations"], row["prompt_tokens"],
                 row["completion_tokens"], row["created_at"],
             )
+        for key, value in settings.items():               # миграция настроек
+            store.set_setting(key, value)
         service = ConsultService(store, state["embed"], state["llm"])
         service.reload_index()
         state["service"] = service
@@ -254,6 +257,73 @@ def document_download(request: Request, document_id: int):
     return HTMLResponse("Документ не найден", status_code=404)
 
 
+@router.delete("/orders/documents/{document_id}")
+def document_delete(request: Request, document_id: int):
+    """Удалить приказ и пересобрать индекс (только заведующий).
+
+    Удаляет запись из индекса и файл из статичной папки приказов
+    (CONSULT_DOCS_DIR), затем запускает фоновую пересборку индекса —
+    согласовано с офлайн-моделью «папка приказов — источник истины».
+    Пока идёт пересборка — 409. Если документа нет — 404.
+    """
+    user = docapp.web.app.current_user(request)
+    if user is None:
+        return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
+    if user.role != HEAD:
+        return JSONResponse({"error": "Только заведующий"}, status_code=403)
+    state = request.app.state.consult
+    service = _service(request)
+    doc = next((d for d in service.documents() if d["id"] == document_id), None)
+    if doc is None:
+        return JSONResponse({"error": "Документ не найден"}, status_code=404)
+    with state["lock"]:
+        if state["status"]["busy"]:
+            return JSONResponse({"error": "Индексация уже идёт"}, status_code=409)
+        # Удалить файл из статичной папки (по filename, из safe-хранилища docs_dir)
+        filename = doc["filename"]
+        target = (Path(state["config"].docs_dir) / Path(filename).name)
+        if target.exists():
+            target.unlink()
+        # Удалить из текущего индекса сразу (пересборка пересоздаст его из папки).
+        service.store.delete_document(document_id)
+        state["status"] = {
+            "busy": True,
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "finished_at": None,
+            "error": None,
+        }
+    threading.Thread(target=_run_rebuild, args=(state,), daemon=True).start()
+    return {"ok": True, "busy": True, "deleted": filename}
+
+
+@router.get("/orders/settings")
+def settings_get(request: Request):
+    """Текущие настройки консультанта (только заведующий)."""
+    user = docapp.web.app.current_user(request)
+    if user is None:
+        return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
+    if user.role != HEAD:
+        return JSONResponse({"error": "Только заведующий"}, status_code=403)
+    return _service(request).settings()
+
+
+@router.post("/orders/settings")
+async def settings_update(request: Request):
+    """Сохранить настройки консультанта (только заведующий).
+
+    Тело: {"system_prompt": str, "top_k": int, "temperature": float,
+    "history_messages": int}. Невалидные/вне диапазона значения игнорируются
+    (остаются прежние). Возвращает применённые настройки.
+    """
+    user = docapp.web.app.current_user(request)
+    if user is None:
+        return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
+    if user.role != HEAD:
+        return JSONResponse({"error": "Только заведующий"}, status_code=403)
+    body = await request.json()
+    return _service(request).update_settings(body)
+
+
 @router.post("/orders/documents/upload")
 async def upload_documents(request: Request, files: list[UploadFile] = File(...)):
     """Веб-загрузка приказов с авто-переиндексацией (F11). Только заведующий.
@@ -347,17 +417,38 @@ def reindex(request: Request):
 def questions(request: Request):
     """Аналитика для заведующего (F4): вопросы сотрудников и расход токенов.
 
-    Возвращает {"questions": [...]} — последние вопросы с датами и
-    {"totals": [...]} — сумму prompt/completion токенов по сотрудникам.
-    Только заведующий (HEAD).
+    Возвращает {"questions": [...]} — последние вопросы с датами, ФИО
+    сотрудника и цитатами; {"totals": [...]} — сумму prompt/completion
+    токенов по сотрудникам; {"by_day": [...]} — расход токенов по дням.
+    Необязательные query-параметры from/to ('YYYY-MM-DD') фильтруют период
+    (по created_at, включительно). Только заведующий (HEAD).
     """
     user = docapp.web.app.current_user(request)
     if user is None:
         return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
     if user.role != HEAD:
         return JSONResponse({"error": "Только заведующий"}, status_code=403)
+    params = request.query_params
+    from_date = params.get("from") or None
+    to_date = params.get("to") or None
     service = _service(request)
+    employees = request.app.state.employees
+
+    def with_names(rows: list[dict]) -> list[dict]:
+        for row in rows:
+            emp = employees.get_by_id(row["employee_id"])
+            row["employee_name"] = emp.full_name if emp else None
+        return rows
+
+    totals = with_names(service.token_totals(from_date, to_date))
+    questions_rows = service.recent_questions(
+        limit=200, from_date=from_date, to_date=to_date
+    )
+    for q in questions_rows:
+        emp = employees.get_by_id(q["employee_id"])
+        q["employee_name"] = emp.full_name if emp else None
     return {
-        "questions": service.recent_questions(limit=100),
-        "totals": service.token_totals(),
+        "questions": questions_rows,
+        "totals": totals,
+        "by_day": service.token_totals_by_day(from_date, to_date),
     }

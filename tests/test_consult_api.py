@@ -63,13 +63,30 @@ class FakeService:
             }
         ]
 
-    def recent_questions(self, limit=100):
-        return [{"employee_id": 1, "content": "Что?"}]
+    def recent_questions(self, limit=100, from_date=None, to_date=None):
+        return [{"employee_id": 1, "content": "Что?", "created_at": "2026-08-01T10:00:00", "conversation_id": "conv-1"}]
 
-    def token_totals(self):
+    def token_totals(self, from_date=None, to_date=None):
         return [
             {"employee_id": 1, "total_prompt": 10, "total_completion": 4, "count": 2}
         ]
+
+    def token_totals_by_day(self, from_date=None, to_date=None):
+        return [
+            {"day": "2026-08-01", "total_prompt": 10, "total_completion": 4, "count": 2}
+        ]
+
+    def settings(self):
+        return {
+            "system_prompt": "Промпт",
+            "top_k": 5,
+            "temperature": 0.1,
+            "history_messages": 6,
+            "defaults": {"top_k": 5, "temperature": 0.1, "history_messages": 6},
+        }
+
+    def update_settings(self, values):
+        return self.settings()
 
     async def ask(self, employee_id, conversation_id, question, history=None):
         self.calls.append(

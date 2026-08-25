@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -74,13 +73,10 @@ def build_index(
             blocks = _parse_file(path)
             if not blocks:
                 continue
-            doc_id = hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:12]
             head = "\n".join(b.text for b in blocks[:20])[:400]
             doc_number = doc_number_of(head)
             doc_title = doc_title_of(blocks)
-            chunks = chunk_blocks(
-                blocks, doc_id=doc_id, doc_number=doc_number, doc_title=doc_title
-            )
+            chunks = chunk_blocks(blocks, doc_number=doc_number, doc_title=doc_title)
             if not chunks:
                 continue
             vectors = client.embed([c.text for c in chunks])

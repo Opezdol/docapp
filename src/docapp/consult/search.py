@@ -114,6 +114,7 @@ class SearchIndex:
             results.append(
                 {
                     "chunk_id": chunk.id,
+                    "document_id": chunk.document_id,
                     "text": chunk.text,
                     "section": chunk.section,
                     "doc_number": doc_number,

@@ -130,7 +130,6 @@ def _migrate(args: argparse.Namespace) -> int:
     import sqlite3
     from pathlib import Path
 
-    from docapp.config import DATA_DIR, db_path
     from docapp.consult.config import load_consult_config
     from docapp.consult.store import SCHEMA_VERSION as CONSULT_VERSION
     from docapp.needs.config import load_needs_config

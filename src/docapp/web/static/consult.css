@@ -209,6 +209,56 @@
   line-height: 1.4;
 }
 
+/* Ссылка в цитате — открывает полный текст приказа */
+.consult-citations summary a {
+  color: #1565c0;
+  text-decoration: none;
+}
+.consult-citations summary a:hover { text-decoration: underline; }
+
+/* Кнопка удаления документа (как ссылка) */
+.doc-delete {
+  color: #b00020;
+  font-size: 0.9rem;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.doc-delete:hover { text-decoration: underline; }
+
+/* Фильтр периода в аналитике */
+.questions-filter {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+}
+.questions-filter input {
+  padding: 6px 8px;
+  border: 1px solid #c5cdd9;
+  border-radius: 6px;
+  font-family: inherit;
+}
+
+/* Настройки консультанта */
+.settings-field { display: block; margin-bottom: 10px; font-size: 0.9rem; }
+.settings-field textarea,
+.settings-field input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid #c5cdd9;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+.settings-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.settings-row .settings-field { flex: 1; min-width: 120px; }
+
 /* Загрузка документов заведующим (F11): форма и индикатор пересборки */
 #consult-upload-form {
   display: flex;
