@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Потребности — docapp{% endblock %}
 {% block content %}
-<link rel="stylesheet" href="/static/needs.css">
+<link rel="stylesheet" href="/static/needs.css?v={{ git_revision }}">
 
 <div id="needs-app" class="needs-app" data-role="{{ user.role }}" data-user-id="{{ user.id }}">
   <div class="card">
@@ -63,5 +63,5 @@
   {% endif %}
 </div>
 
-<script src="/static/needs.js"></script>
+<script src="/static/needs.js?v={{ git_revision }}"></script>
 {% endblock %}

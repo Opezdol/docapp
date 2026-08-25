@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Аналитика потребностей — docapp{% endblock %}
 {% block content %}
-<link rel="stylesheet" href="/static/needs.css">
+<link rel="stylesheet" href="/static/needs.css?v={{ git_revision }}">
 
 <div id="analytics-app" class="needs-app">
   <div class="card">
@@ -45,5 +45,5 @@
   <div class="card" id="analytics-result" hidden></div>
 </div>
 
-<script src="/static/needs.js"></script>
+<script src="/static/needs.js?v={{ git_revision }}"></script>
 {% endblock %}
