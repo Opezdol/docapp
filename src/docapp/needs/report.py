@@ -206,49 +206,57 @@ def html_table(agg: dict) -> str:
     Те же данные, что в .xlsx: растворы — таблицей с ИТОГО, остальные группы —
     секциями с подытогом. Все строковые значения проходят html.escape:
     данные приходят из каталога/БД и не должны ломать разметку.
+
+    Таблицы получают классы из needs.css (.report-table, .report-subtotal,
+    .report-total-row) — шапка и колонки выровнены, подытоги выделены.
+    Заголовок «База/Неделя/сформирован» сюда НЕ входит: его выводит
+    report.html (единый источник, без дублирования).
     """
-    lines = [
-        "<p><strong>База:</strong> "
-        + html.escape(agg["base"])
-        + " — "
-        + html.escape(agg["week_label"])
-        + " <em>(сформирован "
-        + html.escape(agg["generated_at"])
-        + ")</em></p>"
-    ]
+    lines: list[str] = []
     points = agg["points"]
 
     # Растворы: таблица препарат × точки + ИТОГО.
-    lines.append("<h3>Растворы</h3>")
-    lines.append("<table>")
-    lines.append(
-        "<tr><th>Раствор</th><th>Ед.</th>"
-        + "".join(f"<th>{html.escape(point)}</th>" for point in points)
-        + "<th>ИТОГО</th></tr>"
-    )
+    lines.append('<h3 class="report-group">Растворы</h3>')
+    lines.append('<div class="table-wrap">')
+    lines.append('<table class="needs-table report-table">')
+    lines.append("<thead><tr>")
+    lines.append('<th class="report-name">Раствор</th><th class="report-unit">Ед.</th>')
+    for point in points:
+        lines.append(f'<th class="report-num">{html.escape(point)}</th>')
+    lines.append('<th class="report-num">ИТОГО</th>')
+    lines.append("</tr></thead><tbody>")
     for item, row in agg["solutions"].items():
-        cells = [html.escape(item), html.escape(row.get("unit", ""))]
-        cells += [str(row.get(point, 0)) for point in points]
-        cells.append(str(row["ИТОГО"]))
-        lines.append("<tr>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>")
-    lines.append("</table>")
+        lines.append(
+            f'<tr><td class="report-name">{html.escape(item)}</td>'
+            f'<td class="report-unit">{html.escape(row.get("unit", ""))}</td>'
+        )
+        for point in points:
+            lines.append(f'<td class="report-num">{row.get(point, 0)}</td>')
+        lines.append(f'<td class="report-num report-total">{row["ИТОГО"]}</td></tr>')
+    lines.append("</tbody></table>")
+    lines.append("</div>")
 
     # Остальные группы: секции с подытогом.
     for group, items in agg["groups"].items():
-        lines.append(f"<h3>{html.escape(group or UNKNOWN_GROUP_LABEL)}</h3>")
-        lines.append("<table>")
-        lines.append("<tr><th>Препарат</th><th>Ед.</th><th>Кол-во</th></tr>")
+        lines.append(f'<h3 class="report-group">{html.escape(group or UNKNOWN_GROUP_LABEL)}</h3>')
+        lines.append('<div class="table-wrap">')
+        lines.append('<table class="needs-table report-table">')
+        lines.append('<thead><tr><th class="report-name">Препарат</th>'
+                     '<th class="report-unit">Ед.</th><th class="report-num">Кол-во</th></tr></thead>')
+        lines.append("<tbody>")
         total = 0
         for item, entry in items.items():
             total += entry["qty"]
             lines.append(
-                f"<tr><td>{html.escape(item)}</td>"
-                f"<td>{html.escape(entry['unit'])}</td>"
-                f"<td>{entry['qty']}</td></tr>"
+                f'<tr><td class="report-name">{html.escape(item)}</td>'
+                f'<td class="report-unit">{html.escape(entry["unit"])}</td>'
+                f'<td class="report-num">{entry["qty"]}</td></tr>'
             )
         lines.append(
-            f'<tr><td colspan="2">Итого по группе: {total}</td><td></td></tr>'
+            f'<tr class="report-subtotal"><td class="report-name" colspan="2">Итого по группе</td>'
+            f'<td class="report-num">{total}</td></tr>'
         )
-        lines.append("</table>")
+        lines.append("</tbody></table>")
+        lines.append("</div>")
 
     return "\n".join(lines)

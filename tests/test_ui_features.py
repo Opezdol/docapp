@@ -78,6 +78,13 @@ class TestNursePointGrid:
         assert 'id="needs-board"' in r.text
         assert 'id="needs-points"' not in r.text
         assert 'id="needs-point"' not in r.text
+        # Панели «Отчёт и аналитика» больше нет (кнопки ушли на доску под базы).
+        assert "Отчёт и аналитика" not in r.text
+        assert 'id="needs-report-links"' not in r.text
+        # Ссылка на аналитику — в шапке доски.
+        assert "Аналитика" in r.text
+        # Форма заявки у старшей скрыта (показывается кликом по точке доски).
+        assert "needs-form-hidden" in r.text
 
 
 class TestGitRevisionBadge:

@@ -185,6 +185,7 @@ class TestHtmlTable:
         assert "Атропин" in html
         assert "Физ 200/250" in html
         assert "Без группы" in html
-        assert "Итого по группе:" in html
+        assert "Итого по группе" in html
+        assert "report-table" in html  # стилизованная таблица просмотра
         assert "&lt;script&gt;" in html  # имя экранировано
         assert "<script>" not in html  # сырой тег не попал в разметку

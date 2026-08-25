@@ -221,6 +221,27 @@ table.needs-table {
 /* Подпись выбранной точки в заголовке формы заявки */
 .needs-current-point { font-weight: 600; color: #1565c0; }
 
+/* Шапка доски старшей: заголовок + ссылка на аналитику */
+.needs-board-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.needs-board-header h2 { margin: 0; }
+
+/* Форма заявки у старшей скрыта до клика по точке доски */
+.needs-form-hidden { display: none; }
+
+/* Кнопки отчёта под базой на доске */
+.needs-base-report {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 /* ── аналитика ─────────────────────────────────────────────────── */
 
 .needs-app h3.analytics-period { margin: 0 0 10px; color: #1565c0; }
@@ -238,6 +259,30 @@ table.needs-table {
 
 .needs-report h2 { margin: 0 0 4px; }
 .needs-report .report-meta { color: #666; font-size: 0.9rem; margin-bottom: 10px; }
+
+/* Таблицы отчёта для просмотра: шапка, выравнивание, подытоги */
+.report-group { margin: 14px 0 6px; font-size: 0.98rem; color: #1565c0; }
+
+.report-table th {
+  white-space: nowrap;
+  background: #f7f9fc;
+  border-bottom: 2px solid #c5cdd9;
+}
+.report-table .report-name { min-width: 140px; text-align: left; }
+.report-table .report-unit { text-align: center; width: 56px; }
+.report-table .report-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.report-table .report-total {
+  font-weight: 600;
+  background: #eef2f7;
+}
+
+.report-table tr.report-subtotal td {
+  font-weight: 600;
+  background: #f7f9fc;
+  border-top: 2px solid #c5cdd9;
+  border-bottom: none;
+}
 
 @media (min-width: 820px) {
   .needs-board-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }

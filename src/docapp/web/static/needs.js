@@ -71,7 +71,7 @@
   var submitBtn = document.getElementById('needs-submit');
   var statusEl = document.getElementById('needs-request-status');
   var boardEl = document.getElementById('needs-board');
-  var reportLinksEl = document.getElementById('needs-report-links');
+  var formCardEl = document.getElementById('needs-form-card');
 
   // Состояние страницы.
   var catalog = { bases: {}, groups: {}, allItems: [] }; // каталог из API
@@ -111,7 +111,6 @@
         });
       });
       renderPointGrid();
-      if (reportLinksEl) renderReportLinks();
     }).catch(function (err) {
       showBanner('Не удалось загрузить каталог: ' + err.message, 'error');
     });
@@ -145,17 +144,22 @@
     pointsEl.innerHTML = html;
   }
 
+  // Показать форму заявки (для полных ролей она скрыта до клика по точке доски).
+  function showFormCard() {
+    if (formCardEl) formCardEl.classList.remove('needs-form-hidden');
+  }
+
   // Выбрать точку: обновить состояние, заголовок заявки и подсветку сетки.
   function selectPoint(base, point) {
     currentBase = base;
     currentPoint = point;
+    showFormCard();
     if (currentPointEl) currentPointEl.textContent = point ? ('— ' + point) : '';
     if (pointsEl) renderPointGrid();
     searchInput.value = '';
     searchResults.hidden = true;
     searchResults.innerHTML = '';
     readOnly = !!closedBases[base];
-    if (reportLinksEl) renderReportLinks();
     return loadRequest();
   }
 
@@ -429,6 +433,12 @@
         });
         html += '</div>';
       }
+      // Кнопки отчёта — строго по этой базе за текущую неделю.
+      var q = 'base=' + encodeURIComponent(base) + '&week=' + encodeURIComponent(week);
+      html += '<div class="needs-base-report">' +
+        '<a class="btn" href="/needs/report.xlsx?' + q + '">Отчёт (xlsx)</a>' +
+        '<a class="btn" href="/needs/report?' + q + '">Отчёт (просмотр)</a>' +
+        '</div>';
       html += '<div class="needs-actions">';
       if (closed) {
         html += '<button type="button" class="btn needs-reopen" data-base="' + esc(base) + '">' +
@@ -517,22 +527,6 @@
     }).catch(function (err) {
       showBanner('Ошибка переоткрытия недели: ' + err.message, 'error');
     });
-  }
-
-  /* ── отчёт и аналитика (полные роли) ────────────────────────────── */
-
-  // Ссылки на отчёт (.xlsx и просмотр) и аналитику — с текущей базой
-  // и неделей; база — выбранной точки, иначе первая из каталога.
-  function renderReportLinks() {
-    if (!reportLinksEl) return;
-    var base = currentBase ||
-      Object.keys(catalog.bases)[0] ||
-      '';
-    var q = 'base=' + encodeURIComponent(base) + '&week=' + encodeURIComponent(week);
-    reportLinksEl.innerHTML =
-      '<a class="btn" href="/needs/report.xlsx?' + q + '">Отчёт (xlsx)</a>' +
-      '<a class="btn" href="/needs/report?' + q + '">Отчёт (просмотр)</a>' +
-      '<a class="btn" href="/needs/analytics">Аналитика</a>';
   }
 
   /* ── события формы ──────────────────────────────────────────────── */

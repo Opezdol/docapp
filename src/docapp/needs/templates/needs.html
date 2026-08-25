@@ -13,14 +13,11 @@
 
   {% if user.role in ('head_nurse', 'head') %}
   <div class="card">
-    <h2>Доска старшей</h2>
+    <div class="needs-board-header">
+      <h2>Доска старшей</h2>
+      <a class="btn needs-analytics-link" href="/needs/analytics">Аналитика</a>
+    </div>
     <div id="needs-board" class="needs-board"><p class="empty">Загрузка…</p></div>
-  </div>
-
-  <div class="card">
-    <h2>Отчёт и аналитика</h2>
-    <div class="needs-actions" id="needs-report-links"></div>
-    <p class="hint">Отчёт-форма для аптеки — по базе за неделю; аналитика — за период недель.</p>
   </div>
   {% endif %}
 
@@ -32,7 +29,7 @@
   {% endif %}
 
   {% if user.role != 'doctor' %}
-  <div class="card">
+  <div class="card needs-form-card{% if user.role in ('head_nurse', 'head') %} needs-form-hidden{% endif %}" id="needs-form-card">
     <h2>Заявка на неделю <span id="needs-current-point" class="needs-current-point"></span></h2>
     <form id="needs-form" autocomplete="off">
       <label class="field">
