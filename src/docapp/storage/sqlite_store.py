@@ -49,11 +49,29 @@ SCHEMA_VERSION = 2
 _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     # (1, "initial schema", [])  # базовая схема создаётся _SCHEMA выше
     # v2: убрать номер истории болезни (минимизация данных, 152-ФЗ).
-    # DROP COLUMN стирает и колонку, и старые значения.
+    # Пересборка таблицы (CREATE/INSERT/DROP/RENAME) вместо
+    # ALTER TABLE … DROP COLUMN: последний требует SQLite ≥ 3.35,
+    # а на shared-хостинге reg.ru стоит более старый. Пересборка
+    # стирает и колонку, и старые значения.
     (
         2,
         "drop history_number from anesthesia",
-        ["ALTER TABLE anesthesia DROP COLUMN history_number"],
+        [
+            "CREATE TABLE anesthesia_new ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "date TEXT NOT NULL, "
+            "patient_name TEXT NOT NULL, "
+            "doctor_id INTEGER NOT NULL REFERENCES employees(id), "
+            "nurse_id INTEGER NOT NULL REFERENCES employees(id), "
+            "created_at TEXT NOT NULL"
+            ")",
+            "INSERT INTO anesthesia_new "
+            "(id, date, patient_name, doctor_id, nurse_id, created_at) "
+            "SELECT id, date, patient_name, doctor_id, nurse_id, created_at "
+            "FROM anesthesia",
+            "DROP TABLE anesthesia",
+            "ALTER TABLE anesthesia_new RENAME TO anesthesia",
+        ],
     ),
 ]
 
