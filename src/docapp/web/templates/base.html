@@ -41,6 +41,9 @@
         {% if user.role != 'doctor' %}
         <a href="/needs" class="app-link {% if request.url.path.startswith('/needs') %}active{% endif %}">Потребности</a>
         {% endif %}
+        {% if user.role in ('doctor', 'head') %}
+        <a href="/duty" class="app-link {% if request.url.path.startswith('/duty') %}active{% endif %}">Дежурства</a>
+        {% endif %}
       </nav>
     {% endif %}
 

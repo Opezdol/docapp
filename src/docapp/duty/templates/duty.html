@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Дежурства — docapp{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/duty.css?v={{ git_revision }}">
+
+<div id="duty-app" class="duty-app" data-role="{{ user.role }}" data-user-id="{{ user.id }}" data-bases='{{ bases|tojson }}'>
+  <div class="card">
+    <h1>Дежурства</h1>
+    <p class="hint">Разлиновка дежурных бригад: операции за смену (16:00–08:00).</p>
+  </div>
+
+  <div id="duty-banner" class="duty-banner" hidden></div>
+
+  {% if user.role == 'doctor' %}
+  <div class="card">
+    <div id="duty-window-status" class="hint"></div>
+    <div id="duty-form" hidden>
+      <h2>Смена за <span id="duty-shift-date"></span></h2>
+      <label class="field">
+        <span>База</span>
+        <select id="duty-base">
+          {% for b in bases %}
+          <option value="{{ b }}">{{ b }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <div class="table-wrap">
+        <table class="duty-table">
+          <thead>
+            <tr><th>Операция</th><th>Начало</th><th>Конец</th><th></th></tr>
+          </thead>
+          <tbody id="duty-ops">
+            <tr><td colspan="4" class="empty">Добавьте операцию.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="duty-actions">
+        <button type="button" id="duty-add" class="btn">+ Операция</button>
+        <button type="button" id="duty-save" class="btn">Сохранить</button>
+        <button type="button" id="duty-send" class="primary">Отправить отчёт</button>
+      </div>
+      <p id="duty-status" class="hint"></p>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if user.role == 'head' %}
+  <div class="card">
+    <div class="duty-board-header">
+      <h2>Разлиновка за период</h2>
+      <label class="field-inline">с <input type="date" id="duty-from"></label>
+      <label class="field-inline">по <input type="date" id="duty-to"></label>
+      <a class="btn" id="duty-export" href="#">Скачать (.xlsx)</a>
+    </div>
+    <div id="duty-board"><p class="empty">Загрузка…</p></div>
+  </div>
+  {% endif %}
+</div>
+
+<script src="/static/duty.js?v={{ git_revision }}"></script>
+{% endblock %}

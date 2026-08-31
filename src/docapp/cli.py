@@ -122,14 +122,15 @@ def _set_buh_id(args: argparse.Namespace) -> int:
 def _migrate(args: argparse.Namespace) -> int:
     """Применить миграции схемы ко всем БД приложения.
 
-    Сейчас версии схем всех БД = 1 (базовая схема создаётся _SCHEMA при
-    подключении). Будущие изменения схемы добавляются как миграции в
-    *_store.py (список _MIGRATIONS); здесь они применяются принудительно,
-    чтобы не ждать первого запроса к приложению.
+    Базовая схема каждой БД создаётся _SCHEMA при подключении; будущие
+    изменения добавляются как миграции в *_store.py (список _MIGRATIONS).
+    Здесь они применяются принудительно, чтобы не ждать первого запроса.
     """
     import sqlite3
     from pathlib import Path
 
+    from docapp.duty.config import load_duty_config
+    from docapp.duty.store import SCHEMA_VERSION as DUTY_VERSION
     from docapp.needs.config import load_needs_config
     from docapp.needs.store import SCHEMA_VERSION as NEEDS_VERSION
     from docapp.storage.sqlite_store import SCHEMA_VERSION as MAIN_VERSION
@@ -140,6 +141,7 @@ def _migrate(args: argparse.Namespace) -> int:
         ("docapp", db_path(), MAIN_VERSION),
         ("wiki", load_wiki_config().db_path, WIKI_VERSION),
         ("needs", load_needs_config().db_path, NEEDS_VERSION),
+        ("duty", load_duty_config().db_path, DUTY_VERSION),
     ]
 
     all_ok = True
@@ -154,6 +156,8 @@ def _migrate(args: argparse.Namespace) -> int:
                 from docapp.storage.sqlite_store import _connect as _c
             elif name == "wiki":
                 from docapp.wiki.store import _connect as _c
+            elif name == "duty":
+                from docapp.duty.store import _connect as _c
             else:
                 from docapp.needs.store import _connect as _c
             conn = _c(path)
@@ -207,7 +211,7 @@ def main() -> int:
 
     p_migrate = sub.add_parser(
         "migrate",
-        help="Применить миграции схемы ко всем БД (docapp, wiki, needs)",
+        help="Применить миграции схемы ко всем БД (docapp, wiki, needs, duty)",
     )
     p_migrate.set_defaults(func=_migrate)
 

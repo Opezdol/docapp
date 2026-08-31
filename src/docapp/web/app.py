@@ -253,6 +253,26 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
     }
     app.include_router(needs_router)
 
+    # Подприложение «Дежурства»: разлиновка дежурных бригад за ночные смены.
+    # Инициализация дешёвая и без сети: создаётся своя SQLite-БД отчётов
+    # (как «Компендиум» и «Потребности»). Импорты локальные: duty.router
+    # импортирует docapp.web.app (current_user), поэтому на уровне модуля
+    # был бы круговой импорт.
+    from docapp.duty.config import load_duty_config
+    from docapp.duty.router import router as duty_router
+    from docapp.duty.service import DutyService
+    from docapp.duty.store import SqliteDutyStore
+
+    duty_config = load_duty_config()
+    duty_config.db_path.parent.mkdir(parents=True, exist_ok=True)
+    duty_store = SqliteDutyStore(duty_config.db_path)
+    app.state.duty = {
+        "config": duty_config,
+        "store": duty_store,
+        "service": DutyService(duty_store, duty_config),
+    }
+    app.include_router(duty_router)
+
     return app
 
 
