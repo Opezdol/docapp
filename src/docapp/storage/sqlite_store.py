@@ -29,7 +29,6 @@ CREATE TABLE IF NOT EXISTS anesthesia (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     date           TEXT NOT NULL,
     patient_name   TEXT NOT NULL,
-    history_number TEXT NOT NULL,
     doctor_id      INTEGER NOT NULL REFERENCES employees(id),
     nurse_id       INTEGER NOT NULL REFERENCES employees(id),
     created_at     TEXT NOT NULL
@@ -42,13 +41,20 @@ CREATE TABLE IF NOT EXISTS active_nurse (
 
 # Версия схемы основной БД (PRAGMA user_version). Увеличивайте на 1 при
 # каждом изменении схемы и добавляйте миграцию в _MIGRATIONS ниже.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Миграции: каждая — (версия_после_применения, название, список SQL).
 # Применяются по порядку, только если user_version < версии миграции.
 # ВАЖНО: не редактируйте уже опубликованные миграции — добавляйте новые.
 _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     # (1, "initial schema", [])  # базовая схема создаётся _SCHEMA выше
+    # v2: убрать номер истории болезни (минимизация данных, 152-ФЗ).
+    # DROP COLUMN стирает и колонку, и старые значения.
+    (
+        2,
+        "drop history_number from anesthesia",
+        ["ALTER TABLE anesthesia DROP COLUMN history_number"],
+    ),
 ]
 
 
@@ -183,12 +189,11 @@ class SqliteAnesthesiaStore(AnesthesiaStore):
 
     def add(self, anesthesia: Anesthesia) -> Anesthesia:
         cur = self._conn.execute(
-            "INSERT INTO anesthesia (date, patient_name, history_number, doctor_id, nurse_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO anesthesia (date, patient_name, doctor_id, nurse_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
             (
                 anesthesia.date.isoformat(),
                 anesthesia.patient_name,
-                anesthesia.history_number,
                 anesthesia.doctor_id,
                 anesthesia.nurse_id,
                 anesthesia.created_at.isoformat(),
@@ -219,12 +224,11 @@ class SqliteAnesthesiaStore(AnesthesiaStore):
 
     def update(self, anesthesia: Anesthesia) -> None:
         cur = self._conn.execute(
-            "UPDATE anesthesia SET date = ?, patient_name = ?, history_number = ?, "
+            "UPDATE anesthesia SET date = ?, patient_name = ?, "
             "doctor_id = ?, nurse_id = ?, created_at = ? WHERE id = ?",
             (
                 anesthesia.date.isoformat(),
                 anesthesia.patient_name,
-                anesthesia.history_number,
                 anesthesia.doctor_id,
                 anesthesia.nurse_id,
                 anesthesia.created_at.isoformat(),
@@ -250,7 +254,6 @@ class SqliteAnesthesiaStore(AnesthesiaStore):
             id=row["id"],
             date=date.fromisoformat(row["date"]),
             patient_name=row["patient_name"],
-            history_number=row["history_number"],
             doctor_id=row["doctor_id"],
             nurse_id=row["nurse_id"],
             created_at=created_at,

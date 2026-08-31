@@ -1,22 +1,17 @@
 """Сервис записей: бизнес-правила ввода и правки анестезий.
 
 Хранилище — тупой слой «запиши/удали», правила живут здесь:
-- сестра берётся из «активной сестры» врача (ADR-4);
-- дата не может быть в будущем;
+- дата подачи проставляется автоматически (не вводится врачом);
 - врач видит и правит только свои записи (ADR-5).
+
+Медсестра передаётся явно из формы (поле выбора в форме анестезии);
+«активная сестра» (ADR-4) осталась только как предвыбор селектора
+при следующем входе и здесь не участвует.
 """
 
 from datetime import date, datetime, timezone
 
 from docapp.domain.anesthesia import Anesthesia
-
-
-class ActiveNurseRequired(ValueError):
-    """Врач не выбрал медсестру."""
-
-
-class FutureDateError(ValueError):
-    """Дата не может быть в будущем."""
 
 
 class NotFoundError(ValueError):
@@ -30,28 +25,23 @@ class NotOwnedError(ValueError):
 class AnesthesiaService:
     """Бизнес-правила вокруг записей об анестезиях."""
 
-    def __init__(self, anesthesia_store, active_nurse_store) -> None:
+    def __init__(self, anesthesia_store) -> None:
         self._anesthesia = anesthesia_store
-        self._active_nurse = active_nurse_store
 
     def create(
         self,
         doctor_id: int,
-        procedure_date: date,
+        nurse_id: int,
         patient_name: str,
-        history_number: str,
     ) -> Anesthesia:
-        """Создать запись для врача с его активной сестрой."""
-        nurse_id = self._active_nurse.get_active_nurse(doctor_id)
-        if nurse_id is None:
-            raise ActiveNurseRequired("Сначала выберите медсестру")
-        self._check_date(procedure_date)
+        """Создать запись: дата подачи — сегодня, момент — created_at (UTC)."""
+        if not nurse_id:
+            raise ValueError("Сначала выберите медсестру")
 
         anesthesia = Anesthesia(
             id=None,
-            date=procedure_date,
+            date=date.today(),
             patient_name=patient_name,
-            history_number=history_number,
             doctor_id=doctor_id,
             nurse_id=nurse_id,
             created_at=datetime.now(timezone.utc),
@@ -70,20 +60,18 @@ class AnesthesiaService:
         self,
         doctor_id: int,
         anesthesia_id: int,
-        procedure_date: date,
         patient_name: str,
-        history_number: str,
         nurse_id: int,
     ) -> Anesthesia:
-        """Перезаписать свою запись. created_at и id не меняются."""
+        """Перезаписать свою запись. date и created_at не меняются."""
         existing = self._get_owned(doctor_id, anesthesia_id)
-        self._check_date(procedure_date)
+        if not nurse_id:
+            raise ValueError("Сначала выберите медсестру")
 
         updated = Anesthesia(
             id=existing.id,
-            date=procedure_date,
+            date=existing.date,
             patient_name=patient_name,
-            history_number=history_number,
             doctor_id=existing.doctor_id,
             nurse_id=nurse_id,
             created_at=existing.created_at,
@@ -95,13 +83,6 @@ class AnesthesiaService:
         """Удалить свою запись."""
         self._get_owned(doctor_id, anesthesia_id)
         self._anesthesia.delete(anesthesia_id)
-
-    # ---------- внутренние проверки ----------
-
-    @staticmethod
-    def _check_date(procedure_date: date) -> None:
-        if procedure_date > date.today():
-            raise FutureDateError("Дата не может быть в будущем")
 
     def _get_owned(self, doctor_id: int, anesthesia_id: int) -> Anesthesia:
         existing = self._anesthesia.get_by_id(anesthesia_id)

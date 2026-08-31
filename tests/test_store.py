@@ -34,7 +34,6 @@ def make_anesthesia(**overrides):
     base = dict(
         date=date(2026, 8, 4),
         patient_name="Петров Петр Петрович",
-        history_number="12345",
         doctor_id=1,
         nurse_id=2,
         created_at=datetime(2026, 8, 4, 10, 30, tzinfo=timezone.utc),
@@ -131,7 +130,6 @@ class TestAnesthesiaStore:
         an = make_anesthesia(
             date=date(2026, 7, 15),
             patient_name="Васильев Василий",
-            history_number="9999",
             doctor_id=doctor_id,
             nurse_id=nurse_id,
             created_at=datetime(2026, 7, 15, 8, 0, tzinfo=timezone.utc),
@@ -185,7 +183,6 @@ class TestAnesthesiaStore:
             id=saved.id,
             date=date(2026, 8, 5),
             patient_name="Новый Пациент",
-            history_number="777",
             doctor_id=doctor_id,
             nurse_id=nurse_id,
             created_at=saved.created_at,

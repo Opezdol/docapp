@@ -5,14 +5,8 @@
 <div class="card narrow">
   <h1>Правка записи</h1>
   <form method="post" action="/anesthesia/{{ record.id }}/update" class="stack">
-    <label>Дата
-      <input type="date" name="procedure_date" required value="{{ record.date }}">
-    </label>
     <label>Пациент (ФИО полностью)
       <input type="text" name="patient_name" required value="{{ record.patient_name }}">
-    </label>
-    <label>Номер истории болезни
-      <input type="text" name="history_number" required value="{{ record.history_number }}">
     </label>
     <label>Медсестра
       <select name="nurse_id" required>

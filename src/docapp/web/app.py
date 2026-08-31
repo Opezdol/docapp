@@ -2,12 +2,11 @@
 
 import logging
 import threading
-from datetime import date
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -48,7 +47,7 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
     app.state.anesthesia = anesthesia
     app.state.active_nurse = active_nurse
     app.state.authenticator = Authenticator(employees)
-    app.state.service = AnesthesiaService(anesthesia, active_nurse)
+    app.state.service = AnesthesiaService(anesthesia)
 
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
@@ -125,34 +124,29 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
                 "active_nurse_id": active_nurse_id,
                 "records": records_with_nurses,
                 "flash": flash,
-                "today": date.today(),
             },
         )
 
     @app.post("/nurse")
     def choose_nurse(request: Request, user: Annotated[Employee, Depends(current_user)], nurse_id: Annotated[int, Form()]):
         if user is None:
-            return RedirectResponse("/login", status_code=303)
+            return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
         if user.role in (NURSE, HEAD_NURSE):
-            request.session["flash"] = "Выбор сестры доступен только врачам"
-            return RedirectResponse("/", status_code=303)
+            return JSONResponse({"error": "Выбор сестры доступен только врачам"}, status_code=403)
         request.app.state.active_nurse.set_active_nurse(user.id, nurse_id)
-        return RedirectResponse("/", status_code=303)
+        return {"ok": True, "nurse_id": nurse_id}
 
     @app.post("/anesthesia")
     def add_anesthesia(
         request: Request,
         user: Annotated[Employee, Depends(current_user)],
-        procedure_date: Annotated[date, Form()],
         patient_name: Annotated[str, Form()],
-        history_number: Annotated[str, Form()],
+        nurse_id: Annotated[int, Form()] = 0,
     ):
         if user is None:
             return RedirectResponse("/login", status_code=303)
         try:
-            request.app.state.service.create(
-                user.id, procedure_date, patient_name.strip(), history_number.strip()
-            )
+            request.app.state.service.create(user.id, nurse_id, patient_name.strip())
         except ValueError as exc:
             request.session["flash"] = str(exc)
         return RedirectResponse("/", status_code=303)
@@ -178,10 +172,8 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
         request: Request,
         anesthesia_id: int,
         user: Annotated[Employee, Depends(current_user)],
-        procedure_date: Annotated[date, Form()],
         patient_name: Annotated[str, Form()],
-        history_number: Annotated[str, Form()],
-        nurse_id: Annotated[int, Form()],
+        nurse_id: Annotated[int, Form()] = 0,
     ):
         if user is None:
             return RedirectResponse("/login", status_code=303)
@@ -189,9 +181,7 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
             request.app.state.service.update(
                 user.id,
                 anesthesia_id,
-                procedure_date,
                 patient_name.strip(),
-                history_number.strip(),
                 nurse_id,
             )
         except ValueError as exc:

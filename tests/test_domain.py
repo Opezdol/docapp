@@ -18,7 +18,6 @@ def make_anesthesia(**overrides):
     base = dict(
         date=date(2026, 8, 4),
         patient_name="Петров Петр Петрович",
-        history_number="12345",
         doctor_id=1,
         nurse_id=2,
         created_at=datetime(2026, 8, 4, 10, 30, tzinfo=timezone.utc),
@@ -117,7 +116,6 @@ class TestAnesthesiaValid:
     def test_minimal(self):
         an = make_anesthesia()
         assert an.patient_name == "Петров Петр Петрович"
-        assert an.history_number == "12345"
         assert an.doctor_id == 1
         assert an.nurse_id == 2
         assert an.id is None
@@ -133,8 +131,6 @@ class TestAnesthesiaInvalid:
         [
             {"patient_name": ""},
             {"patient_name": "   "},
-            {"history_number": ""},
-            {"history_number": "  "},
         ],
     )
     def test_empty_text_fields(self, kwargs):

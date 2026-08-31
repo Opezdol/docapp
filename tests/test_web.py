@@ -123,8 +123,8 @@ class TestNurseSelection:
     def test_choose_nurse(self, client):
         _login(client)
         r = client.post("/nurse", data={"nurse_id": 2})
-        assert r.status_code == 303
-        assert r.headers["location"] == "/"
+        assert r.status_code == 200
+        assert r.json() == {"ok": True, "nurse_id": 2}
 
     def test_active_nurse_shown_on_index(self, client):
         _login(client)
@@ -134,41 +134,28 @@ class TestNurseSelection:
 
 
 class TestAnesthesiaFlow:
-    def _add(self, client, **overrides):
-        data = {
-            "procedure_date": "2026-08-04",
-            "patient_name": "Петров Петр Петрович",
-            "history_number": "12345",
-        }
-        data.update(overrides)
+    def _add(self, client, patient_name="Петров Петр Петрович", nurse_id: int | None = 2):
+        data: dict = {"patient_name": patient_name}
+        if nurse_id is not None:
+            data["nurse_id"] = nurse_id
         return client.post("/anesthesia", data=data)
 
     def test_add_without_nurse_shows_error(self, client):
         _login(client)
-        r = self._add(client)
+        r = self._add(client, nurse_id=None)
         assert r.status_code == 303
         page = client.get("/")
         assert "Сначала выберите медсестру" in page.text
 
     def test_add_with_nurse(self, client):
         _login(client)
-        client.post("/nurse", data={"nurse_id": 2})
         r = self._add(client)
         assert r.status_code == 303
         page = client.get("/")
         assert "Петров Петр Петрович" in page.text
-        assert "и/б 12345" in page.text
-
-    def test_add_future_date_shows_error(self, client):
-        _login(client)
-        client.post("/nurse", data={"nurse_id": 2})
-        self._add(client, procedure_date="2099-01-01")
-        page = client.get("/")
-        assert "Дата не может быть в будущем" in page.text
 
     def test_edit_own_record(self, client):
         _login(client)
-        client.post("/nurse", data={"nurse_id": 2})
         self._add(client)
         # найти id записи через страницу правки нельзя напрямую —
         # берём первую ссылку «Изменить» со страницы
@@ -177,9 +164,7 @@ class TestAnesthesiaFlow:
         r = client.post(
             "/anesthesia/1/update",
             data={
-                "procedure_date": "2026-08-04",
                 "patient_name": "Новый Пациент",
-                "history_number": "777",
                 "nurse_id": 2,
             },
         )
@@ -190,16 +175,13 @@ class TestAnesthesiaFlow:
 
     def test_edit_foreign_record_forbidden(self, client):
         _login(client)
-        client.post("/nurse", data={"nurse_id": 2})
         self._add(client)
         # второй врач (заведующий) не может править чужую запись
         _login(client, login="petrov", password="pass123")
         r = client.post(
             "/anesthesia/1/update",
             data={
-                "procedure_date": "2026-08-04",
                 "patient_name": "Взлом",
-                "history_number": "1",
                 "nurse_id": 2,
             },
         )
@@ -209,7 +191,6 @@ class TestAnesthesiaFlow:
 
     def test_delete_own_record(self, client):
         _login(client)
-        client.post("/nurse", data={"nurse_id": 2})
         self._add(client)
         r = client.post("/anesthesia/1/delete")
         assert r.status_code == 303
@@ -218,7 +199,6 @@ class TestAnesthesiaFlow:
 
     def test_delete_foreign_record_forbidden(self, client):
         _login(client)
-        client.post("/nurse", data={"nurse_id": 2})
         self._add(client)
         _login(client, login="petrov", password="pass123")
         r = client.post("/anesthesia/1/delete")
@@ -230,16 +210,9 @@ class TestAnesthesiaFlow:
 class TestNurseView:
     """Медсестра входит и видит свои анестезии — только просмотр (ADR-5)."""
 
-    def _add_as_doctor(self, client, nurse_id=2, **overrides):
+    def _add_as_doctor(self, client, nurse_id=2, patient_name="Петров Петр Петрович"):
         _login(client)
-        client.post("/nurse", data={"nurse_id": nurse_id})
-        data = {
-            "procedure_date": "2026-08-04",
-            "patient_name": "Петров Петр Петрович",
-            "history_number": "12345",
-        }
-        data.update(overrides)
-        return client.post("/anesthesia", data=data)
+        return client.post("/anesthesia", data={"patient_name": patient_name, "nurse_id": nurse_id})
 
     def test_nurse_can_login(self, client):
         r = _login(client, login="anna", password="anna_pass")
@@ -267,7 +240,6 @@ class TestNurseView:
         _login(client, login="anna", password="anna_pass")
         page = client.get("/")
         assert "Новая анестезия" not in page.text
-        assert "Моя медсестра" not in page.text
         assert "Изменить" not in page.text
         assert "Удалить" not in page.text
 
@@ -277,9 +249,7 @@ class TestNurseView:
         r = client.post(
             "/anesthesia/1/update",
             data={
-                "procedure_date": "2026-08-04",
                 "patient_name": "Взлом",
-                "history_number": "1",
                 "nurse_id": 2,
             },
         )
@@ -298,9 +268,8 @@ class TestNurseView:
     def test_nurse_cannot_choose_nurse(self, client):
         _login(client, login="anna", password="anna_pass")
         r = client.post("/nurse", data={"nurse_id": 2})
-        assert r.status_code == 303
-        page = client.get("/")
-        assert "Выбор сестры доступен только врачам" in page.text
+        assert r.status_code == 403
+        assert "Выбор сестры доступен только врачам" in r.json()["error"]
 
 
 class TestMyData:

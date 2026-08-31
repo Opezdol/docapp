@@ -159,6 +159,8 @@ button.linklike {
 .record-patient { font-weight: 600; }
 .record-history, .record-nurse { font-size: 0.85rem; color: #555; }
 
+.nurse-status { font-size: 0.8rem; color: #2e7d32; margin-left: 6px; }
+
 .record-actions { display: flex; gap: 8px; align-items: center; }
 
 .btn {

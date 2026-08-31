@@ -5,8 +5,9 @@
 <div class="card">
   <h1>Здравствуйте, {{ user.short_name }}</h1>
 
-  <form method="post" action="/nurse" class="stack">
-    <label>Моя медсестра
+  <h2>Новая анестезия</h2>
+  <form method="post" action="/anesthesia" class="stack">
+    <label>Медсестра <span id="nurse-status" class="nurse-status" role="status"></span>
       <select name="nurse_id" required>
         <option value="" disabled {% if not active_nurse_id %}selected{% endif %}>— выберите сестру —</option>
         {% for nurse in nurses %}
@@ -16,21 +17,8 @@
         {% endfor %}
       </select>
     </label>
-    <button type="submit" class="primary">Выбрать сестру</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2>Новая анестезия</h2>
-  <form method="post" action="/anesthesia" class="stack">
-    <label>Дата
-      <input type="date" name="procedure_date" required value="{{ today }}">
-    </label>
     <label>Пациент (ФИО полностью)
       <input type="text" name="patient_name" required placeholder="Иванов Иван Иванович">
-    </label>
-    <label>Номер истории болезни
-      <input type="text" name="history_number" required placeholder="12345">
     </label>
     <button type="submit" class="primary">Добавить</button>
   </form>
@@ -45,7 +33,6 @@
       <div class="record-main">
         <span class="record-date">{{ record.date }}</span>
         <span class="record-patient">{{ record.patient_name }}</span>
-        <span class="record-history">и/б {{ record.history_number }}</span>
         {% if nurse %}
         <span class="record-nurse">{{ nurse.short_name }}</span>
         {% endif %}
@@ -64,5 +51,31 @@
   <p class="empty">Пока нет записей.</p>
   {% endif %}
 </div>
+
+<script>
+  // Выбор медсестры сохраняется сразу по клику в поле (без кнопки).
+  document.addEventListener('DOMContentLoaded', function () {
+    var sel = document.querySelector('select[name="nurse_id"]');
+    var status = document.getElementById('nurse-status');
+    if (!sel) return;
+    sel.addEventListener('change', function () {
+      var nurseId = sel.value;
+      if (!nurseId) return;
+      if (status) status.textContent = '…';
+      fetch('/nurse', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({nurse_id: nurseId}),
+      }).then(function (r) {
+        return r.json().then(function (data) { return {ok: r.ok, data: data}; });
+      }).then(function (res) {
+        if (status) status.textContent = res.ok ? 'сохранено' : (res.data.error || 'ошибка');
+        if (status) setTimeout(function () { status.textContent = ''; }, 2500);
+      }).catch(function () {
+        if (status) status.textContent = 'ошибка';
+      });
+    });
+  });
+</script>
 
 {% endblock %}
