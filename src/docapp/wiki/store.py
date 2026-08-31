@@ -1,0 +1,448 @@
+"""Хранилище подприложения «Компендиум» на SQLite.
+
+Собственная база (data/wiki/wiki.db), основную docapp.db не трогаем.
+Стиль — как в docapp/storage/sqlite_store.py и docapp/needs/store.py:
+row_factory = sqlite3.Row, check_same_thread=False, PRAGMA foreign_keys=ON,
+journal_mode=WAL. Таймстемпы — ISO-строки datetime.now().isoformat().
+
+Модель данных:
+- sources      — источник правды (загруженный PDF), неизменяем после OCR;
+- articles     — курируемая статья (.md-тезисы), статус draft/published/archived;
+- revisions    — версии статьи (версионирование + откат + публикация);
+- article_links — связь статья -> источник (многие-ко-многим, с якорем);
+- messages     — история QA + учёт токенов;
+- settings     — настройки (системный промпт, top_k, температура, история).
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from datetime import date, timedelta
+from pathlib import Path
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sources (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename    TEXT NOT NULL,
+    doc_number  TEXT NOT NULL DEFAULT '',
+    title       TEXT NOT NULL DEFAULT '',
+    added_at    TEXT NOT NULL,
+    uploaded_by INTEGER NOT NULL,
+    page_count  INTEGER NOT NULL DEFAULT 0,
+    ocr_status  TEXT NOT NULL DEFAULT 'pending',  -- pending/processing/done/error
+    ocr_error   TEXT NOT NULL DEFAULT '',
+    ocr_text    TEXT NOT NULL DEFAULT '',          -- распознанный текст
+    tables_json TEXT NOT NULL DEFAULT '[]',        -- таблицы (JSON: list[list[list[str]]])
+    source      BLOB,                              -- оригинальный PDF
+    source_name TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS articles (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    title         TEXT NOT NULL DEFAULT '',
+    status        TEXT NOT NULL DEFAULT 'draft',   -- draft/published/archived
+    published_revision_id INTEGER,                 -- «живая» ревизия для ответов
+    created_by    INTEGER NOT NULL,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS revisions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id  INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+    version     INTEGER NOT NULL,
+    body_md     TEXT NOT NULL DEFAULT '',          -- .md-текст статьи
+    rendered    TEXT NOT NULL DEFAULT '',          -- обычный текст (для поиска)
+    edited_by   INTEGER NOT NULL,
+    created_at  TEXT NOT NULL,
+    change_note TEXT NOT NULL DEFAULT '',
+    is_current  INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rev_article_ver ON revisions(article_id, version);
+CREATE INDEX IF NOT EXISTS idx_rev_article ON revisions(article_id);
+CREATE TABLE IF NOT EXISTS article_links (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+    source_id  INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    anchor     TEXT NOT NULL DEFAULT ''            -- «стр. 3, п. 2.1»
+);
+CREATE INDEX IF NOT EXISTS idx_links_article ON article_links(article_id);
+CREATE INDEX IF NOT EXISTS idx_links_source ON article_links(source_id);
+CREATE TABLE IF NOT EXISTS messages (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id       INTEGER NOT NULL,
+    conversation_id   TEXT NOT NULL,
+    role              TEXT NOT NULL,               -- 'user' | 'assistant'
+    content           TEXT NOT NULL,
+    citations         TEXT NOT NULL DEFAULT '[]',  -- JSON
+    prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    created_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_msg_emp  ON messages(employee_id, created_at);
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
+"""
+
+# Версия схемы БД «Компендиума».
+SCHEMA_VERSION = 1
+
+_MIGRATIONS: list[tuple[int, str, list[str]]] = [
+    # (1, "initial schema", [])
+]
+
+
+def _connect(db_path: str | Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.executescript(_SCHEMA)
+    _apply_migrations(conn)
+    conn.commit()
+    return conn
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version == 0:
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.commit()
+        return
+    for target, name, statements in _MIGRATIONS:
+        if version < target:
+            for stmt in statements:
+                conn.execute(stmt)
+            conn.execute(f"PRAGMA user_version = {target}")
+            conn.commit()
+            version = target
+
+
+def _next_day(day: str) -> str:
+    """Следующий день после 'YYYY-MM-DD' — строгий верх диапазона 'по день'."""
+    return (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+
+
+class SqliteWikiStore:
+    """Источники, статьи, ревизии, связи, история QA и настройки в SQLite."""
+
+    def __init__(self, db_path: str | Path) -> None:
+        self._conn = _connect(db_path)
+
+    def close(self) -> None:
+        self._conn.close()
+
+    def checkpoint(self) -> None:
+        self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    def __enter__(self) -> "SqliteWikiStore":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    # ── источники ─────────────────────────────────────────────────────
+
+    def add_source(
+        self,
+        filename: str,
+        doc_number: str,
+        title: str,
+        added_at: str,
+        uploaded_by: int,
+        source: bytes | None = None,
+        source_name: str = "",
+    ) -> int:
+        cur = self._conn.execute(
+            "INSERT INTO sources (filename, doc_number, title, added_at, "
+            "uploaded_by, source, source_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (filename, doc_number, title, added_at, uploaded_by, source, source_name),
+        )
+        self._conn.commit()
+        assert cur.lastrowid is not None
+        return cur.lastrowid
+
+    def get_source(self, source_id: int) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM sources WHERE id = ?", (source_id,)
+        ).fetchone()
+
+    def list_sources(self) -> list[sqlite3.Row]:
+        return self._conn.execute(
+            "SELECT * FROM sources ORDER BY added_at DESC, id DESC"
+        ).fetchall()
+
+    def set_ocr_result(
+        self, source_id: int, ocr_text: str, tables_json: str, page_count: int
+    ) -> None:
+        self._conn.execute(
+            "UPDATE sources SET ocr_text = ?, tables_json = ?, page_count = ?, "
+            "ocr_status = 'done', ocr_error = '' WHERE id = ?",
+            (ocr_text, tables_json, page_count, source_id),
+        )
+        self._conn.commit()
+
+    def set_ocr_status(self, source_id: int, status: str, error: str = "") -> None:
+        self._conn.execute(
+            "UPDATE sources SET ocr_status = ?, ocr_error = ? WHERE id = ?",
+            (status, error, source_id),
+        )
+        self._conn.commit()
+
+    def delete_source(self, source_id: int) -> None:
+        self._conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+        self._conn.commit()
+
+    # ── статьи ────────────────────────────────────────────────────────
+
+    def add_article(self, title: str, created_by: int, created_at: str) -> int:
+        cur = self._conn.execute(
+            "INSERT INTO articles (title, created_by, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            (title, created_by, created_at, created_at),
+        )
+        self._conn.commit()
+        assert cur.lastrowid is not None
+        return cur.lastrowid
+
+    def get_article(self, article_id: int) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM articles WHERE id = ?", (article_id,)
+        ).fetchone()
+
+    def list_articles(self, include_archived: bool = False) -> list[sqlite3.Row]:
+        sql = "SELECT * FROM articles"
+        if not include_archived:
+            sql += " WHERE status != 'archived'"
+        sql += " ORDER BY updated_at DESC, id DESC"
+        return self._conn.execute(sql).fetchall()
+
+    def list_published_articles(self) -> list[sqlite3.Row]:
+        return self._conn.execute(
+            "SELECT * FROM articles WHERE status = 'published' "
+            "AND published_revision_id IS NOT NULL ORDER BY updated_at DESC, id DESC"
+        ).fetchall()
+
+    def set_title(self, article_id: int, title: str, updated_at: str) -> None:
+        self._conn.execute(
+            "UPDATE articles SET title = ?, updated_at = ? WHERE id = ?",
+            (title, updated_at, article_id),
+        )
+        self._conn.commit()
+
+    def set_article_status(self, article_id: int, status: str, updated_at: str) -> None:
+        self._conn.execute(
+            "UPDATE articles SET status = ?, updated_at = ? WHERE id = ?",
+            (status, updated_at, article_id),
+        )
+        self._conn.commit()
+
+    def set_published_revision(self, article_id: int, revision_id: int, updated_at: str) -> None:
+        self._conn.execute(
+            "UPDATE articles SET published_revision_id = ?, status = 'published', "
+            "updated_at = ? WHERE id = ?",
+            (revision_id, updated_at, article_id),
+        )
+        self._conn.commit()
+
+    def delete_article(self, article_id: int) -> None:
+        self._conn.execute("DELETE FROM articles WHERE id = ?", (article_id,))
+        self._conn.commit()
+
+    # ── ревизии ───────────────────────────────────────────────────────
+
+    def add_revision(
+        self,
+        article_id: int,
+        version: int,
+        body_md: str,
+        rendered: str,
+        edited_by: int,
+        created_at: str,
+        change_note: str = "",
+    ) -> int:
+        # Новая ревизия становится текущей (is_current=1), прочие сбрасываются.
+        self._conn.execute(
+            "UPDATE revisions SET is_current = 0 WHERE article_id = ?", (article_id,)
+        )
+        cur = self._conn.execute(
+            "INSERT INTO revisions (article_id, version, body_md, rendered, "
+            "edited_by, created_at, change_note, is_current) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+            (article_id, version, body_md, rendered, edited_by, created_at, change_note),
+        )
+        self._conn.commit()
+        assert cur.lastrowid is not None
+        return cur.lastrowid
+
+    def get_revision(self, revision_id: int) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM revisions WHERE id = ?", (revision_id,)
+        ).fetchone()
+
+    def current_revision(self, article_id: int) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM revisions WHERE article_id = ? AND is_current = 1",
+            (article_id,),
+        ).fetchone()
+
+    def published_revision(self, article_id: int) -> sqlite3.Row | None:
+        row = self._conn.execute(
+            "SELECT published_revision_id FROM articles WHERE id = ?", (article_id,)
+        ).fetchone()
+        if row is None or row["published_revision_id"] is None:
+            return None
+        return self.get_revision(row["published_revision_id"])
+
+    def list_revisions(self, article_id: int) -> list[sqlite3.Row]:
+        return self._conn.execute(
+            "SELECT * FROM revisions WHERE article_id = ? ORDER BY version DESC",
+            (article_id,),
+        ).fetchall()
+
+    def next_version(self, article_id: int) -> int:
+        row = self._conn.execute(
+            "SELECT COALESCE(MAX(version), 0) AS m FROM revisions WHERE article_id = ?",
+            (article_id,),
+        ).fetchone()
+        return row["m"] + 1
+
+    # ── связи статья -> источник ──────────────────────────────────────
+
+    def add_link(self, article_id: int, source_id: int, anchor: str = "") -> None:
+        self._conn.execute(
+            "INSERT INTO article_links (article_id, source_id, anchor) VALUES (?, ?, ?)",
+            (article_id, source_id, anchor),
+        )
+        self._conn.commit()
+
+    def clear_links(self, article_id: int) -> None:
+        self._conn.execute(
+            "DELETE FROM article_links WHERE article_id = ?", (article_id,)
+        )
+        self._conn.commit()
+
+    def list_links(self, article_id: int) -> list[sqlite3.Row]:
+        return self._conn.execute(
+            "SELECT l.*, s.filename, s.doc_number, s.title AS source_title "
+            "FROM article_links l JOIN sources s ON s.id = l.source_id "
+            "WHERE l.article_id = ? ORDER BY l.id",
+            (article_id,),
+        ).fetchall()
+
+    def articles_for_source(self, source_id: int) -> list[sqlite3.Row]:
+        return self._conn.execute(
+            "SELECT a.* FROM article_links l JOIN articles a ON a.id = l.article_id "
+            "WHERE l.source_id = ? ORDER BY a.updated_at DESC",
+            (source_id,),
+        ).fetchall()
+
+    # ── сообщения и аналитика ─────────────────────────────────────────
+
+    def add_message(
+        self,
+        employee_id: int,
+        conversation_id: str,
+        role: str,
+        content: str,
+        citations_json: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        created_at: str,
+    ) -> int:
+        cur = self._conn.execute(
+            "INSERT INTO messages (employee_id, conversation_id, role, content, "
+            "citations, prompt_tokens, completion_tokens, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                employee_id,
+                conversation_id,
+                role,
+                content,
+                citations_json,
+                prompt_tokens,
+                completion_tokens,
+                created_at,
+            ),
+        )
+        self._conn.commit()
+        assert cur.lastrowid is not None
+        return cur.lastrowid
+
+    def list_messages(self, conversation_id: str) -> list[sqlite3.Row]:
+        return self._conn.execute(
+            "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at, id",
+            (conversation_id,),
+        ).fetchall()
+
+    def list_conversations(self, employee_id: int) -> list[sqlite3.Row]:
+        return self._conn.execute(
+            "SELECT m.conversation_id, m.content, m.created_at "
+            "FROM messages m "
+            "JOIN (SELECT conversation_id, MAX(id) AS max_id FROM messages "
+            "      WHERE employee_id = ? GROUP BY conversation_id) last "
+            "  ON m.id = last.max_id "
+            "ORDER BY m.created_at DESC, m.id DESC",
+            (employee_id,),
+        ).fetchall()
+
+    def token_totals(
+        self, from_date: str | None = None, to_date: str | None = None
+    ) -> list[sqlite3.Row]:
+        sql = (
+            "SELECT employee_id, SUM(prompt_tokens) AS total_prompt, "
+            "SUM(completion_tokens) AS total_completion, COUNT(*) AS count "
+            "FROM messages"
+        )
+        params: list[str] = []
+        conditions: list[str] = []
+        if from_date:
+            conditions.append("created_at >= ?")
+            params.append(from_date)
+        if to_date:
+            conditions.append("created_at < ?")
+            params.append(_next_day(to_date))
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        sql += " GROUP BY employee_id ORDER BY employee_id"
+        return self._conn.execute(sql, params).fetchall()
+
+    def token_totals_by_day(
+        self, from_date: str | None = None, to_date: str | None = None
+    ) -> list[sqlite3.Row]:
+        sql = (
+            "SELECT substr(created_at, 1, 10) AS day, "
+            "SUM(prompt_tokens) AS total_prompt, "
+            "SUM(completion_tokens) AS total_completion, COUNT(*) AS count "
+            "FROM messages"
+        )
+        params: list[str] = []
+        conditions: list[str] = []
+        if from_date:
+            conditions.append("created_at >= ?")
+            params.append(from_date)
+        if to_date:
+            conditions.append("created_at < ?")
+            params.append(_next_day(to_date))
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        sql += " GROUP BY day ORDER BY day"
+        return self._conn.execute(sql, params).fetchall()
+
+    # ── настройки ─────────────────────────────────────────────────────
+
+    def get_setting(self, key: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        self._conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        self._conn.commit()

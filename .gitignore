@@ -15,7 +15,7 @@ venv/
 *.sqlite
 *.sqlite3
 backups/
-data/consult/
+data/wiki/
 
 # Окружение и секреты
 .env

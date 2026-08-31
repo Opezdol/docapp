@@ -20,16 +20,16 @@ cd "$(dirname "$0")/.."
 . scripts/lib-ssh.sh
 
 # По имени бэкапа определяем, куда класть: docapp-*.db→data/docapp.db,
-# consult-*.db→data/consult/consult.db, needs-*.db→data/needs/needs.db,
+# wiki-*.db→data/wiki/wiki.db, needs-*.db→data/needs/needs.db,
 # catalog-*.yaml→data/needs/catalog.yaml
 case "$BACKUP_NAME" in
   docapp-*.db)   DEST="data/docapp.db" ;;
-  consult-*.db)  DEST="data/consult/consult.db" ;;
+  wiki-*.db)     DEST="data/wiki/wiki.db" ;;
   needs-*.db)    DEST="data/needs/needs.db" ;;
   catalog-*.yaml) DEST="data/needs/catalog.yaml" ;;
   *)
     echo "Ошибка: не могу определить тип по имени «$BACKUP_NAME»" >&2
-    echo "Ожидается: docapp-*.db | consult-*.db | needs-*.db | catalog-*.yaml" >&2
+    echo "Ожидается: docapp-*.db | wiki-*.db | needs-*.db | catalog-*.yaml" >&2
     exit 1
     ;;
 esac

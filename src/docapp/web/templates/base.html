@@ -36,7 +36,7 @@
       <nav class="apps">
         <a href="/" class="app-link {% if request.url.path == '/' or request.url.path.startswith('/anesthesia') %}active{% endif %}">Анестезии</a>
         {% if user.role != 'nurse' %}
-        <a href="/orders" class="app-link {% if request.url.path == '/orders' %}active{% endif %}">Приказы</a>
+        <a href="/compendium" class="app-link {% if request.url.path == '/compendium' %}active{% endif %}">Компендиум</a>
         {% endif %}
         {% if user.role != 'doctor' %}
         <a href="/needs" class="app-link {% if request.url.path.startswith('/needs') %}active{% endif %}">Потребности</a>

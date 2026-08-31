@@ -16,7 +16,7 @@ import sys
 
 from docapp.auth.passwords import hash_password
 from docapp.config import db_path
-from docapp.domain.employee import DOCTOR, HEAD, HEAD_NURSE, NURSE, Employee
+from docapp.domain.employee import DOCTOR, EDITOR, HEAD, HEAD_NURSE, NURSE, Employee
 from docapp.storage.sqlite_store import SqliteEmployeeStore
 
 _CHARS = string.ascii_letters + string.digits
@@ -30,7 +30,7 @@ def _random_password(length: int = 10) -> str:
 def _create_user(args: argparse.Namespace) -> int:
     """Создать врача или заведующего (с логином и паролем)."""
     if not args.login:
-        print("Ошибка: для роли doctor/head/head_nurse обязателен --login", file=sys.stderr)
+        print("Ошибка: для роли doctor/head/head_nurse/editor обязателен --login", file=sys.stderr)
         return 2
 
     password = args.password or _random_password()
@@ -130,15 +130,15 @@ def _migrate(args: argparse.Namespace) -> int:
     import sqlite3
     from pathlib import Path
 
-    from docapp.consult.config import load_consult_config
-    from docapp.consult.store import SCHEMA_VERSION as CONSULT_VERSION
     from docapp.needs.config import load_needs_config
     from docapp.needs.store import SCHEMA_VERSION as NEEDS_VERSION
     from docapp.storage.sqlite_store import SCHEMA_VERSION as MAIN_VERSION
+    from docapp.wiki.config import load_wiki_config
+    from docapp.wiki.store import SCHEMA_VERSION as WIKI_VERSION
 
     dbs = [
         ("docapp", db_path(), MAIN_VERSION),
-        ("consult", Path(load_consult_config().index_dir) / "consult.db", CONSULT_VERSION),
+        ("wiki", load_wiki_config().db_path, WIKI_VERSION),
         ("needs", load_needs_config().db_path, NEEDS_VERSION),
     ]
 
@@ -152,8 +152,8 @@ def _migrate(args: argparse.Namespace) -> int:
         try:
             if name == "docapp":
                 from docapp.storage.sqlite_store import _connect as _c
-            elif name == "consult":
-                from docapp.consult.store import _connect as _c
+            elif name == "wiki":
+                from docapp.wiki.store import _connect as _c
             else:
                 from docapp.needs.store import _connect as _c
             conn = _c(path)
@@ -188,9 +188,9 @@ def main() -> int:
     common.add_argument("--buh-id", help="Номер в бухгалтерии (можно добавить позже)")
 
     p_user = sub.add_parser(
-        "user", parents=[common], help="Создать врача, заведующего или старшую сестру"
+        "user", parents=[common], help="Создать врача, заведующего, старшую сестру или редактора"
     )
-    p_user.add_argument("--role", choices=[DOCTOR, HEAD, HEAD_NURSE], default=DOCTOR)
+    p_user.add_argument("--role", choices=[DOCTOR, HEAD, HEAD_NURSE, EDITOR], default=DOCTOR)
     p_user.add_argument("--login", help="Логин для входа")
     p_user.add_argument("--password", help="Пароль (если не задан — сгенерируется)")
     p_user.set_defaults(func=_create_user)
@@ -207,7 +207,7 @@ def main() -> int:
 
     p_migrate = sub.add_parser(
         "migrate",
-        help="Применить миграции схемы ко всем БД (docapp, consult, needs)",
+        help="Применить миграции схемы ко всем БД (docapp, wiki, needs)",
     )
     p_migrate.set_defaults(func=_migrate)
 

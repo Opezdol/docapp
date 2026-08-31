@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ article.title }} — Компендиум — docapp{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/compendium.css?v={{ git_revision }}">
+
+<div class="card article-card">
+  <div class="article-head">
+    <h1>{{ article.title or '(без названия)' }}</h1>
+    <span class="status {{ article.status }}">{{ {'draft': 'Черновик', 'published': 'Опубликована', 'archived': 'Архив'}[article.status] }}</span>
+    <span class="hint">версия {{ article.version }}</span>
+  </div>
+
+  {% if is_curator %}
+  <div class="article-toolbar">
+    <button type="button" id="article-edit" class="btn">Править</button>
+    <button type="button" id="article-cancel" class="btn" hidden>Отмена</button>
+    {% if article.status == 'published' %}
+    <button type="button" id="article-unpublish" class="btn">Снять с публикации</button>
+    {% else %}
+    <button type="button" id="article-publish" class="btn">Опубликовать</button>
+    {% endif %}
+    <button type="button" id="article-delete" class="btn linklike">Удалить</button>
+  </div>
+
+  <div id="article-view">
+    <div class="article-body">{{ body_html | safe }}</div>
+    {% if article.links %}
+    <h3>Источники</h3>
+    <ul class="article-sources">
+      {% for link in article.links %}
+      <li>
+        {{ link.source_title or link.filename }}
+        {% if link.doc_number %} · Приказ №{{ link.doc_number }}{% endif %}
+        {% if link.anchor %} · {{ link.anchor }}{% endif %}
+        <a href="/compendium/sources/{{ link.source_id }}/download" download>PDF</a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+
+  <div id="article-edit-panel" hidden>
+    <textarea id="article-edit-body" rows="18">{{ article.body_md }}</textarea>
+    <div class="compendium-editor-row">
+      <input type="text" id="article-edit-note" placeholder="Комментарий к правке (необязательно)">
+      <button type="button" id="article-save" class="primary">Сохранить черновик</button>
+    </div>
+  </div>
+  {% else %}
+  <div class="article-body">{{ body_html | safe }}</div>
+  {% if article.links %}
+  <h3>Источники</h3>
+  <ul class="article-sources">
+    {% for link in article.links %}
+    <li>
+      {{ link.source_title or link.filename }}
+      {% if link.doc_number %} · Приказ №{{ link.doc_number }}{% endif %}
+      {% if link.anchor %} · {{ link.anchor }}{% endif %}
+      <a href="/compendium/sources/{{ link.source_id }}/download" download>PDF</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% endif %}
+</div>
+
+{% if is_curator %}
+<script>
+  window.ARTICLE = {
+    id: {{ article.id }},
+    status: '{{ article.status }}',
+    isCurator: true
+  };
+</script>
+<script src="/static/compendium-article.js?v={{ git_revision }}"></script>
+{% endif %}
+{% endblock %}

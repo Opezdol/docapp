@@ -1,27 +1,29 @@
 """LLM-клиент (OpenAI-совместимый): стриминговые ответы чата и учёт токенов.
 
-Используется консультантом для генерации ответов (ТЗ, задача T7, требование
-F5 — учёт токенов): usage приходит в последнем чанке стрима и сохраняется
+Обобщение прежнего RAG-клиента: не знает про домен, работает только
+с конфигом AIConfig. usage приходит в последнем чанке стрима и сохраняется
 в self.last_usage для записи в хранилище.
 """
+
+from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
 
 import httpx
 
-from docapp.consult.config import ConsultConfig
+from docapp.ai.config import AIConfig
 
 
 class LLMClient:
     """Клиент к OpenAI-совместимому API (RouterAI) для стримингового чата.
 
     Только стриминг: POST {base_url}/chat/completions с stream=True.
-    transport передаётся для тестов (httpx.MockTransport), как в embed-клиенте.
+    transport передаётся для тестов (httpx.MockTransport).
     """
 
     def __init__(
-        self, config: ConsultConfig, transport: httpx.AsyncBaseTransport | None = None
+        self, config: AIConfig, transport: httpx.AsyncBaseTransport | None = None
     ) -> None:
         self.config = config
         self.transport = transport
@@ -30,12 +32,12 @@ class LLMClient:
     async def stream_chat(
         self, messages: list[dict], temperature: float = 0.1
     ) -> AsyncIterator[str]:
-        """Отправить messages в /chat/completions и отдавать токены ответа по мере поступления.
+        """Отправить messages в /chat/completions и отдавать токены ответа.
 
-        Перед каждым вызовом self.last_usage сбрасывается в None. OpenAI-совместимые
-        API шлют usage в последнем чанке ({"usage": {"prompt_tokens": N,
-        "completion_tokens": M}}) — если такой чанк встретился, usage сохраняется
-        в self.last_usage, иначе остаётся None.
+        Перед каждым вызовом self.last_usage сбрасывается в None. OpenAI-
+        совместимые API шлют usage в последнем чанке ({"usage": {...}}) —
+        если такой чанк встретился, usage сохраняется в self.last_usage,
+        иначе остаётся None.
         """
         self.last_usage = None
         url = f"{self.config.base_url}/chat/completions"

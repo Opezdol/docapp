@@ -208,43 +208,41 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
             request.session["flash"] = str(exc)
         return RedirectResponse("/", status_code=303)
 
-    # Подприложение «Приказы»: ИИ-консультант (задача T9 ТЗ-консультанта).
-    # Инициализация дешёвая и без сети: EmbeddingClient/LLMClient только
-    # создают HTTP-транспорт, ConsultService строит индекс из пустой БД.
-    # Импорты локальные: consult.router импортирует docapp.web.app (current_user),
-    # поэтому на уровне модуля был бы круговой импорт.
-    from docapp.consult.config import load_consult_config
-    from docapp.consult.embed import EmbeddingClient
-    from docapp.consult.llm import LLMClient
-    from docapp.consult.router import router as consult_router
-    from docapp.consult.service import ConsultService
-    from docapp.consult.store import SqliteConsultStore
+    # Подприложение «Компендиум»: LLM-wiki по курируемым .md-статьям
+    # поверх PDF-источников. Инициализация дешёвая и без сети: LLMClient/
+    # VisionClient только создают HTTP-транспорт, WikiService строит индекс
+    # из пустой БД. Импорты локальные: router импортирует docapp.web.app
+    # (current_user), поэтому на уровне модуля был бы круговой импорт.
+    from docapp.ai.config import load_ai_config
+    from docapp.ai.llm import LLMClient
+    from docapp.ai.vision import VisionClient
+    from docapp.wiki.config import load_wiki_config
+    from docapp.wiki.router import router as compendium_router
+    from docapp.wiki.service import WikiService
+    from docapp.wiki.store import SqliteWikiStore
 
-    consult_config = load_consult_config()
-    if not consult_config.api_key:
+    ai_config = load_ai_config()
+    if not ai_config.api_key:
         logger.warning(
-            "CONSULT_API_KEY не задан: консультант по приказам будет возвращать "
-            "ошибки до его настройки в .env"
+            "AI_API_KEY не задан: «Компендиум» будет возвращать ошибки "
+            "до его настройки в .env"
         )
-    consult_db = consult_config.index_dir / "consult.db"
-    consult_embed = EmbeddingClient(consult_config)
-    consult_llm = LLMClient(consult_config)
-    app.state.consult = {
-        "db_path": consult_db,
-        "config": consult_config,
-        "embed": consult_embed,
-        "llm": consult_llm,
-        "service": ConsultService(
-            SqliteConsultStore(consult_db), consult_embed, consult_llm
-        ),
-        "lock": threading.Lock(),
-        "status": {"busy": False, "started_at": None, "finished_at": None, "error": None},
+    wiki_config = load_wiki_config()
+    wiki_config.db_path.parent.mkdir(parents=True, exist_ok=True)
+    wiki_llm = LLMClient(ai_config)
+    wiki_vision = VisionClient(ai_config)
+    app.state.compendium = {
+        "config": wiki_config,
+        "ai_config": ai_config,
+        "llm": wiki_llm,
+        "vision": wiki_vision,
+        "service": WikiService(SqliteWikiStore(wiki_config.db_path), wiki_llm, wiki_vision),
     }
-    app.include_router(consult_router)
+    app.include_router(compendium_router)
 
     # Подприложение «Потребности» (задача T6 ТЗ-потребностей).
     # Инициализация дешёвая и без сети: чтение YAML-каталога и создание
-    # SQLite-файла заявок (как консультант создаёт свой consult.db).
+    # SQLite-файла заявок (как «Компендиум» создаёт свою wiki.db).
     # Импорты локальные: needs.router импортирует docapp.web.app (current_user),
     # поэтому на уровне модуля был бы круговой импорт.
     from docapp.needs.catalog import Catalog

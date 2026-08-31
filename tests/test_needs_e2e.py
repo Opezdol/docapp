@@ -3,7 +3,7 @@
 Полная цепочка через TestClient (follow_redirects=False) и без сети:
 сотрудники всех четырёх ролей сидятся в SqliteEmployeeStore, вход — через
 POST /login, каталог и БД «Потребностей» — временные (monkeypatch
-NEEDS_DB/NEEDS_CATALOG, консультант — тоже в tmp), приложение собирается
+NEEDS_DB/NEEDS_CATALOG, «Компендиум» — тоже в tmp), приложение собирается
 create_app(db_path, secret). Никаких внешних вызовов: всё внутри процесса.
 
 Неделя во всех запросах фиксированная (WEEK = понедельник '2026-08-10'),
@@ -20,9 +20,9 @@ create_app(db_path, secret). Никаких внешних вызовов: вс�
   c) закрытая неделя: правки и отправка — 409;
   d) переоткрытие недели: правка снова возможна, повторное закрытие;
   e) врач: 403 на страницу, заявки и отчёт;
-  f) «Приказы»: медсестре — 403, старшей сестре — 200;
+  f) «Компендиум»: медсестре — 403, старшей сестре — 200;
   g) аналитика: solutions (растворы поточково) и groups за период;
-  h) меню по ролям: «Потребности»/«Приказы» в зависимости от роли.
+  h) меню по ролям: «Потребности»/«Компендиум» в зависимости от роли.
 """
 
 import pytest
@@ -104,9 +104,8 @@ def client(tmp_path, monkeypatch):
     catalog = tmp_path / "catalog.yaml"
     catalog.write_text(CATALOG_YAML, encoding="utf-8")
     monkeypatch.setenv("NEEDS_CATALOG", str(catalog))
-    # консультант — тоже во временный каталог, чтобы не трогать data/consult
-    monkeypatch.setenv("CONSULT_INDEX_DIR", str(tmp_path / "consult"))
-    monkeypatch.setenv("CONSULT_DOCS_DIR", str(tmp_path / "consult" / "documents"))
+    # «Компендиум» — тоже во временный каталог, чтобы не трогать data/wiki
+    monkeypatch.setenv("WIKI_DB", str(tmp_path / "wiki" / "wiki.db"))
     db_path = tmp_path / "web.db"
     _seed(db_path)
     app = create_app(db_path=db_path, secret="test-secret")
@@ -340,17 +339,17 @@ class TestDoctorForbidden:
         assert r.status_code == 403
 
 
-class TestOrdersAccess:
-    """(f) «Приказы»: медсестре закрыты (403), старшей сестре — доступны (200)."""
+class TestCompendiumAccess:
+    """(f) «Компендиум»: медсестре закрыт (403), старшей сестре — доступен (200)."""
 
-    def test_nurse_forbidden_orders(self, client):
+    def test_nurse_forbidden_compendium(self, client):
         _login(client, "anna", "anna_pass")
-        assert client.get("/orders").status_code == 403
+        assert client.get("/compendium").status_code == 403
 
-    def test_head_nurse_can_open_orders(self, client):
+    def test_head_nurse_can_open_compendium(self, client):
         _login(client, "elena", "elena_pass")
-        r = client.get("/orders")
-        # Старшая сестра проходит; страница может быть с пустым индексом —
+        r = client.get("/compendium")
+        # Старшая сестра проходит; страница может быть с пустой базой —
         # проверяем только статус: не 403 (роль допущена) и не 303 (нет редиректа).
         assert r.status_code not in (403, 303)
 
@@ -380,20 +379,20 @@ class TestAnalytics:
 
 
 class TestMenu:
-    """(h) Меню по ролям: «Потребности»/«Приказы» в зависимости от роли."""
+    """(h) Меню по ролям: «Потребности»/«Компендиум» в зависимости от роли."""
 
     def test_menu_for_nurse(self, client):
         _login(client, "anna", "anna_pass")
         r = client.get("/")
         assert r.status_code == 200
         assert "Потребности" in r.text
-        assert "Приказы" not in r.text
+        assert "Компендиум" not in r.text
 
     def test_menu_for_doctor(self, client):
         _login(client, "ivanov", "secret")
         r = client.get("/")
         assert r.status_code == 200
-        assert "Приказы" in r.text
+        assert "Компендиум" in r.text
         assert "Потребности" not in r.text
 
     def test_menu_for_head_nurse(self, client):
@@ -401,4 +400,4 @@ class TestMenu:
         r = client.get("/")
         assert r.status_code == 200
         assert "Потребности" in r.text
-        assert "Приказы" in r.text
+        assert "Компендиум" in r.text

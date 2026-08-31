@@ -6,7 +6,7 @@
 закрытие/переоткрытие недель.
 
 Авторизация — current_user из docapp.web.app (импорт на уровне модуля,
-как в consult.router); из-за этого роутер подключается в create_app
+как в wiki.router); из-за этого роутер подключается в create_app
 лениво, внутри функции. Шаблоны — свои (needs/templates) поверх общего
 base.html (web/templates): Jinja2Templates принимает список директорий.
 

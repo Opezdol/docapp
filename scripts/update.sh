@@ -7,7 +7,7 @@
 # (запускать из корня docapp; перед запуском заполните scripts/server.conf)
 #
 # В отличие от deploy.sh: делает бэкап ПЕРЕД обновлением и применяет
-# миграции БД (docapp/consult/needs) до перезапуска приложения.
+# миграции БД (docapp/wiki/needs) до перезапуска приложения.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -43,7 +43,7 @@ else
   echo "  (DOCAPP_SITE_ROOT не задан — пропускаем)"
 fi
 
-echo "==> 4/6: миграции схемы БД (docapp/consult/needs)"
+echo "==> 4/6: миграции схемы БД (docapp/wiki/needs)"
 $SSH_BIN "${SSH_ARGS[@]}" "$SSH_TARGET" bash -s "$DOCAPP_DEPLOY_DIR" <<'EOF'
 set -euo pipefail
 DEPLOY_DIR="$1"

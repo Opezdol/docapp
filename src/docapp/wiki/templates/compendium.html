@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Компендиум — docapp{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/compendium.css?v={{ git_revision }}">
+
+<div class="card compendium-card">
+  <h1>Компендиум</h1>
+  <p class="empty">Опубликовано {{ stats.published }} статей · {{ stats.sources }} источников.</p>
+
+  <div class="compendium-tabs">
+    <button type="button" class="compendium-tab active" data-view="chat">Спросить</button>
+    <button type="button" class="compendium-tab" data-view="articles">Статьи</button>
+    <button type="button" class="compendium-tab" data-view="sources">Источники</button>
+    {% if is_head %}
+    <button type="button" class="compendium-tab" data-view="questions">Вопросы</button>
+    <button type="button" class="compendium-tab" data-view="settings">Настройки</button>
+    {% endif %}
+  </div>
+
+  <div id="view-chat" class="compendium-view">
+    <div id="compendium-messages"></div>
+    <form id="compendium-form" autocomplete="off">
+      <div class="compendium-input-row">
+        <textarea id="compendium-input" rows="1" placeholder="Ваш вопрос по базе знаний…" required></textarea>
+        <button type="submit" id="compendium-send" class="primary">Спросить</button>
+      </div>
+    </form>
+    <div class="compendium-actions">
+      <button type="button" id="compendium-new" class="btn">Новый разговор</button>
+    </div>
+  </div>
+
+  <div id="view-articles" class="compendium-view" hidden>
+    {% if is_curator %}
+    <div class="compendium-editor">
+      <h2 id="compendium-editor-title">Новая статья</h2>
+      <input type="hidden" id="compendium-article-id" value="">
+      <textarea id="compendium-body-md" rows="14" placeholder="# Заголовок&#10;&#10;Курируемые тезисы (Markdown)…"></textarea>
+      <div class="compendium-editor-row">
+        <input type="text" id="compendium-change-note" placeholder="Комментарий к правке (необязательно)">
+        <button type="button" id="compendium-save" class="primary">Сохранить черновик</button>
+        <button type="button" id="compendium-publish" class="btn">Опубликовать</button>
+        <button type="button" id="compendium-new-article" class="btn">Новая</button>
+      </div>
+    </div>
+    {% endif %}
+    <div id="articles-list"></div>
+  </div>
+
+  <div id="view-sources" class="compendium-view" hidden>
+    {% if is_curator %}
+    <form id="compendium-upload-form">
+      <input type="file" id="compendium-upload-input" accept=".pdf" multiple>
+      <button type="submit" class="primary">Загрузить PDF</button>
+    </form>
+    <p class="hint">PDF — источник правды. Если это скан, он будет распознан (OCR) в фоне.</p>
+    {% endif %}
+    <div id="sources-list"></div>
+  </div>
+
+  {% if is_head %}
+  <div id="view-questions" class="compendium-view" hidden>
+    <div class="questions-filter">
+      <label>С <input type="date" id="questions-from"></label>
+      <label>по <input type="date" id="questions-to"></label>
+      <button type="button" id="questions-apply" class="btn">Применить</button>
+      <button type="button" id="questions-reset" class="btn">Сбросить</button>
+    </div>
+    <div id="questions-list"></div>
+    <div id="token-totals"></div>
+    <div id="token-by-day"></div>
+  </div>
+  {% endif %}
+
+  {% if is_head %}
+  <div id="view-settings" class="compendium-view" hidden>
+    <div id="settings-panel"></div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  window.COMPENDIUM = {
+    isCurator: {{ 'true' if is_curator else 'false' }},
+    isHead: {{ 'true' if is_head else 'false' }}
+  };
+</script>
+<script src="/static/compendium.js?v={{ git_revision }}"></script>
+{% endblock %}

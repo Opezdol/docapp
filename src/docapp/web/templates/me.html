@@ -11,6 +11,8 @@
       {% if user.role == 'doctor' %}Врач
       {% elif user.role == 'head' %}Заведующий
       {% elif user.role == 'nurse' %}Медсестра
+      {% elif user.role == 'head_nurse' %}Старшая медсестра
+      {% elif user.role == 'editor' %}Редактор
       {% endif %}
     </dd>
     {% if user.login %}

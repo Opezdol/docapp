@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Бэкап БД docapp: основная + консультант + потребности. Запуск: ./scripts/backup.sh
+# Бэкап БД docapp: основная + «Компендиум» + потребности. Запуск: ./scripts/backup.sh
 # (cron: 0 3 * * * cd /путь/к/docapp && ./scripts/backup.sh >> logs/backup.log 2>&1)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -34,7 +34,7 @@ PY
   fi
 }
 backup_db data/docapp.db "$BACKUP_DIR/docapp-$stamp.db"
-backup_db data/consult/consult.db "$BACKUP_DIR/consult-$stamp.db"
+backup_db data/wiki/wiki.db "$BACKUP_DIR/wiki-$stamp.db"
 backup_db data/needs/needs.db "$BACKUP_DIR/needs-$stamp.db"
 # Каталог «Потребностей» — YAML (правится файлом), копируем как есть
 if [ -f data/needs/catalog.yaml ]; then

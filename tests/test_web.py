@@ -342,7 +342,7 @@ class TestAppMenu:
         _login(client)
         r = client.get("/")
         assert "Анестезии" in r.text
-        assert "Приказы" in r.text
+        assert "Компендиум" in r.text
         assert 'href="/me"' in r.text  # кликабельное имя
 
     def test_active_item_on_main(self, client):
@@ -351,47 +351,47 @@ class TestAppMenu:
         # у пункта «Анестезии» класс active
         assert 'class="app-link active"' in r.text
 
-    def test_nurse_menu_hides_orders_shows_needs(self, client):
-        # ADR-11: медсёстрам «Приказы» закрыты, «Потребности» — открыты.
+    def test_nurse_menu_hides_compendium_shows_needs(self, client):
+        # ADR-11: медсёстрам «Компендиум» закрыт, «Потребности» — открыты.
         _login(client, login="anna", password="anna_pass")
         r = client.get("/")
-        assert "Приказы" not in r.text
+        assert "Компендиум" not in r.text
         assert "Потребности" in r.text
         assert 'href="/needs"' in r.text
 
-    def test_doctor_menu_shows_orders_hides_needs(self, client):
-        # ADR-11: врачам «Потребности» закрыты, «Приказы» — открыты.
+    def test_doctor_menu_shows_compendium_hides_needs(self, client):
+        # ADR-11: врачам «Потребности» закрыты, «Компендиум» — открыт.
         _login(client)  # врач ivanov
         r = client.get("/")
-        assert "Приказы" in r.text
+        assert "Компендиум" in r.text
         assert "Потребности" not in r.text
 
     def test_head_nurse_menu_has_both(self, client):
         _login(client, login="vera", password="vera_pass")
         r = client.get("/")
-        assert "Приказы" in r.text
+        assert "Компендиум" in r.text
         assert "Потребности" in r.text
 
     def test_head_menu_has_both(self, client):
         _login(client, login="zav", password="zav_pass")
         r = client.get("/")
-        assert "Приказы" in r.text
+        assert "Компендиум" in r.text
         assert "Потребности" in r.text
 
-    def test_orders_page(self, client):
+    def test_compendium_page(self, client):
         _login(client)
-        r = client.get("/orders")
+        r = client.get("/compendium")
         assert r.status_code == 200
-        assert "Консультант" in r.text
+        assert "Компендиум" in r.text
 
-    def test_orders_requires_login(self, client):
-        r = client.get("/orders", follow_redirects=False)
+    def test_compendium_requires_login(self, client):
+        r = client.get("/compendium", follow_redirects=False)
         assert r.status_code == 303
         assert r.headers["location"] == "/login"
 
     def test_no_menu_on_login_page(self, client):
         r = client.get("/login")
-        assert "Приказы" not in r.text
+        assert "Компендиум" not in r.text
         assert "Анестезии" not in r.text
 
 
@@ -419,9 +419,8 @@ class TestSessionConfig:
     """Конфигурация сессий: https_only управляется DOCAPP_HTTPS_ONLY (ADR-7)."""
 
     def _make_app(self, tmp_path, monkeypatch):
-        # Консультант в tmp, чтобы не трогать реальные data/consult
-        monkeypatch.setenv("CONSULT_INDEX_DIR", str(tmp_path / "consult"))
-        monkeypatch.setenv("CONSULT_DOCS_DIR", str(tmp_path / "consult" / "documents"))
+        # «Компендиум» в tmp, чтобы не трогать реальные data/wiki
+        monkeypatch.setenv("WIKI_DB", str(tmp_path / "wiki" / "wiki.db"))
         return create_app(tmp_path / "w.db", "s")
 
     def _session_middleware(self, app):

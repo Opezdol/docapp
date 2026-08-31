@@ -1,0 +1,263 @@
+/* Компендиум (compendium.html): чат, вкладки, статьи, источники.
+   Отдельный файл — style.css не трогаем. Палитра проекта: #1565c0, #eef2f7. */
+
+[hidden] { display: none !important; }
+
+.compendium-card {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 180px);
+  overflow: hidden;
+}
+
+.compendium-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 0 12px;
+}
+
+.compendium-tab {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #fff;
+  color: #1a1a2e;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  border: 1px solid #e3e8ef;
+  cursor: pointer;
+}
+
+.compendium-tab.active {
+  background: #1565c0;
+  color: #fff;
+  border-color: #1565c0;
+}
+
+.compendium-view { flex: 1; min-height: 0; }
+#view-chat { display: flex; flex-direction: column; }
+#view-articles, #view-sources, #view-questions { overflow-y: auto; padding-right: 4px; }
+
+/* чат */
+#compendium-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.compendium-msg {
+  max-width: 85%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  font-size: 0.98rem;
+}
+
+.compendium-msg.user {
+  align-self: flex-end;
+  background: #1565c0;
+  color: #fff;
+}
+
+.compendium-msg.bot {
+  align-self: flex-start;
+  background: #eef2f7;
+  color: #1a1a2e;
+}
+
+.compendium-msg.error {
+  align-self: center;
+  background: #fdecea;
+  color: #b71c1c;
+  font-size: 0.9rem;
+}
+
+.compendium-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+#compendium-input {
+  flex: 1;
+  resize: none;
+  min-height: 44px;
+  max-height: 160px;
+}
+
+.compendium-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+/* цитаты */
+.compendium-citations {
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.compendium-citations details {
+  margin-bottom: 4px;
+}
+
+.cit-body {
+  padding: 4px 8px;
+  color: #445;
+  border-left: 2px solid #c5d3e6;
+  margin: 4px 0 0 12px;
+  white-space: pre-wrap;
+}
+
+/* редактор статьи */
+.compendium-editor {
+  background: #f7f9fc;
+  border: 1px solid #e3e8ef;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+#compendium-body-md {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92rem;
+}
+
+.compendium-editor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+#compendium-change-note {
+  flex: 1;
+  min-width: 180px;
+}
+
+/* списки (статьи/источники) */
+.doc-item {
+  border: 1px solid #e3e8ef;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #fff;
+}
+
+.doc-title { font-weight: 600; }
+.doc-meta { color: #667; font-size: 0.85rem; margin: 2px 0 6px; }
+.doc-links { font-size: 0.9rem; }
+
+.status {
+  font-size: 0.75rem;
+  padding: 1px 8px;
+  border-radius: 10px;
+  margin-left: 4px;
+}
+
+.status.draft { background: #fff3cd; color: #7a5c00; }
+.status.published { background: #d4edda; color: #155724; }
+.status.archived { background: #e2e3e5; color: #444; }
+
+/* вопросы */
+.q-item {
+  border-bottom: 1px solid #eef0f3;
+  padding: 8px 0;
+}
+
+.q-content { font-size: 0.95rem; }
+.q-meta { color: #667; font-size: 0.82rem; margin-top: 2px; }
+
+.totals-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid #eef0f3;
+  font-size: 0.9rem;
+}
+
+/* источник (текст) */
+.source-text {
+  white-space: pre-wrap;
+  background: #f7f9fc;
+  border: 1px solid #e3e8ef;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 0.9rem;
+}
+
+/* настройки */
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.settings-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+/* страница статьи */
+.article-card { max-width: 860px; }
+
+.article-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.article-head h1 { margin: 0; flex: 1 1 auto; }
+
+.article-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid #eef0f3;
+}
+
+.article-body {
+  line-height: 1.6;
+  font-size: 1rem;
+  overflow-wrap: break-word;
+}
+
+.article-body h1, .article-body h2, .article-body h3 { margin: 1.1em 0 0.4em; }
+.article-body h1 { font-size: 1.5rem; }
+.article-body h2 { font-size: 1.25rem; }
+.article-body h3 { font-size: 1.1rem; }
+.article-body p { margin: 0.5em 0; }
+.article-body code {
+  background: #f0f2f6;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.article-body .md-table {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #f7f9fc;
+  border: 1px solid #e3e8ef;
+  border-radius: 6px;
+  padding: 6px 10px;
+  white-space: pre-wrap;
+}
+
+#article-edit-body {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92rem;
+}
+
+.article-sources li { margin: 4px 0; }

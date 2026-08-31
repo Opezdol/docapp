@@ -44,7 +44,7 @@ try:
                 os.environ[key] = value
 
     # Относительные пути из .env резолвим от каталога приложения
-    for _var in ("DOCAPP_DB", "NEEDS_DB", "NEEDS_CATALOG", "CONSULT_INDEX_DIR", "CONSULT_DOCS_DIR"):
+    for _var in ("DOCAPP_DB", "NEEDS_DB", "NEEDS_CATALOG", "WIKI_DB", "WIKI_SOURCES_DIR"):
         _val = os.environ.get(_var)
         if _val and not Path(_val).is_absolute():
             os.environ[_var] = str(APP_DIR / _val)

@@ -6,7 +6,7 @@
 # Делает:
 #   1. git pull (обновление кода с GitHub)
 #   2. обновление зависимостей (venv приложения + venv Passenger)
-#   3. миграции схемы БД (docapp/consult/needs)
+#   3. миграции схемы БД (docapp/wiki/needs)
 #   4. перезапуск Passenger (touch tmp/restart.txt в корне сайта)
 #   5. проверка HTTPS
 #

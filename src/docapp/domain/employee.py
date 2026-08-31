@@ -6,8 +6,9 @@ DOCTOR = "doctor"
 NURSE = "nurse"
 HEAD = "head"
 HEAD_NURSE = "head_nurse"
+EDITOR = "editor"
 
-ROLES = (DOCTOR, NURSE, HEAD, HEAD_NURSE)
+ROLES = (DOCTOR, NURSE, HEAD, HEAD_NURSE, EDITOR)
 
 
 @dataclass(frozen=True)
