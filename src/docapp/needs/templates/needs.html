@@ -32,6 +32,11 @@
   <div class="card needs-form-card{% if user.role in ('head_nurse', 'head') %} needs-form-hidden{% endif %}" id="needs-form-card">
     <h2>Заявка на неделю <span id="needs-current-point" class="needs-current-point"></span></h2>
     <form id="needs-form" autocomplete="off">
+      <div class="needs-tabs" role="tablist">
+        <button type="button" class="needs-tab needs-tab-active" data-category="solutions" role="tab" aria-selected="true">Растворы</button>
+        <button type="button" class="needs-tab" data-category="medicaments" role="tab" aria-selected="false">Медикаменты</button>
+      </div>
+
       <section class="needs-section" data-category="solutions">
         <h3 class="needs-section-title">Растворы</h3>
         <label class="field">
@@ -59,7 +64,7 @@
         </div>
       </section>
 
-      <section class="needs-section" data-category="medicaments">
+      <section class="needs-section" data-category="medicaments" hidden>
         <h3 class="needs-section-title">Медикаменты</h3>
         <label class="field">
           <span>Поиск препарата (медикаменты)</span>

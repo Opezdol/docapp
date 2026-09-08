@@ -147,6 +147,24 @@ def closed_sections(request: Request):
     return {"closed": _service(request).closed_sections(week), "week": week}
 
 
+@router.get("/api/points")
+def points_status(request: Request):
+    """Статусы точек раздела (nurse+): для цветовой индикации в сетке точек.
+
+    Медсестра видит свой черновик/отправленную и чужие отправленные; чужой
+    черновик скрыт (none). Обязателен параметр category.
+    """
+    user = _api_user(request)
+    _require_not_doctor(user)
+    category = _valid_category(request.query_params.get("category"))
+    week = request.query_params.get("week") or monday_of_week()
+    return {
+        "points": _service(request).points_for_user(user.id, user.role, category, week),
+        "category": category,
+        "week": week,
+    }
+
+
 # ── заявки ──────────────────────────────────────────────────────────
 
 @router.get("/api/request")

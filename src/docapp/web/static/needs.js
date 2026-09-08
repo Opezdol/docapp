@@ -112,6 +112,17 @@
     };
   });
 
+  // Активная вкладка раздела и статусы точек для цветовой индикации сетки.
+  var activeCategory = 'solutions';
+  var pointStatusByKey = {};  // 'base|point' -> status для активной категории
+  var tabEls = {};
+  if (formEl) {
+    CATEGORIES.forEach(function (cat) {
+      var tab = formEl.querySelector('.needs-tab[data-category="' + cat.key + '"]');
+      if (tab) tabEls[cat.key] = tab;
+    });
+  }
+
   // Баннер: сообщение + вид (ok/warn/error); прячем по таймеру.
   var bannerTimer = null;
   function showBanner(msg, kind) {
@@ -159,6 +170,32 @@
     });
   }
 
+  // Статусы точек активной категории — для цветовой индикации сетки точек.
+  function loadPointStatus() {
+    return apiFetch('/needs/api/points?category=' + encodeURIComponent(activeCategory) +
+      '&week=' + encodeURIComponent(week)).then(function (data) {
+      if (!data) return;
+      pointStatusByKey = {};
+      (data.points || []).forEach(function (p) {
+        pointStatusByKey[p.base + '|' + p.point] = p.status;
+      });
+      renderPointGrid();
+    }).catch(function () {
+      // тихо: без индикации можно работать
+    });
+  }
+
+  // Переключить вкладку раздела: показать нужную секцию и обновить цвета точек.
+  function setActiveCategory(catKey) {
+    if (activeCategory === catKey) return;
+    activeCategory = catKey;
+    CATEGORIES.forEach(function (cat) {
+      if (sections[cat.key]) sections[cat.key].root.hidden = (cat.key !== catKey);
+      if (tabEls[cat.key]) tabEls[cat.key].classList.toggle('needs-tab-active', cat.key === catKey);
+    });
+    loadPointStatus();
+  }
+
   // Сетка точек для медсестры: карточки по базам (без статусов чужих заявок —
   // API доски медсестре недоступен; сестра видит только названия точек).
   function renderPointGrid() {
@@ -182,8 +219,10 @@
       html += '<div class="needs-board-grid">';
       points.forEach(function (point) {
         var active = point === currentPoint ? ' needs-point-active' : '';
+        var status = pointStatusByKey[base + '|' + point] || 'none';
         html += '<button type="button" class="needs-point-cell' + active + '" ' +
           'data-base="' + esc(base) + '" data-point="' + esc(point) + '">' +
+          '<span class="needs-dot ' + esc(status) + '"></span>' +
           '<span class="needs-cell-point">' + esc(point) + '</span>' +
           '</button>';
       });
@@ -350,6 +389,7 @@
       showBanner('Черновик раздела «' + sec.label + '» сохранён.', 'ok');
       setStatus(sec, 'Заявка: черновик — сохранено');
       if (IS_FULL && boardEl) loadBoard(); // статус доски мог измениться
+      if (!IS_FULL) loadPointStatus();     // обновить цвет точки у медсестры
     }).catch(function (err) { showApiError(sec, err); }).finally(function () {
       sec.saveBtn.disabled = sec.readOnly;
     });
@@ -388,6 +428,7 @@
       return loadRequest(sec); // обновить статус (sent) и режим
     }).then(function () {
       if (IS_FULL && boardEl) loadBoard();
+      if (!IS_FULL) loadPointStatus();
     }).catch(function (err) { showApiError(sec, err); }).finally(function () {
       sec.submitBtn.disabled = sec.readOnly;
     });
@@ -685,6 +726,12 @@
     sec.submitBtn.addEventListener('click', function () { submitRequest(sec); });
   });
 
+  // Клик по вкладке — переключить активный раздел.
+  CATEGORIES.forEach(function (cat) {
+    var tab = tabEls[cat.key];
+    if (tab) tab.addEventListener('click', function () { setActiveCategory(cat.key); });
+  });
+
   // Клик вне блока поиска секции — спрятать её подсказки.
   document.addEventListener('click', function (e) {
     CATEGORIES.forEach(function (cat) {
@@ -700,6 +747,8 @@
 
   loadCatalog().then(function () {
     loadClosures().then(function () {
+      return loadPointStatus();
+    }).then(function () {
       if (IS_FULL && boardEl) loadBoard();
     });
   });

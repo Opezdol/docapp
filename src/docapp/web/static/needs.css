@@ -242,7 +242,31 @@ table.needs-table {
   margin-top: 4px;
 }
 
-/* ── секции формы (растворы / медикаменты) ──────────────────────── */
+/* ── вкладки раздела и секции формы (растворы / медикаменты) ───── */
+
+.needs-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 2px solid #e3e8ef;
+}
+.needs-tab {
+  flex: 1;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: #555;
+  cursor: pointer;
+  margin-bottom: -2px;
+}
+.needs-tab-active {
+  color: #1565c0;
+  font-weight: 600;
+  border-bottom-color: #1565c0;
+}
 
 .needs-section {
   border: 1px solid #e3e8ef;

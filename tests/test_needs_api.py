@@ -166,6 +166,58 @@ class TestClosedSections:
         assert client.get("/needs/api/closed", params={"week": WEEK}).status_code == 403
 
 
+class TestPointsStatus:
+    def test_points_status_from_nurse_perspective(self, client):
+        # медсестра: изначально у всех точек статус none
+        _login(client, "anna", "anna_pass")
+        r = client.get("/needs/api/points", params={"category": MED, "week": WEEK})
+        assert r.status_code == 200
+        pts = {p["point"]: p["status"] for p in r.json()["points"]}
+        assert set(pts) == {"травма", "урология", "экстренная", "гной"}
+        assert all(s == "none" for s in pts.values())
+
+        # черновик → draft; отправка → sent
+        client.post("/needs/api/request", json={
+            "base": "Ленская", "point": "травма", "category": MED, "week": WEEK,
+            "lines": [{"item": "Атропин", "qty": 2}],
+        })
+        pts = {p["point"]: p["status"] for p in client.get(
+            "/needs/api/points", params={"category": MED, "week": WEEK}).json()["points"]}
+        assert pts["травма"] == "draft"
+        assert pts["урология"] == "none"
+        client.post("/needs/api/request/submit", json={
+            "base": "Ленская", "point": "травма", "category": MED, "week": WEEK})
+        pts = {p["point"]: p["status"] for p in client.get(
+            "/needs/api/points", params={"category": MED, "week": WEEK}).json()["points"]}
+        assert pts["травма"] == "sent"
+        client.post("/logout")
+
+        # старшая: чужой отправленный виден (sent), чужой черновик скрыт (none)
+        _login(client, "elena", "elena_pass")
+        client.post("/needs/api/request", json={
+            "base": "Ленская", "point": "урология", "category": MED, "week": WEEK,
+            "lines": [{"item": "Атропин", "qty": 1}],
+        })
+        client.post("/needs/api/request/submit", json={
+            "base": "Ленская", "point": "урология", "category": MED, "week": WEEK})
+        client.post("/needs/api/request", json={
+            "base": "Таймырская", "point": "экстренная", "category": MED, "week": WEEK,
+            "lines": [{"item": "Атропин", "qty": 1}],
+        })  # черновик старшей — не отправлен
+        client.post("/logout")
+
+        _login(client, "anna", "anna_pass")
+        pts = {p["point"]: p["status"] for p in client.get(
+            "/needs/api/points", params={"category": MED, "week": WEEK}).json()["points"]}
+        assert pts["травма"] == "sent"       # свой отправленный
+        assert pts["урология"] == "sent"     # чужой отправленный виден
+        assert pts["экстренная"] == "none"   # чужой черновик скрыт
+
+    def test_points_forbidden_for_doctor(self, client):
+        _login(client, "ivanov", "secret")
+        assert client.get("/needs/api/points", params={"category": MED, "week": WEEK}).status_code == 403
+
+
 class TestRequests:
     def test_save_request_with_snapshots(self, client):
         _login(client, "anna", "anna_pass")

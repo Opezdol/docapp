@@ -128,6 +128,36 @@ class NeedsService:
             return request
         return None
 
+    def points_for_user(
+        self,
+        user_id: int,
+        role: str,
+        category: str,
+        week_start: str | None = None,
+    ) -> list[dict]:
+        """Статусы всех точек раздела с точки зрения пользователя (цветовая индикация).
+
+        Для медсестры: своя заявка — draft/sent, чужая отправленная — sent,
+        чужой черновик и отсутствие заявки — 'none' (как get_for_user).
+        head_nurse/head видят всё (как board, но без авторства).
+        """
+        self._validate_category(category)
+        week_start = week_start or monday_of_week()
+        cells: list[dict] = []
+        for base, points in self._catalog.bases().items():
+            for point in points:
+                request = self.get_for_user(
+                    user_id, role, base, point, category, week_start
+                )
+                cells.append(
+                    {
+                        "base": base,
+                        "point": point,
+                        "status": request["status"] if request else "none",
+                    }
+                )
+        return cells
+
     def save(
         self,
         user_id: int,
