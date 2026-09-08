@@ -289,13 +289,14 @@
 
     var STATUS_LABELS = { draft: 'черновик', sent: 'отправлен', closed: 'закрыт' };
 
-    function today() {
+    function isoDate(offsetDays) {
       var d = new Date();
+      d.setDate(d.getDate() + (offsetDays || 0));
       var p = function (n) { return (n < 10 ? '0' : '') + n; };
       return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
     }
-    fromEl.value = today();
-    toEl.value = today();
+    fromEl.value = isoDate(-1);
+    toEl.value = isoDate(0);
 
     function post(url, body) {
       return apiFetch(url, {
