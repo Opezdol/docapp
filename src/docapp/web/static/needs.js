@@ -516,7 +516,7 @@
         item: itemName,
         unit: found ? found.unit : '',
         group: found ? found.group : '',
-        qty: 0,
+        qty: 1,
       });
       renderLines(sec);
       idx = sec.lines.length - 1;
@@ -732,11 +732,12 @@
 
     // Фокус на поиске — показать список (весь раздел или по текущему тексту).
     sec.search.addEventListener('focus', function () {
-      if (sec.readOnly || sec._suppressFocus) { sec._suppressFocus = false; return; }
+      if (sec.readOnly) return;
       renderSearchResults(sec, sec.search.value);
     });
 
-    // Клик по найденной позиции — добавить в список, поле очистить.
+    // Клик по найденной позиции — добавить в список; фокус уходит в количество
+    // (addLine сам фокусирует поле количества добавленной позиции).
     sec.results.addEventListener('click', function (e) {
       var item = e.target.closest('.needs-search-item');
       if (!item) return;
@@ -744,8 +745,6 @@
       sec.search.value = '';
       sec.results.hidden = true;
       sec.results.innerHTML = '';
-      sec._suppressFocus = true;
-      sec.search.focus();
     });
 
     // Удаление позиции из списка выбранного раздела.
@@ -779,6 +778,13 @@
       var i = parseInt(e.target.getAttribute('data-i'), 10);
       if (isNaN(i) || i < 0 || i >= sec.lines.length) return;
       sec.lines[i].qty = parseQty(e.target.value);
+    });
+
+    // Enter в количестве — вернуть фокус на поиск препарата (следующая позиция).
+    sec.linesTbody.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || !e.target.classList.contains('needs-qty')) return;
+      e.preventDefault();
+      sec.search.focus();
     });
 
     sec.saveBtn.addEventListener('click', function () { saveDraft(sec); });
