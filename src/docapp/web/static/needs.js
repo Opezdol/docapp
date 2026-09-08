@@ -465,14 +465,18 @@
   /* ── поиск препаратов по каталогу (внутри раздела) ──────────────── */
 
   // Поиск только по своему разделу: растворы — группа «Растворы»,
-  // медикаменты — все остальные группы.
+  // медикаменты — все остальные группы. Пустой запрос — весь раздел
+  // (для показа списка по фокусу).
   function searchMatches(sec, q) {
     var needle = q.trim().toLowerCase();
-    if (!needle) return [];
     return catalog.allItems.filter(function (item) {
-      if (item.name.toLowerCase().indexOf(needle) === -1) return false;
-      if (sec.key === 'solutions') return item.group === SOLUTIONS_GROUP;
-      return item.group !== SOLUTIONS_GROUP;
+      if (sec.key === 'solutions') {
+        if (item.group !== SOLUTIONS_GROUP) return false;
+      } else if (item.group === SOLUTIONS_GROUP) {
+        return false;
+      }
+      if (!needle) return true;
+      return item.name.toLowerCase().indexOf(needle) !== -1;
     });
   }
 
@@ -483,7 +487,7 @@
       sec.results.innerHTML = '';
       return;
     }
-    sec.results.innerHTML = matches.slice(0, 20).map(function (item) {
+    sec.results.innerHTML = matches.map(function (item) {
       return '<button type="button" class="needs-search-item" ' +
         'data-item="' + esc(item.name) + '">' +
         '<span class="needs-search-name">' + esc(item.name) + '</span>' +
@@ -716,6 +720,12 @@
       renderSearchResults(sec, sec.search.value);
     });
 
+    // Фокус на поиске — показать список (весь раздел или по текущему тексту).
+    sec.search.addEventListener('focus', function () {
+      if (sec.readOnly || sec._suppressFocus) { sec._suppressFocus = false; return; }
+      renderSearchResults(sec, sec.search.value);
+    });
+
     // Клик по найденной позиции — добавить в список, поле очистить.
     sec.results.addEventListener('click', function (e) {
       var item = e.target.closest('.needs-search-item');
@@ -724,6 +734,7 @@
       sec.search.value = '';
       sec.results.hidden = true;
       sec.results.innerHTML = '';
+      sec._suppressFocus = true;
       sec.search.focus();
     });
 

@@ -73,6 +73,13 @@ table.needs-table {
   border: 1px solid #c5cdd9;
   border-radius: 8px;
   text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.needs-qty::-webkit-inner-spin-button,
+.needs-qty::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 .needs-qty:focus { outline: none; border-color: #1565c0; }
 .needs-qty:disabled { background: #eef2f7; color: #666; }
