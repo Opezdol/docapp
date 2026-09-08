@@ -260,6 +260,7 @@
       sec.search.value = '';
       sec.results.hidden = true;
       sec.results.innerHTML = '';
+      syncControls(sec); // активировать форму после выбора точки
     });
     loadRequests();
   }
@@ -356,10 +357,12 @@
     syncControls(sec);
   }
 
-  // Включить/выключить управление секцией по режиму (правка/просмотр).
+  // Включить/выключить управление секцией по режиму: неактивно без выбранной
+  // точки или в режиме просмотра (чужой отправленный / раздел закрыт).
   function syncControls(sec) {
+    var disabled = sec.readOnly || !currentPoint;
     [sec.search, sec.saveBtn, sec.submitBtn].forEach(function (el) {
-      if (el) el.disabled = sec.readOnly;
+      if (el) el.disabled = disabled;
     });
   }
 
