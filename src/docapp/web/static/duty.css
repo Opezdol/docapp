@@ -17,7 +17,7 @@
 .duty-table th, .duty-table td { padding: 6px 8px; border-bottom: 1px solid #eef1f5; text-align: left; vertical-align: middle; }
 .duty-table th { font-weight: 600; color: #555; font-size: 0.85rem; }
 .duty-table input[type="text"] { width: 100%; padding: 8px; font-size: 0.95rem; min-height: 38px; }
-.duty-table input[type="time"] { width: 8em; padding: 8px; font-size: 0.95rem; min-height: 38px; }
+.duty-table input.duty-time { width: 7em; padding: 8px; font-size: 0.95rem; min-height: 38px; text-align: center; }
 
 .duty-remove { border: none; background: none; color: #c0392b; font-size: 1.15rem; cursor: pointer; padding: 4px 8px; }
 

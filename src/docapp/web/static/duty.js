@@ -36,6 +36,49 @@
     return p[2] + '.' + p[1] + '.' + p[0];
   }
 
+  /* ── время ЧЧ:ММ с шагом 15 минут ──────────────────────────────── */
+
+  // Разобрать ввод в минуты от полуночи; неверный формат → null.
+  // Принимает «16:30», «16.30», «16 30», «1630», «830», «16», «8».
+  function parseTimeMin(s) {
+    var t = String(s == null ? '' : s).trim();
+    if (!t) return null;
+    var m = t.match(/^(\d{1,2})[:.\s](\d{1,2})$/);
+    var h, mm;
+    if (m) {
+      h = parseInt(m[1], 10); mm = parseInt(m[2], 10);
+    } else if (/^\d{1,4}$/.test(t)) {
+      if (t.length <= 2) { h = parseInt(t, 10); mm = 0; }
+      else { var n = parseInt(t, 10); h = Math.floor(n / 100); mm = n % 100; }
+    } else {
+      return null;
+    }
+    if (h > 23 || mm > 59) return null;
+    return h * 60 + mm;
+  }
+
+  // Минуты от полуночи → 'ЧЧ:ММ'.
+  function fmtTimeMin(total) {
+    var h = Math.floor(total / 60) % 24;
+    var mm = total % 60;
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return p(h) + ':' + p(mm);
+  }
+
+  // Нормализовать поле времени: разобрать, округлить до 15 минут, записать ЧЧ:ММ.
+  function snapTimeInput(input) {
+    var parsed = parseTimeMin(input.value);
+    input.value = parsed == null ? '' : fmtTimeMin(Math.round(parsed / 15) * 15);
+  }
+
+  // Сдвинуть время на deltaMin (скролл), оборачивая через полночь.
+  function adjustTimeInput(input, deltaMin) {
+    var parsed = parseTimeMin(input.value);
+    var total = (parsed == null ? 0 : Math.round(parsed / 15) * 15) + deltaMin;
+    total = ((total % 1440) + 1440) % 1440;
+    input.value = fmtTimeMin(total);
+  }
+
   var app = document.getElementById('duty-app');
   if (!app) return;
   var ROLE = app.getAttribute('data-role') || '';
@@ -82,11 +125,12 @@
         return;
       }
       opsTbody.innerHTML = ops.map(function (op, i) {
+        var dis = readOnly ? ' disabled' : '';
         return '<tr>' +
-          '<td><input type="text" class="duty-op-name" data-i="' + i + '" value="' + esc(op.operation) + '"' + (readOnly ? ' disabled' : '') + '></td>' +
-          '<td><input type="time" step="900" class="duty-op-start" data-i="' + i + '" value="' + esc(op.start_time) + '"' + (readOnly ? ' disabled' : '') + '></td>' +
-          '<td><input type="time" step="900" class="duty-op-end" data-i="' + i + '" value="' + esc(op.end_time) + '"' + (readOnly ? ' disabled' : '') + '></td>' +
-          '<td><button type="button" class="duty-remove" data-i="' + i + '" aria-label="Удалить"' + (readOnly ? ' disabled' : '') + '>×</button></td>' +
+          '<td><input type="text" class="duty-op-name" data-i="' + i + '" value="' + esc(op.operation) + '"' + dis + '></td>' +
+          '<td><input type="text" inputmode="numeric" class="duty-op-start duty-time" data-i="' + i + '" value="' + esc(op.start_time) + '" placeholder="ЧЧ:ММ" autocomplete="off"' + dis + '></td>' +
+          '<td><input type="text" inputmode="numeric" class="duty-op-end duty-time" data-i="' + i + '" value="' + esc(op.end_time) + '" placeholder="ЧЧ:ММ" autocomplete="off"' + dis + '></td>' +
+          '<td><button type="button" class="duty-remove" data-i="' + i + '" aria-label="Удалить"' + dis + '>×</button></td>' +
           '</tr>';
       }).join('');
     }
@@ -100,6 +144,8 @@
     function setStatus(t) { if (statusEl) statusEl.textContent = t; }
 
     function collectOps() {
+      // нормализовать все поля времени перед чтением (снэп к 15 минутам)
+      opsTbody.querySelectorAll('.duty-time').forEach(function (inp) { snapTimeInput(inp); });
       var ops = [];
       opsTbody.querySelectorAll('tr').forEach(function (tr) {
         var name = tr.querySelector('.duty-op-name');
@@ -204,6 +250,23 @@
       var i = parseInt(btn.getAttribute('data-i'), 10);
       report.operations = operations().filter(function (_, idx) { return idx !== i; });
       renderOps();
+    });
+
+    // Ввод времени: нормализация по уходу фокуса и по Enter,
+    // шаг 15 минут скроллом колеса (десктоп).
+    opsTbody.addEventListener('focusout', function (e) {
+      if (!e.target.classList || !e.target.classList.contains('duty-time')) return;
+      snapTimeInput(e.target);
+    });
+    opsTbody.addEventListener('wheel', function (e) {
+      if (!e.target.classList || !e.target.classList.contains('duty-time')) return;
+      e.preventDefault();
+      adjustTimeInput(e.target, e.deltaY < 0 ? 15 : -15);
+    }, { passive: false });
+    opsTbody.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || !e.target.classList || !e.target.classList.contains('duty-time')) return;
+      e.preventDefault();
+      snapTimeInput(e.target);
     });
 
     loadReport();
