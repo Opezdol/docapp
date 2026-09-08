@@ -150,6 +150,21 @@ class TestClosures:
         assert {c["base"] for c in closures} == {"База-1", "База-2"}
         assert {c["closed_by"] for c in closures} == {7, 9}
         assert all(c["closed_at"] for c in closures)
+        assert {c["category"] for c in closures} == {CATEGORY_SOLUTIONS, CATEGORY_MEDICAMENTS}
+
+    def test_closed_sections_by_week(self, store):
+        """closed_sections: только заданная неделя, только (base, category)."""
+        store.close("База-1", CATEGORY_SOLUTIONS, "2026-08-10", closed_by=7)
+        store.close("База-1", CATEGORY_MEDICAMENTS, "2026-08-10", closed_by=7)
+        store.close("База-2", CATEGORY_SOLUTIONS, "2026-08-17", closed_by=9)  # другая неделя
+        week10 = {(c["base"], c["category"]) for c in store.closed_sections("2026-08-10")}
+        assert week10 == {
+            ("База-1", CATEGORY_SOLUTIONS),
+            ("База-1", CATEGORY_MEDICAMENTS),
+        }
+        week17 = {(c["base"], c["category"]) for c in store.closed_sections("2026-08-17")}
+        assert week17 == {("База-2", CATEGORY_SOLUTIONS)}
+        assert store.closed_sections("2026-08-24") == []
 
 
 class TestLists:

@@ -146,6 +146,19 @@
     });
   }
 
+  // Закрытые разделы недели (для медсестры: видеть закрытие без доски).
+  function loadClosures() {
+    return apiFetch('/needs/api/closed?week=' + encodeURIComponent(week)).then(function (data) {
+      if (!data) return;
+      (data.closed || []).forEach(function (c) {
+        (closed[c.base] = closed[c.base] || {})[c.category] = true;
+      });
+      renderPointGrid(); // обновить бейджи закрытия на сетке точек
+    }).catch(function () {
+      // тихо: если не вышло — доска (у старшей) или 409 при сохранении подхватят
+    });
+  }
+
   // Сетка точек для медсестры: карточки по базам (без статусов чужих заявок —
   // API доски медсестре недоступен; сестра видит только названия точек).
   function renderPointGrid() {
@@ -159,8 +172,13 @@
     baseNames.forEach(function (base) {
       var points = catalog.bases[base] || [];
       if (!points.length) return;
+      var badges = CATEGORIES.filter(function (cat) {
+        return closed[base] && closed[base][cat.key];
+      }).map(function (cat) {
+        return '<span class="needs-closed-badge">' + esc(cat.label) + ' закрыт</span>';
+      }).join('');
       html += '<div class="needs-base">';
-      html += '<h3>' + esc(base) + '</h3>';
+      html += '<h3>' + esc(base) + badges + '</h3>';
       html += '<div class="needs-board-grid">';
       points.forEach(function (point) {
         var active = point === currentPoint ? ' needs-point-active' : '';
@@ -252,7 +270,9 @@
         sec.lines = [];
         sec.readOnly = isClosedSection(sec);
         renderLines(sec);
-        setStatus(sec, 'Заявки на эту неделю ещё нет.');
+        setStatus(sec, sec.readOnly
+          ? 'Раздел закрыт — правки недоступны.'
+          : 'Заявки на эту неделю ещё нет.');
         return;
       }
       showBanner('Ошибка загрузки заявки: ' + err.message, 'error');
@@ -679,7 +699,9 @@
   /* ── запуск страницы /needs ─────────────────────────────────────── */
 
   loadCatalog().then(function () {
-    if (IS_FULL && boardEl) loadBoard();
+    loadClosures().then(function () {
+      if (IS_FULL && boardEl) loadBoard();
+    });
   });
 
   /* ── страница /needs/analytics ──────────────────────────────────── */

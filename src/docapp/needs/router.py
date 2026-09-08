@@ -133,6 +133,20 @@ def catalog(request: Request):
     return {"bases": catalog_obj.bases(), "groups": catalog_obj.groups()}
 
 
+@router.get("/api/closed")
+def closed_sections(request: Request):
+    """Закрытые разделы недели (nurse+): список {base, category} за неделю.
+
+    Медсестре это нужно, чтобы сразу видеть закрытые разделы (не дожидаясь
+    409 при сохранении). Данные не персональные — только факт закрытия
+    раздела базы, поэтому доступны всем кроме врача.
+    """
+    user = _api_user(request)
+    _require_not_doctor(user)
+    week = request.query_params.get("week") or monday_of_week()
+    return {"closed": _service(request).closed_sections(week), "week": week}
+
+
 # ── заявки ──────────────────────────────────────────────────────────
 
 @router.get("/api/request")

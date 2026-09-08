@@ -310,3 +310,7 @@ class NeedsService:
     def is_closed(self, base: str, category: str, week_start: str | None = None) -> bool:
         """Закрыта ли неделя для базы и раздела (пасс-тру в хранилище)."""
         return self._store.is_closed(base, category, week_start or monday_of_week())
+
+    def closed_sections(self, week_start: str | None = None) -> list[dict]:
+        """Закрытые разделы недели (base, category) — для отображения закрытий."""
+        return self._store.closed_sections(week_start or monday_of_week())

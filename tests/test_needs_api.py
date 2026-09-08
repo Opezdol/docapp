@@ -140,6 +140,32 @@ class TestCatalog:
         assert client.get("/needs/api/catalog").status_code == 403
 
 
+class TestClosedSections:
+    def test_nurse_sees_closed_sections(self, client):
+        # изначально закрытых разделов нет
+        _login(client, "anna", "anna_pass")
+        r = client.get("/needs/api/closed", params={"week": WEEK})
+        assert r.status_code == 200
+        assert r.json()["closed"] == []
+        client.post("/logout")
+
+        # старшая закрывает растворы Ленской
+        _login(client, "elena", "elena_pass")
+        r = client.post("/needs/api/close", json={"base": "Ленская", "category": SOL, "week": WEEK})
+        assert r.status_code == 200
+        client.post("/logout")
+
+        # медсестра сразу видит закрытый раздел (без доски и 409)
+        _login(client, "anna", "anna_pass")
+        r = client.get("/needs/api/closed", params={"week": WEEK})
+        assert r.status_code == 200
+        assert {"base": "Ленская", "category": SOL} in r.json()["closed"]
+
+    def test_closed_forbidden_for_doctor(self, client):
+        _login(client, "ivanov", "secret")
+        assert client.get("/needs/api/closed", params={"week": WEEK}).status_code == 403
+
+
 class TestRequests:
     def test_save_request_with_snapshots(self, client):
         _login(client, "anna", "anna_pass")

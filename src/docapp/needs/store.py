@@ -346,9 +346,18 @@ class SqliteNeedsStore:
         self._conn.commit()
 
     def list_closures(self) -> list[dict]:
-        """Все закрытия недель."""
+        """Все закрытия недель (база, неделя, раздел, кто/когда)."""
         rows = self._conn.execute(
-            "SELECT base, week_start, closed_at, closed_by FROM closures "
-            "ORDER BY base, week_start"
+            "SELECT base, week_start, category, closed_at, closed_by FROM closures "
+            "ORDER BY base, week_start, category"
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def closed_sections(self, week_start: str) -> list[dict]:
+        """Закрытые разделы (base, category) за неделю — для отображения сёстрам."""
+        rows = self._conn.execute(
+            "SELECT base, category FROM closures WHERE week_start = ? "
+            "ORDER BY base, category",
+            (week_start,),
+        ).fetchall()
+        return [{"base": r["base"], "category": r["category"]} for r in rows]
