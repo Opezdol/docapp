@@ -9,7 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from docapp.needs.catalog import SOLUTIONS_GROUP, Catalog, CatalogItem
+from docapp.needs.catalog import (
+    CATEGORY_LABELS,
+    CATEGORY_MEDICAMENTS,
+    CATEGORY_SOLUTIONS,
+    SOLUTIONS_GROUP,
+    Catalog,
+    CatalogItem,
+    category_of,
+)
 
 VALID_YAML = """\
 bases:
@@ -123,6 +131,24 @@ def test_solutions_group_constant(filled_catalog):
     assert {item.name for item in sol} == {"Физ 200/250", "Рингер"}
     assert all(item.group == SOLUTIONS_GROUP for item in sol)
     assert all(item.unit == "фл" for item in sol)
+
+
+def test_category_constants():
+    """Категории разделов: внутренние значения английские, подписи русские."""
+    assert CATEGORY_SOLUTIONS == "solutions"
+    assert CATEGORY_MEDICAMENTS == "medicaments"
+    assert CATEGORY_LABELS == {
+        CATEGORY_SOLUTIONS: "Растворы",
+        CATEGORY_MEDICAMENTS: "Медикаменты",
+    }
+
+
+def test_category_of():
+    """category_of: группа «Растворы» → solutions, всё остальное → medicaments."""
+    assert category_of("Растворы") == CATEGORY_SOLUTIONS
+    assert category_of("Неспецифика") == CATEGORY_MEDICAMENTS
+    assert category_of("Медикаменты") == CATEGORY_MEDICAMENTS
+    assert category_of("") == CATEGORY_MEDICAMENTS  # неизвестная группа — медикаменты
 
 
 def test_seed_catalog_structure():

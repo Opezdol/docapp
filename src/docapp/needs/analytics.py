@@ -18,7 +18,12 @@ period_label, from_week, to_week, group — их xlsx/HTML игнорируют)
 
 from datetime import date, datetime
 
-from docapp.needs.catalog import SOLUTIONS_GROUP, Catalog
+from docapp.needs.catalog import (
+    CATEGORY_MEDICAMENTS,
+    CATEGORY_SOLUTIONS,
+    SOLUTIONS_GROUP,
+    Catalog,
+)
 from docapp.needs.report import aggregate_requests
 
 
@@ -109,8 +114,9 @@ def summarize(
     to_week: str,
     base: str | None = None,
     group: str | None = None,
+    section: str | None = None,
 ) -> dict:
-    """Свод заявок за период недель (ТЗ F8/E): слияние недельных агрегатов.
+    """Свод заявок за период недель (ТЗ F8/E/F11): слияние недельных агрегатов.
 
     requests — уже отфильтрованный по базе/точке/диапазону список заявок
     (роутер возьмёт store.list_range(from_week, to_week, base, point));
@@ -118,8 +124,8 @@ def summarize(
     подписи и выбора точек шапки.
 
     Заявки группируются по (base, week_start); каждая группа проходит
-    aggregate_requests (учитываются только status == 'sent' и строки
-    qty > 0 — черновики отсекаются там же), результаты сливаются:
+    aggregate_requests с category=None (учитываются только status == 'sent'
+    и строки qty > 0 — черновики отсекаются там же), результаты сливаются:
 
       'solutions' — растворы поточково: {препарат: {точка: qty, ...,
           'ИТОГО': сумма за период, 'unit': единица из снимка}}; точки —
@@ -127,6 +133,10 @@ def summarize(
           каталога;
       'groups' — остальные группы суммарно: {группа: {препарат:
           {'unit': единица, 'qty': сумма за период}}}.
+
+    section-фильтр (раздел): section == CATEGORY_SOLUTIONS («растворы») —
+    оставить только 'solutions' (groups={}); section == CATEGORY_MEDICAMENTS
+    («медикаменты») — только 'groups' (solutions={}); None — оба раздела.
 
     group-фильтр: group == SOLUTIONS_GROUP («Растворы») — оставить только
     'solutions' (groups={}); любой другой group — только эта группа в
@@ -136,7 +146,7 @@ def summarize(
     работают без изменений): 'solutions', 'groups', 'points',
     'week_label' (= period_label — подпись периода для шапки отчёта),
     'base', 'generated_at', плюс специфичные для аналитики
-    'period_label', 'from_week', 'to_week', 'group'.
+    'period_label', 'from_week', 'to_week', 'group', 'section'.
 
     Пустой период (нет заявок): пустые solutions/groups; 'points' — все
     точки (базы, если base задан, иначе все базы каталога).
@@ -146,7 +156,7 @@ def summarize(
     for req in requests:
         by_key.setdefault((req.get("base", ""), req.get("week_start", "")), []).append(req)
     aggs = [
-        aggregate_requests(reqs, key_base, key_week, catalog)
+        aggregate_requests(reqs, key_base, None, key_week, catalog)
         for (key_base, key_week), reqs in by_key.items()
     ]
 
@@ -161,6 +171,14 @@ def summarize(
 
     solutions = _merge_solutions(aggs, catalog, points)
     groups = _merge_groups(aggs, catalog)
+
+    # section-фильтр: растворы — только поточковый свод; медикаменты — только
+    # группы; None — оба раздела.
+    if section is not None:
+        if section == CATEGORY_SOLUTIONS:
+            groups = {}
+        elif section == CATEGORY_MEDICAMENTS:
+            solutions = {}
 
     # group-фильтр: «Растворы» — только поточковый свод; иначе одна группа.
     if group is not None:
@@ -180,5 +198,6 @@ def summarize(
         "to_week": to_week,
         "base": base,
         "group": group,
+        "section": section,
         "generated_at": datetime.now().isoformat(),
     }

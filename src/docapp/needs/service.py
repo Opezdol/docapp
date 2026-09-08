@@ -12,7 +12,12 @@
 from datetime import date, timedelta
 
 from docapp.domain.employee import HEAD, HEAD_NURSE, NURSE
-from docapp.needs.catalog import Catalog
+from docapp.needs.catalog import (
+    CATEGORY_MEDICAMENTS,
+    CATEGORY_SOLUTIONS,
+    SOLUTIONS_GROUP,
+    Catalog,
+)
 from docapp.needs.store import SqliteNeedsStore
 
 #: Роли с полными правами в подприложении: доска, правка чужих заявок,
@@ -73,6 +78,33 @@ class NeedsService:
         """Полные права (доска, чужие заявки, закрытие): head_nurse/head."""
         return role in ALLOWED_FULL
 
+    @staticmethod
+    def _validate_category(category: str) -> None:
+        """Раздел обязан быть одним из двух известных; иначе ValueError."""
+        if category not in (CATEGORY_SOLUTIONS, CATEGORY_MEDICAMENTS):
+            raise ValueError(f"Неизвестный раздел: {category}")
+
+    @staticmethod
+    def _validate_lines_section(category: str, snapshots: list[dict]) -> None:
+        """Каждая строка (по снимку grp) должна соответствовать разделу.
+
+        Раздел «растворы» принимает только строки группы «Растворы»,
+        раздел «медикаменты» — только строки остальных групп. Несоответствие
+        бросает ValueError (риск расхождения раздела и строк, ТЗ §7).
+        """
+        for snap in snapshots:
+            grp = snap.get("grp", "")
+            if category == CATEGORY_SOLUTIONS and grp != SOLUTIONS_GROUP:
+                raise ValueError(
+                    f"Строка «{snap['item']}» (группа «{grp or 'Без группы'}») "
+                    f"не относится к разделу «Растворы»"
+                )
+            if category == CATEGORY_MEDICAMENTS and grp == SOLUTIONS_GROUP:
+                raise ValueError(
+                    f"Строка «{snap['item']}» (группа «Растворы») "
+                    f"не относится к разделу «Медикаменты»"
+                )
+
     # ── заявки ────────────────────────────────────────────────────────
 
     def get_for_user(
@@ -81,14 +113,15 @@ class NeedsService:
         role: str,
         base: str,
         point: str,
+        category: str,
         week_start: str,
     ) -> dict | None:
-        """Заявка с учётом прав (ТЗ F4): head_nurse/head — любая.
+        """Заявка раздела с учётом прав (ТЗ F4): head_nurse/head — любая.
 
         Медсестра: своя заявка — как есть; чужая отправленная — как есть;
         чужой черновик — скрыт (None). Заявки нет — None.
         """
-        request = self._store.get_request(base, point, week_start)
+        request = self._store.get_request(base, point, category, week_start)
         if request is None or self._has_full_rights(role):
             return request
         if request["author_id"] == user_id or request["status"] == "sent":
@@ -101,19 +134,22 @@ class NeedsService:
         role: str,
         base: str,
         point: str,
+        category: str,
         week_start: str,
         lines: list[dict],
         status: str = "draft",
     ) -> dict:
-        """Создать или отредактировать заявку; возвращает полную заявку.
+        """Создать или отредактировать заявку раздела; возвращает полную заявку.
 
         Права: автор заявки или роль из ALLOWED_FULL; новая заявка
         создаётся медсестрой или полной ролью. Закрытая неделя — NeedsClosed.
         F9: при правке существующей заявки исходный автор сохраняется
         (store.save_request перезаписывает author_id, поэтому автор
-        вычисляется здесь). Строки проходят _snapshot_lines.
+        вычисляется здесь). Строки проходят _snapshot_lines и проверку
+        соответствия разделу (растворы ↔ группа «Растворы»).
         """
-        existing = self._store.get_request(base, point, week_start)
+        self._validate_category(category)
+        existing = self._store.get_request(base, point, category, week_start)
         if existing is not None:
             # Правка существующей заявки: автор или полная роль (F4, F9).
             if existing["author_id"] != user_id and not self._has_full_rights(role):
@@ -129,15 +165,16 @@ class NeedsService:
                     f"Создание заявки доступно медсестре, старшей сестре или заведующему"
                 )
             author_id = user_id
-        if self._store.is_closed(base, week_start):
+        if self._store.is_closed(base, category, week_start):
             raise NeedsClosed(
                 f"Неделя {week_start} для базы «{base}» закрыта — правки запрещены"
             )
         snapshots = self._snapshot_lines(lines)
+        self._validate_lines_section(category, snapshots)
         self._store.save_request(
-            base, point, week_start, author_id, snapshots, status=status
+            base, point, category, week_start, author_id, snapshots, status=status
         )
-        saved = self._store.get_request(base, point, week_start)
+        saved = self._store.get_request(base, point, category, week_start)
         assert saved is not None  # заявка только что сохранена
         return saved
 
@@ -147,15 +184,16 @@ class NeedsService:
         role: str,
         base: str,
         point: str,
+        category: str,
         week_start: str,
     ) -> dict:
-        """Отправить заявку (статус 'sent'); возвращает заявку и предупреждения.
+        """Отправить заявку раздела (статус 'sent'); возвращает заявку и предупреждения.
 
         Права как у save: автор или ALLOWED_FULL. Закрытая неделя — NeedsClosed.
         Строки с qty == 0 не блокируют отправку (ТЗ F3/F4) — они попадают
         в warnings как 'item: 0'.
         """
-        request = self._store.get_request(base, point, week_start)
+        request = self._store.get_request(base, point, category, week_start)
         if request is None:
             raise NeedsForbidden(
                 f"Заявки {base}/{point} за неделю {week_start} нет — отправлять нечего"
@@ -165,12 +203,12 @@ class NeedsService:
                 f"Отправка чужой заявки ({base}/{point}) разрешена только "
                 f"автору или старшей сестре"
             )
-        if self._store.is_closed(base, week_start):
+        if self._store.is_closed(base, category, week_start):
             raise NeedsClosed(
                 f"Неделя {week_start} для базы «{base}» закрыта — отправка запрещена"
             )
         self._store.set_status(request["id"], "sent")
-        updated = self._store.get_request(base, point, week_start)
+        updated = self._store.get_request(base, point, category, week_start)
         assert updated is not None  # заявка существует — только что обновлена
         warnings = [
             f"{line['item']}: {line['qty']}"
@@ -182,38 +220,43 @@ class NeedsService:
     # ── доска и закрытие недель ───────────────────────────────────────
 
     def board(self, week_start: str | None = None) -> list[dict]:
-        """Доска старшей: каждая точка обеих баз с состоянием заявки.
+        """Доска старшей: каждая точка обеих баз по каждому разделу.
 
-        week_start по умолчанию — понедельник текущей недели. Точка без
-        заявки получает status 'none' и пустые author_id/request_id/updated_at.
+        week_start по умолчанию — понедельник текущей недели. Точка даёт
+        до двух ячеек — по одной на раздел (solutions/medicaments). Точка
+        без заявки раздела получает status 'none' и пустые
+        author_id/request_id/updated_at.
         """
         week_start = week_start or monday_of_week()
         cells: list[dict] = []
         for base, points in self._catalog.bases().items():
             for point in points:
-                request = self._store.get_request(base, point, week_start)
-                if request is None:
-                    cells.append(
-                        {
-                            "base": base,
-                            "point": point,
-                            "status": "none",
-                            "author_id": None,
-                            "request_id": None,
-                            "updated_at": None,
-                        }
-                    )
-                else:
-                    cells.append(
-                        {
-                            "base": base,
-                            "point": point,
-                            "status": request["status"],
-                            "author_id": request["author_id"],
-                            "request_id": request["id"],
-                            "updated_at": request["updated_at"],
-                        }
-                    )
+                for category in (CATEGORY_SOLUTIONS, CATEGORY_MEDICAMENTS):
+                    request = self._store.get_request(base, point, category, week_start)
+                    if request is None:
+                        cells.append(
+                            {
+                                "base": base,
+                                "point": point,
+                                "category": category,
+                                "status": "none",
+                                "author_id": None,
+                                "request_id": None,
+                                "updated_at": None,
+                            }
+                        )
+                    else:
+                        cells.append(
+                            {
+                                "base": base,
+                                "point": point,
+                                "category": category,
+                                "status": request["status"],
+                                "author_id": request["author_id"],
+                                "request_id": request["id"],
+                                "updated_at": request["updated_at"],
+                            }
+                        )
         return cells
 
     def close(
@@ -221,27 +264,29 @@ class NeedsService:
         user_id: int,
         role: str,
         base: str,
+        category: str,
         week_start: str | None = None,
     ) -> dict:
-        """Закрыть неделю для базы (только head_nurse/head).
+        """Закрыть неделю для базы и раздела (только head_nurse/head).
 
         Неотправленные точки не блокируют закрытие (ТЗ A2) — они
-        возвращаются в 'unsent_points' как предупреждение.
+        возвращаются в 'unsent_points' как предупреждение (по разделу).
         """
         if not self._has_full_rights(role):
             raise NeedsForbidden(
                 f"Закрытие недели доступно только старшей сестре или заведующему"
             )
+        self._validate_category(category)
         week_start = week_start or monday_of_week()
         sent_points = {
             req["point"]
-            for req in self._store.list_requests(base, week_start)
+            for req in self._store.list_requests(base, category, week_start)
             if req["status"] == "sent"
         }
         unsent_points = [
             point for point in self._catalog.points(base) if point not in sent_points
         ]
-        self._store.close(base, week_start, user_id)
+        self._store.close(base, category, week_start, user_id)
         return {"closed": True, "unsent_points": unsent_points}
 
     def reopen(
@@ -249,17 +294,19 @@ class NeedsService:
         user_id: int,
         role: str,
         base: str,
+        category: str,
         week_start: str | None = None,
     ) -> dict:
-        """Переоткрыть неделю для базы (только head_nurse/head)."""
+        """Переоткрыть неделю для базы и раздела (только head_nurse/head)."""
         if not self._has_full_rights(role):
             raise NeedsForbidden(
                 f"Переоткрытие недели доступно только старшей сестре или заведующему"
             )
+        self._validate_category(category)
         week_start = week_start or monday_of_week()
-        self._store.reopen(base, week_start)
+        self._store.reopen(base, category, week_start)
         return {"reopened": True}
 
-    def is_closed(self, base: str, week_start: str | None = None) -> bool:
-        """Закрыта ли неделя для базы (пасс-тру в хранилище)."""
-        return self._store.is_closed(base, week_start or monday_of_week())
+    def is_closed(self, base: str, category: str, week_start: str | None = None) -> bool:
+        """Закрыта ли неделя для базы и раздела (пасс-тру в хранилище)."""
+        return self._store.is_closed(base, category, week_start or monday_of_week())

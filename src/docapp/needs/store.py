@@ -18,11 +18,12 @@ CREATE TABLE IF NOT EXISTS requests (
     base TEXT NOT NULL,
     point TEXT NOT NULL,
     week_start TEXT NOT NULL,
+    category TEXT NOT NULL,
     author_id INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'draft',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    UNIQUE (base, point, week_start)
+    UNIQUE (base, point, week_start, category)
 );
 CREATE TABLE IF NOT EXISTS request_lines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,9 +37,10 @@ CREATE INDEX IF NOT EXISTS idx_lines_req ON request_lines(request_id);
 CREATE TABLE IF NOT EXISTS closures (
     base TEXT NOT NULL,
     week_start TEXT NOT NULL,
+    category TEXT NOT NULL,
     closed_at TEXT NOT NULL,
     closed_by INTEGER NOT NULL,
-    PRIMARY KEY (base, week_start)
+    PRIMARY KEY (base, week_start, category)
 );
 """
 
@@ -64,11 +66,62 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
 
 # Версия схемы БД потребностей. Увеличивайте при изменении схемы
 # и добавляйте миграцию в _MIGRATIONS.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Миграции: (версия_после_применения, название, [SQL...])
 _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     # (1, "initial schema", [])
+    # v2: колонка `category` в requests и closures (разделы растворы/медикаменты).
+    # SQLite не меняет UNIQUE/PK через ALTER — пересборка таблиц
+    # (прецедент: пересборка таблицы anesthesia в sqlite_store.py).
+    # Пересборка идёт через RENAME/создание/копирование, чтобы сохранить
+    # строки request_lines (их FK на requests переключается без потери данных,
+    # foreign_keys остаётся ON — DROP родителя не каскадит строки).
+    # Категория заявки выводится по её строкам: есть строка grp='Растворы' —
+    # solutions, иначе medicaments. Старые закрытия дублируются на оба раздела.
+    (
+        2,
+        "add category column to requests and closures",
+        [
+            "ALTER TABLE requests RENAME TO requests_v1",
+            "CREATE TABLE requests ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "base TEXT NOT NULL, point TEXT NOT NULL, week_start TEXT NOT NULL, "
+            "category TEXT NOT NULL, author_id INTEGER NOT NULL, "
+            "status TEXT NOT NULL DEFAULT 'draft', created_at TEXT NOT NULL, "
+            "updated_at TEXT NOT NULL, "
+            "UNIQUE (base, point, week_start, category))",
+            "INSERT INTO requests "
+            "(id, base, point, week_start, category, author_id, status, created_at, updated_at) "
+            "SELECT id, base, point, week_start, "
+            "CASE WHEN EXISTS (SELECT 1 FROM request_lines l "
+            "WHERE l.request_id = requests_v1.id AND l.grp = 'Растворы') "
+            "THEN 'solutions' ELSE 'medicaments' END, "
+            "author_id, status, created_at, updated_at FROM requests_v1",
+            "ALTER TABLE request_lines RENAME TO request_lines_v1",
+            "DROP INDEX idx_lines_req",
+            "CREATE TABLE request_lines ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "request_id INTEGER NOT NULL REFERENCES requests(id) ON DELETE CASCADE, "
+            "item TEXT NOT NULL, unit TEXT NOT NULL DEFAULT '', "
+            "grp TEXT NOT NULL DEFAULT '', qty INTEGER NOT NULL DEFAULT 0)",
+            "CREATE INDEX idx_lines_req ON request_lines(request_id)",
+            "INSERT INTO request_lines (id, request_id, item, unit, grp, qty) "
+            "SELECT id, request_id, item, unit, grp, qty FROM request_lines_v1",
+            "DROP TABLE request_lines_v1",
+            "DROP TABLE requests_v1",
+            "CREATE TABLE closures_new ("
+            "base TEXT NOT NULL, week_start TEXT NOT NULL, category TEXT NOT NULL, "
+            "closed_at TEXT NOT NULL, closed_by INTEGER NOT NULL, "
+            "PRIMARY KEY (base, week_start, category))",
+            "INSERT INTO closures_new (base, week_start, category, closed_at, closed_by) "
+            "SELECT base, week_start, 'solutions', closed_at, closed_by FROM closures",
+            "INSERT INTO closures_new (base, week_start, category, closed_at, closed_by) "
+            "SELECT base, week_start, 'medicaments', closed_at, closed_by FROM closures",
+            "DROP TABLE closures",
+            "ALTER TABLE closures_new RENAME TO closures",
+        ],
+    ),
 ]
 
 
@@ -139,6 +192,7 @@ class SqliteNeedsStore:
             "base": row["base"],
             "point": row["point"],
             "week_start": row["week_start"],
+            "category": row["category"],
             "author_id": row["author_id"],
             "status": row["status"],
             "created_at": row["created_at"],
@@ -148,11 +202,12 @@ class SqliteNeedsStore:
 
     # ── заявки ────────────────────────────────────────────────────────
 
-    def get_request(self, base: str, point: str, week_start: str) -> dict | None:
-        """Заявка по (base, point, week_start) или None."""
+    def get_request(self, base: str, point: str, category: str, week_start: str) -> dict | None:
+        """Заявка по (base, point, week_start, category) или None."""
         row = self._conn.execute(
-            "SELECT * FROM requests WHERE base = ? AND point = ? AND week_start = ?",
-            (base, point, week_start),
+            "SELECT * FROM requests "
+            "WHERE base = ? AND point = ? AND week_start = ? AND category = ?",
+            (base, point, week_start, category),
         ).fetchone()
         return self._row_to_request(row) if row else None
 
@@ -160,12 +215,13 @@ class SqliteNeedsStore:
         self,
         base: str,
         point: str,
+        category: str,
         week_start: str,
         author_id: int,
         lines: list[dict],
         status: str = "draft",
     ) -> int:
-        """Создать или обновить заявку (upsert по UNIQUE(base, point, week_start)).
+        """Создать или обновить заявку (upsert по UNIQUE(base, point, week_start, category)).
 
         Существующая запись обновляется (author_id, status, updated_at),
         её строки ЗАМЕНЯЮТСЯ (DELETE + INSERT). Возвращает id заявки.
@@ -173,8 +229,9 @@ class SqliteNeedsStore:
         self._validate_lines(lines)
         now = _now()
         existing = self._conn.execute(
-            "SELECT id FROM requests WHERE base = ? AND point = ? AND week_start = ?",
-            (base, point, week_start),
+            "SELECT id FROM requests "
+            "WHERE base = ? AND point = ? AND week_start = ? AND category = ?",
+            (base, point, week_start, category),
         ).fetchone()
         if existing:
             request_id = existing["id"]
@@ -189,9 +246,9 @@ class SqliteNeedsStore:
         else:
             cur = self._conn.execute(
                 "INSERT INTO requests "
-                "(base, point, week_start, author_id, status, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (base, point, week_start, author_id, status, now, now),
+                "(base, point, week_start, category, author_id, status, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (base, point, week_start, category, author_id, status, now, now),
             )
             request_id = cur.lastrowid
             assert request_id is not None  # INSERT только что прошёл
@@ -220,12 +277,12 @@ class SqliteNeedsStore:
         )
         self._conn.commit()
 
-    def list_requests(self, base: str, week_start: str) -> list[dict]:
-        """Все заявки базы за неделю (с lines)."""
+    def list_requests(self, base: str, category: str, week_start: str) -> list[dict]:
+        """Все заявки базы и раздела за неделю (с lines)."""
         rows = self._conn.execute(
-            "SELECT * FROM requests WHERE base = ? AND week_start = ? "
+            "SELECT * FROM requests WHERE base = ? AND week_start = ? AND category = ? "
             "ORDER BY point, id",
-            (base, week_start),
+            (base, week_start, category),
         ).fetchall()
         return [self._row_to_request(r) for r in rows]
 
@@ -262,28 +319,29 @@ class SqliteNeedsStore:
 
     # ── закрытия недель ───────────────────────────────────────────────
 
-    def close(self, base: str, week_start: str, closed_by: int) -> None:
-        """Закрыть неделю для базы (INSERT OR REPLACE, актуальное время)."""
+    def close(self, base: str, category: str, week_start: str, closed_by: int) -> None:
+        """Закрыть неделю для базы и раздела (INSERT OR REPLACE, актуальное время)."""
         self._conn.execute(
-            "INSERT OR REPLACE INTO closures (base, week_start, closed_at, closed_by) "
-            "VALUES (?, ?, ?, ?)",
-            (base, week_start, _now(), closed_by),
+            "INSERT OR REPLACE INTO closures "
+            "(base, week_start, category, closed_at, closed_by) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (base, week_start, category, _now(), closed_by),
         )
         self._conn.commit()
 
-    def is_closed(self, base: str, week_start: str) -> bool:
-        """Закрыта ли неделя для базы."""
+    def is_closed(self, base: str, category: str, week_start: str) -> bool:
+        """Закрыта ли неделя для базы и раздела."""
         row = self._conn.execute(
-            "SELECT 1 FROM closures WHERE base = ? AND week_start = ?",
-            (base, week_start),
+            "SELECT 1 FROM closures WHERE base = ? AND week_start = ? AND category = ?",
+            (base, week_start, category),
         ).fetchone()
         return row is not None
 
-    def reopen(self, base: str, week_start: str) -> None:
-        """Открыть неделю заново (удалить закрытие)."""
+    def reopen(self, base: str, category: str, week_start: str) -> None:
+        """Открыть неделю заново для базы и раздела (удалить закрытие)."""
         self._conn.execute(
-            "DELETE FROM closures WHERE base = ? AND week_start = ?",
-            (base, week_start),
+            "DELETE FROM closures WHERE base = ? AND week_start = ? AND category = ?",
+            (base, week_start, category),
         )
         self._conn.commit()
 

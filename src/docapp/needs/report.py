@@ -18,7 +18,12 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
-from docapp.needs.catalog import SOLUTIONS_GROUP, Catalog
+from docapp.needs.catalog import (
+    CATEGORY_MEDICAMENTS,
+    CATEGORY_SOLUTIONS,
+    SOLUTIONS_GROUP,
+    Catalog,
+)
 
 #: Отображаемое имя секции для строк, чья снимковая группа пуста (препарата
 #: нет в каталоге на момент сохранения). Используется только в .xlsx/HTML;
@@ -51,12 +56,17 @@ def _group_of(catalog: Catalog, item: str) -> str:
 
 
 def aggregate_requests(
-    requests: list[dict], base: str, week_start: str, catalog: Catalog
+    requests: list[dict], base: str, category: str | None, week_start: str, catalog: Catalog
 ) -> dict:
-    """Агрегировать заявки базы за неделю в отчёт-форму для аптеки (ТЗ F7).
+    """Агрегировать заявки базы за неделю в отчёт-форму для аптеки (ТЗ F7/F9).
 
     Учитываются только заявки со status == 'sent' (и base == base) и строки
     с qty > 0; строки без количества и черновики в отчёт не попадают.
+
+    Параметр category — раздел отчёта: CATEGORY_SOLUTIONS («растворы») —
+    только поточковый свод (groups пусто); CATEGORY_MEDICAMENTS
+    («медикаменты») — только свод по группам (solutions пусто); None — оба
+    раздела (аналитика «Все»).
 
     'solutions' — особая группа SOLUTIONS_GROUP поточково:
         {препарат: {точка: qty, ..., 'ИТОГО': сумма, 'unit': единица из снимка}}.
@@ -138,6 +148,13 @@ def aggregate_requests(
             ordered.setdefault(name, entry)
         groups[group] = ordered
 
+    # Раздел отчёта: растворы — только поточковый свод, медикаменты — только
+    # группы, None — оба (аналитика «Все»).
+    if category == CATEGORY_SOLUTIONS:
+        groups = {}
+    elif category == CATEGORY_MEDICAMENTS:
+        solutions = {}
+
     return {
         "solutions": solutions,
         "groups": groups,
@@ -152,48 +169,56 @@ def aggregate_requests(
 def build_xlsx(agg: dict) -> bytes:
     """Собрать .xlsx отчёта (openpyxl) и вернуть bytes.
 
-    Лист «Растворы»: шапка (база, неделя, дата формирования), затем таблица
-    «Раствор | Ед. | <точки> | ИТОГО». Лист «Потребность»: секции по группам
-    (заголовок жирным), строки «препарат | unit | qty», подытог
-    «Итого по группе: N». Жирные заголовки и разумные ширины — без излишеств.
+    Рендерит ровно те секции, что есть в агрегате: непустые 'solutions' —
+    лист «Растворы» (шапка база/неделя/дата, таблица
+    «Раствор | Ед. | <точки> | ИТОГО»); непустые 'groups' — лист
+    «Медикаменты» (секции по группам с подытогом «Итого по группе: N»);
+    оба — два листа. Жирные заголовки и разумные ширины — без излишеств.
     """
     wb = Workbook()
     bold = Font(bold=True)
 
-    # ── лист «Растворы»: препарат × точки + ИТОГО ─────────────────────
-    ws = wb.active
-    assert ws is not None  # свежий Workbook всегда с активным листом
-    ws.title = "Растворы"
-    ws.append([f"База: {agg['base']}"])
-    ws.append([f"Неделя: {agg['week_label']}"])
-    ws.append([f"Сформирован: {agg['generated_at']}"])
-    ws.append([])  # разделитель между шапкой и таблицей
-    points = agg["points"]
-    ws.append(["Раствор", "Ед."] + points + ["ИТОГО"])
-    for cell in ws[ws.max_row]:
-        cell.font = bold
-    for item, row in agg["solutions"].items():
-        ws.append(
-            [item, row.get("unit", "")]
-            + [row.get(point, 0) for point in points]
-            + [row["ИТОГО"]]
-        )
-    widths = [32, 8] + [max(12, len(point) + 2) for point in points] + [10]
-    for idx, width in enumerate(widths, start=1):
-        ws.column_dimensions[get_column_letter(idx)].width = width
+    sections: list[tuple[str, str]] = []
+    if agg["solutions"]:
+        sections.append(("Растворы", "solutions"))
+    if agg["groups"]:
+        sections.append(("Медикаменты", "groups"))
 
-    # ── лист «Потребность»: секции групп с подытогом ──────────────────
-    ws2 = wb.create_sheet("Потребность")
-    for group, items in agg["groups"].items():
-        ws2.append([group or UNKNOWN_GROUP_LABEL])
-        ws2[ws2.max_row][0].font = bold
-        for item, entry in items.items():
-            ws2.append([item, entry["unit"], entry["qty"]])
-        total = sum(entry["qty"] for entry in items.values())
-        ws2.append([f"Итого по группе: {total}"])
-    ws2.column_dimensions["A"].width = 32
-    ws2.column_dimensions["B"].width = 8
-    ws2.column_dimensions["C"].width = 12
+    first = True
+    for title, kind in sections:
+        ws = wb.active if first else wb.create_sheet(title)
+        assert ws is not None  # активный/созданный лист всегда есть
+        ws.title = title
+        if kind == "solutions":
+            ws.append([f"База: {agg['base']}"])
+            ws.append([f"Неделя: {agg['week_label']}"])
+            ws.append([f"Сформирован: {agg['generated_at']}"])
+            ws.append([])  # разделитель между шапкой и таблицей
+            points = agg["points"]
+            ws.append(["Раствор", "Ед."] + points + ["ИТОГО"])
+            for cell in ws[ws.max_row]:
+                cell.font = bold
+            for item, row in agg["solutions"].items():
+                ws.append(
+                    [item, row.get("unit", "")]
+                    + [row.get(point, 0) for point in points]
+                    + [row["ИТОГО"]]
+                )
+            widths = [32, 8] + [max(12, len(point) + 2) for point in points] + [10]
+            for idx, width in enumerate(widths, start=1):
+                ws.column_dimensions[get_column_letter(idx)].width = width
+        else:
+            for group, items in agg["groups"].items():
+                ws.append([group or UNKNOWN_GROUP_LABEL])
+                ws[ws.max_row][0].font = bold
+                for item, entry in items.items():
+                    ws.append([item, entry["unit"], entry["qty"]])
+                total = sum(entry["qty"] for entry in items.values())
+                ws.append([f"Итого по группе: {total}"])
+            ws.column_dimensions["A"].width = 32
+            ws.column_dimensions["B"].width = 8
+            ws.column_dimensions["C"].width = 12
+        first = False
 
     buffer = BytesIO()
     wb.save(buffer)
@@ -215,28 +240,29 @@ def html_table(agg: dict) -> str:
     lines: list[str] = []
     points = agg["points"]
 
-    # Растворы: таблица препарат × точки + ИТОГО.
-    lines.append('<h3 class="report-group">Растворы</h3>')
-    lines.append('<div class="table-wrap">')
-    lines.append('<table class="needs-table report-table">')
-    lines.append("<thead><tr>")
-    lines.append('<th class="report-name">Раствор</th><th class="report-unit">Ед.</th>')
-    for point in points:
-        lines.append(f'<th class="report-num">{html.escape(point)}</th>')
-    lines.append('<th class="report-num">ИТОГО</th>')
-    lines.append("</tr></thead><tbody>")
-    for item, row in agg["solutions"].items():
-        lines.append(
-            f'<tr><td class="report-name">{html.escape(item)}</td>'
-            f'<td class="report-unit">{html.escape(row.get("unit", ""))}</td>'
-        )
+    # Растворы: таблица препарат × точки + ИТОГО (только если секция непуста).
+    if agg["solutions"]:
+        lines.append('<h3 class="report-group">Растворы</h3>')
+        lines.append('<div class="table-wrap">')
+        lines.append('<table class="needs-table report-table">')
+        lines.append("<thead><tr>")
+        lines.append('<th class="report-name">Раствор</th><th class="report-unit">Ед.</th>')
         for point in points:
-            lines.append(f'<td class="report-num">{row.get(point, 0)}</td>')
-        lines.append(f'<td class="report-num report-total">{row["ИТОГО"]}</td></tr>')
-    lines.append("</tbody></table>")
-    lines.append("</div>")
+            lines.append(f'<th class="report-num">{html.escape(point)}</th>')
+        lines.append('<th class="report-num">ИТОГО</th>')
+        lines.append("</tr></thead><tbody>")
+        for item, row in agg["solutions"].items():
+            lines.append(
+                f'<tr><td class="report-name">{html.escape(item)}</td>'
+                f'<td class="report-unit">{html.escape(row.get("unit", ""))}</td>'
+            )
+            for point in points:
+                lines.append(f'<td class="report-num">{row.get(point, 0)}</td>')
+            lines.append(f'<td class="report-num report-total">{row["ИТОГО"]}</td></tr>')
+        lines.append("</tbody></table>")
+        lines.append("</div>")
 
-    # Остальные группы: секции с подытогом.
+    # Остальные группы: секции с подытогом (только если секция непуста).
     for group, items in agg["groups"].items():
         lines.append(f'<h3 class="report-group">{html.escape(group or UNKNOWN_GROUP_LABEL)}</h3>')
         lines.append('<div class="table-wrap">')

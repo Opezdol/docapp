@@ -28,6 +28,7 @@ import docapp.web.app
 from docapp.config import git_revision
 from docapp.domain.employee import DOCTOR, Employee
 from docapp.needs.analytics import summarize
+from docapp.needs.catalog import CATEGORY_LABELS, CATEGORY_MEDICAMENTS, CATEGORY_SOLUTIONS
 from docapp.needs.report import aggregate_requests, build_xlsx, html_table
 from docapp.needs.service import (
     ALLOWED_FULL,
@@ -65,6 +66,16 @@ def _content_disposition(filename: str) -> str:
     except UnicodeEncodeError:
         return f"attachment; filename*=UTF-8''{quote(name)}"
     return f'attachment; filename="{name}"'
+
+
+def _valid_category(value: str | None, *, param: str = "category") -> str:
+    """Проверить обязательный параметр раздела; невалидный — HTTP 400."""
+    if value in (CATEGORY_SOLUTIONS, CATEGORY_MEDICAMENTS):
+        return value
+    raise HTTPException(
+        status_code=400,
+        detail=f"Параметр {param} должен быть 'solutions' или 'medicaments'",
+    )
 
 
 # ── проверка ролей ──────────────────────────────────────────────────
@@ -126,20 +137,21 @@ def catalog(request: Request):
 
 @router.get("/api/request")
 def get_request(request: Request):
-    """Заявка точки за неделю с учётом прав (nurse+): 404, если недоступна.
+    """Заявка точки раздела за неделю с учётом прав (nurse+): 404, если недоступна.
 
     Медсестра видит свою заявку и чужие отправленные; чужой черновик
-    скрыт (404). head_nurse/head видят любую.
+    скрыт (404). head_nurse/head видят любую. Обязателен параметр category.
     """
     user = _api_user(request)
     _require_not_doctor(user)
     params = request.query_params
     base = params.get("base") or ""
     point = params.get("point") or ""
+    category = _valid_category(params.get("category"))
     if not base or not point:
         raise HTTPException(status_code=400, detail="Параметры base и point обязательны")
     week = params.get("week") or monday_of_week()
-    result = _service(request).get_for_user(user.id, user.role, base, point, week)
+    result = _service(request).get_for_user(user.id, user.role, base, point, category, week)
     if result is None:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
     return result
@@ -147,9 +159,9 @@ def get_request(request: Request):
 
 @router.post("/api/request")
 async def save_request(request: Request):
-    """Создать или отредактировать заявку (nurse+): снимки unit/grp из каталога.
+    """Создать или отредактировать заявку раздела (nurse+): снимки unit/grp из каталога.
 
-    Тело: {base, point, week?, lines: [{item, qty}], status?}. Ответ —
+    Тело: {base, point, category, week?, lines: [{item, qty}], status?}. Ответ —
     {"request": {...}} с полной заявкой (строки со снимками unit/grp).
     NeedsForbidden → 403, NeedsClosed → 409, ValueError → 400.
     """
@@ -160,12 +172,13 @@ async def save_request(request: Request):
     point = str(body.get("point") or "")
     if not base or not point:
         return JSONResponse({"error": "base и point обязательны"}, status_code=400)
+    category = _valid_category(body.get("category"))
     week = body.get("week") or monday_of_week()
     lines = body.get("lines") or []
     status = body.get("status") or "draft"
     try:
         saved = _service(request).save(
-            user.id, user.role, base, point, week, lines, status=status
+            user.id, user.role, base, point, category, week, lines, status=status
         )
     except NeedsForbidden as exc:
         return JSONResponse({"error": str(exc)}, status_code=403)
@@ -178,7 +191,7 @@ async def save_request(request: Request):
 
 @router.post("/api/request/submit")
 async def submit_request(request: Request):
-    """Отправить заявку (nurse+): статус 'sent' + предупреждения о нулевых строках.
+    """Отправить заявку раздела (nurse+): статус 'sent' + предупреждения о нулевых строках.
 
     Ответ — {"request": {...}, "warnings": [...]}. NeedsForbidden → 403,
     NeedsClosed → 409, ValueError → 400.
@@ -190,9 +203,10 @@ async def submit_request(request: Request):
     point = str(body.get("point") or "")
     if not base or not point:
         return JSONResponse({"error": "base и point обязательны"}, status_code=400)
+    category = _valid_category(body.get("category"))
     week = body.get("week") or monday_of_week()
     try:
-        result = _service(request).submit(user.id, user.role, base, point, week)
+        result = _service(request).submit(user.id, user.role, base, point, category, week)
     except NeedsForbidden as exc:
         return JSONResponse({"error": str(exc)}, status_code=403)
     except NeedsClosed as exc:
@@ -206,11 +220,11 @@ async def submit_request(request: Request):
 
 @router.get("/api/board")
 def board(request: Request):
-    """Доска старшей: все точки обеих баз со статусом, автором и закрытием недели.
+    """Доска старшей: все точки обеих баз по разделам со статусом, автором и закрытием.
 
     Только head_nurse/head. К ячейкам service.board добавлены author_name
-    (ФИО автора заявки из employees или None) и is_closed (закрыта ли
-    неделя для базы).
+    (ФИО автора заявки из employees или None) и is_closed (закрыт ли
+    раздел базы: (base, category)).
     """
     user = _api_user(request)
     _require_full(user)
@@ -222,22 +236,23 @@ def board(request: Request):
         author_id = cell["author_id"]
         author = employees.get_by_id(author_id) if author_id is not None else None
         cell["author_name"] = author.full_name if author else None
-        cell["is_closed"] = service.is_closed(cell["base"], week)
+        cell["is_closed"] = service.is_closed(cell["base"], cell["category"], week)
     return {"board": cells, "week": week}
 
 
 @router.post("/api/close")
 async def close_week(request: Request):
-    """Закрыть неделю для базы (только head_nurse/head): 200 или 403."""
+    """Закрыть неделю для базы и раздела (только head_nurse/head): 200 или 403."""
     user = _api_user(request)
     _require_full(user)
     body = await request.json()
     base = str(body.get("base") or "")
     if not base:
         return JSONResponse({"error": "base обязателен"}, status_code=400)
+    category = _valid_category(body.get("category"))
     week = body.get("week") or monday_of_week()
     try:
-        result = _service(request).close(user.id, user.role, base, week)
+        result = _service(request).close(user.id, user.role, base, category, week)
     except NeedsForbidden as exc:
         return JSONResponse({"error": str(exc)}, status_code=403)
     return result
@@ -245,16 +260,17 @@ async def close_week(request: Request):
 
 @router.post("/api/reopen")
 async def reopen_week(request: Request):
-    """Переоткрыть неделю для базы (только head_nurse/head): 200 или 403."""
+    """Переоткрыть неделю для базы и раздела (только head_nurse/head): 200 или 403."""
     user = _api_user(request)
     _require_full(user)
     body = await request.json()
     base = str(body.get("base") or "")
     if not base:
         return JSONResponse({"error": "base обязателен"}, status_code=400)
+    category = _valid_category(body.get("category"))
     week = body.get("week") or monday_of_week()
     try:
-        result = _service(request).reopen(user.id, user.role, base, week)
+        result = _service(request).reopen(user.id, user.role, base, category, week)
     except NeedsForbidden as exc:
         return JSONResponse({"error": str(exc)}, status_code=403)
     return result
@@ -262,25 +278,26 @@ async def reopen_week(request: Request):
 
 # ── отчёт-форма для аптеки ──────────────────────────────────────────
 
-def _report_agg(request: Request) -> dict:
-    """Агрегат отчёта по базе за неделю (только отправленные заявки)."""
+def _report_agg(request: Request) -> tuple[dict, str]:
+    """Агрегат отчёта по базе и разделу за неделю (только отправленные заявки)."""
     base = request.query_params.get("base") or ""
     if not base:
         raise HTTPException(status_code=400, detail="Параметр base обязателен")
+    category = _valid_category(request.query_params.get("category"))
     week = request.query_params.get("week") or monday_of_week()
     state = request.app.state.needs
-    requests = state["store"].list_requests(base, week)
-    return aggregate_requests(requests, base, week, state["catalog"])
+    requests = state["store"].list_requests(base, category, week)
+    return aggregate_requests(requests, base, category, week, state["catalog"]), category
 
 
 @router.get("/report", response_class=HTMLResponse)
 def report_page(request: Request):
-    """Отчёт-форма для аптеки по базе за неделю: HTML-таблица (head_nurse/head)."""
+    """Отчёт-форма для аптеки по базе и разделу за неделю: HTML (head_nurse/head)."""
     user = docapp.web.app.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_full(user)
-    agg = _report_agg(request)
+    agg, _ = _report_agg(request)
     return TEMPLATES.TemplateResponse(
         request,
         "report.html",
@@ -290,13 +307,14 @@ def report_page(request: Request):
 
 @router.get("/report.xlsx")
 def report_xlsx(request: Request):
-    """Отчёт-форма для аптеки: .xlsx (два листа) для скачивания (head_nurse/head)."""
+    """Отчёт-форма для аптеки: .xlsx раздела для скачивания (head_nurse/head)."""
     user = docapp.web.app.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_full(user)
-    agg = _report_agg(request)
-    filename = f"потребности-{agg['base']}-{agg['week_start']}.xlsx"
+    agg, category = _report_agg(request)
+    label = CATEGORY_LABELS[category]
+    filename = f"потребности-{label}-{agg['base']}-{agg['week_start']}.xlsx"
     return Response(
         content=build_xlsx(agg),
         media_type=XLSX_MEDIA_TYPE,
@@ -306,19 +324,26 @@ def report_xlsx(request: Request):
 
 # ── аналитика ───────────────────────────────────────────────────────
 
-def _analytics_params(request: Request) -> tuple[str, str, str | None, str | None, str | None]:
-    """Параметры аналитики: from/to обязательны, base/point/group — опциональны."""
+def _analytics_params(request: Request) -> tuple[str, str, str | None, str | None, str | None, str | None]:
+    """Параметры аналитики: from/to обязательны, base/point/group/section — опциональны."""
     params = request.query_params
     from_week = params.get("from") or ""
     to_week = params.get("to") or ""
     if not from_week or not to_week:
         raise HTTPException(status_code=400, detail="Параметры from и to обязательны")
+    section = params.get("section") or None
+    if section is not None and section not in (CATEGORY_SOLUTIONS, CATEGORY_MEDICAMENTS):
+        raise HTTPException(
+            status_code=400,
+            detail="Параметр section должен быть 'solutions' или 'medicaments'",
+        )
     return (
         from_week,
         to_week,
         params.get("base") or None,
         params.get("point") or None,
         params.get("group") or None,
+        section,
     )
 
 
@@ -339,10 +364,12 @@ def analytics(request: Request):
     """Свод заявок за период недель (только head_nurse/head): solutions/groups."""
     user = _api_user(request)
     _require_full(user)
-    from_week, to_week, base, point, group = _analytics_params(request)
+    from_week, to_week, base, point, group, section = _analytics_params(request)
     state = request.app.state.needs
     requests = state["store"].list_range(from_week, to_week, base, point)
-    return summarize(requests, state["catalog"], from_week, to_week, base, group)
+    return summarize(
+        requests, state["catalog"], from_week, to_week, base, group, section
+    )
 
 
 @router.get("/api/analytics.xlsx")
@@ -352,10 +379,12 @@ def analytics_xlsx(request: Request):
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_full(user)
-    from_week, to_week, base, point, group = _analytics_params(request)
+    from_week, to_week, base, point, group, section = _analytics_params(request)
     state = request.app.state.needs
     requests = state["store"].list_range(from_week, to_week, base, point)
-    summary = summarize(requests, state["catalog"], from_week, to_week, base, group)
+    summary = summarize(
+        requests, state["catalog"], from_week, to_week, base, group, section
+    )
     filename = f"потребности-аналитика-{from_week}-{to_week}.xlsx"
     return Response(
         content=build_xlsx(summary),

@@ -12,17 +12,21 @@ create_app(db_path, secret). Никаких внешних вызовов: вс�
 (function-scoped, как в test_needs_api.py); каждый сценарий сам сидит свои
 данные через API и не зависит от остальных.
 
-Сценарии (по ТЗ-потребности и ADR-11):
-  a) полный цикл: черновик медсестры со снимками unit/grp → отправка
-     (warnings пусты) → доска старшей (status/author_name/is_closed) →
-     закрытие недели с unsent_points;
-  b) отчёт-форма после закрытия: .xlsx (сигнатура PK) и HTML с препаратом;
-  c) закрытая неделя: правки и отправка — 409;
-  d) переоткрытие недели: правка снова возможна, повторное закрытие;
+Заявки раздельные по разделу (category: solutions/medicaments).
+
+Сценарии (по ТЗ-растворы-медикаменты и ADR-11):
+  a) полный цикл: черновик медсестры со снимками unit/grp (по разделу) →
+     отправка → доска старшей (status/author_name/is_closed по разделу) →
+     закрытие раздела с unsent_points;
+  b) отчёт-форма по разделу: .xlsx (сигнатура PK) и HTML;
+  c) закрытый раздел: правки и отправка — 409;
+  d) переоткрытие раздела: правка снова возможна, повторное закрытие;
   e) врач: 403 на страницу, заявки и отчёт;
   f) «Компендиум»: медсестре — 403, старшей сестре — 200;
   g) аналитика: solutions (растворы поточково) и groups за период;
-  h) меню по ролям: «Потребности»/«Компендиум» в зависимости от роли.
+  h) меню по ролям: «Потребности»/«Компендиум» в зависимости от роли;
+  i) разделы независимы: отправка/закрытие/отчёт одного раздела не трогает
+     другой.
 """
 
 import pytest
@@ -30,11 +34,15 @@ from fastapi.testclient import TestClient
 
 from docapp.auth.passwords import hash_password
 from docapp.domain.employee import DOCTOR, HEAD, HEAD_NURSE, NURSE, Employee
+from docapp.needs.catalog import CATEGORY_MEDICAMENTS, CATEGORY_SOLUTIONS
 from docapp.storage.sqlite_store import SqliteEmployeeStore
 from docapp.web.app import create_app
 
 #: Фиксированная неделя (понедельник) для всех запросов тестов.
 WEEK = "2026-08-10"
+
+SOL = CATEGORY_SOLUTIONS
+MED = CATEGORY_MEDICAMENTS
 
 #: Временный каталог: две базы по две точки, группы Неспецифика/Медикаменты/Растворы.
 CATALOG_YAML = """\
@@ -126,54 +134,69 @@ def _logout(client):
     client.post("/logout")
 
 
-def _nurse_creates_and_submits(client, base, point, lines):
-    """Медсестра создаёт заявку и отправляет её (вспомогательный сид данных)."""
+def _nurse_creates_and_submits(client, base, point, category, lines):
+    """Медсестра создаёт заявку раздела и отправляет её (вспомогательный сид данных)."""
     _login(client, "anna", "anna_pass")
     r = client.post(
         "/needs/api/request",
-        json={"base": base, "point": point, "week": WEEK, "lines": lines},
+        json={"base": base, "point": point, "category": category, "week": WEEK, "lines": lines},
     )
     assert r.status_code == 200
     r = client.post(
         "/needs/api/request/submit",
-        json={"base": base, "point": point, "week": WEEK},
+        json={"base": base, "point": point, "category": category, "week": WEEK},
     )
     assert r.status_code == 200
     _logout(client)
 
 
 class TestFullCycle:
-    """(a) Полный цикл: черновик → отправка → доска → закрытие недели."""
+    """(a) Полный цикл: черновик → отправка → доска → закрытие раздела."""
 
     def test_full_cycle(self, client):
-        # медсестра создаёт черновик без unit/grp — ответ со снимками из каталога
+        # медсестра создаёт черновик медикаментов без unit/grp — ответ со снимками
         _login(client, "anna", "anna_pass")
         r = client.post(
             "/needs/api/request",
             json={
                 "base": "Ленская",
                 "point": "травма",
+                "category": MED,
                 "week": WEEK,
-                "lines": [
-                    {"item": "Атропин", "qty": 5},
-                    {"item": "Физ 200/250", "qty": 3},
-                ],
+                "lines": [{"item": "Атропин", "qty": 5}],
             },
         )
         assert r.status_code == 200
         req = r.json()["request"]
         assert req["status"] == "draft"
+        assert req["category"] == MED
         lines = {line["item"]: line for line in req["lines"]}
         assert lines["Атропин"]["unit"] == "амп"
         assert lines["Атропин"]["grp"] == "Неспецифика"
         assert lines["Атропин"]["qty"] == 5
+
+        # отдельная заявка растворов (независимая)
+        r = client.post(
+            "/needs/api/request",
+            json={
+                "base": "Ленская",
+                "point": "травма",
+                "category": SOL,
+                "week": WEEK,
+                "lines": [{"item": "Физ 200/250", "qty": 3}],
+            },
+        )
+        assert r.status_code == 200
+        sol_req = r.json()["request"]
+        assert sol_req["category"] == SOL
+        lines = {line["item"]: line for line in sol_req["lines"]}
         assert lines["Физ 200/250"]["unit"] == "фл"
         assert lines["Физ 200/250"]["grp"] == "Растворы"
 
-        # отправка: статус sent, предупреждений нет (все строки с qty > 0)
+        # отправка медикаментов: статус sent, предупреждений нет
         r = client.post(
             "/needs/api/request/submit",
-            json={"base": "Ленская", "point": "травма", "week": WEEK},
+            json={"base": "Ленская", "point": "травма", "category": MED, "week": WEEK},
         )
         assert r.status_code == 200
         data = r.json()
@@ -181,48 +204,52 @@ class TestFullCycle:
         assert data["warnings"] == []
         _logout(client)
 
-        # старшая сестра: доска показывает отправленную точку с автором
+        # старшая сестра: доска показывает состояние по разделам
         _login(client, "elena", "elena_pass")
         r = client.get("/needs/api/board", params={"week": WEEK})
         assert r.status_code == 200
-        cells = {(c["base"], c["point"]): c for c in r.json()["board"]}
-        травма = cells[("Ленская", "травма")]
-        assert травма["status"] == "sent"
-        assert травма["author_name"] == "Сидорова Анна Петровна"
-        assert травма["is_closed"] is False
-        assert cells[("Ленская", "урология")]["status"] == "none"
-        assert cells[("Ленская", "урология")]["is_closed"] is False
+        cells = {(c["base"], c["point"], c["category"]): c for c in r.json()["board"]}
+        травма_med = cells[("Ленская", "травма", MED)]
+        assert травма_med["status"] == "sent"
+        assert травма_med["author_name"] == "Сидорова Анна Петровна"
+        assert травма_med["is_closed"] is False
+        травма_sol = cells[("Ленская", "травма", SOL)]
+        assert травма_sol["status"] == "draft"  # растворы не отправлены
+        assert cells[("Ленская", "урология", MED)]["status"] == "none"
 
-        # закрытие недели: остальные точки базы — в предупреждении
-        r = client.post("/needs/api/close", json={"base": "Ленская", "week": WEEK})
+        # закрытие раздела медикаментов: урология — в предупреждении
+        r = client.post("/needs/api/close", json={"base": "Ленская", "category": MED, "week": WEEK})
         assert r.status_code == 200
         close_data = r.json()
         assert close_data["closed"] is True
         assert set(close_data["unsent_points"]) == {"урология"}
 
-        # доска после закрытия: ячейки базы закрыты
+        # доска после закрытия: ячейки раздела медикаментов закрыты, растворов — нет
         r = client.get("/needs/api/board", params={"week": WEEK})
-        cells = {(c["base"], c["point"]): c for c in r.json()["board"]}
-        assert cells[("Ленская", "травма")]["is_closed"] is True
-        assert cells[("Ленская", "урология")]["is_closed"] is True
+        cells = {(c["base"], c["point"], c["category"]): c for c in r.json()["board"]}
+        assert cells[("Ленская", "травма", MED)]["is_closed"] is True
+        assert cells[("Ленская", "урология", MED)]["is_closed"] is True
+        assert cells[("Ленская", "травма", SOL)]["is_closed"] is False
         # другие базы не затронуты закрытием
-        assert cells[("Таймырская", "экстренная")]["is_closed"] is False
+        assert cells[("Таймырская", "экстренная", MED)]["is_closed"] is False
 
 
 class TestReport:
-    """(b) Отчёт-форма после закрытия: .xlsx и HTML с препаратом."""
+    """(b) Отчёт-форма по разделу после закрытия: .xlsx и HTML с препаратом."""
 
     def _seed_sent_and_close(self, client):
-        """Две отправленные заявки Ленской за WEEK; неделя закрыта старшей."""
+        """Отправленные заявки Ленской за WEEK в обоих разделах; медикаменты закрыты."""
         _nurse_creates_and_submits(
-            client, "Ленская", "травма",
-            [{"item": "Атропин", "qty": 2}, {"item": "Физ 200/250", "qty": 4}],
+            client, "Ленская", "травма", MED, [{"item": "Атропин", "qty": 2}]
         )
         _nurse_creates_and_submits(
-            client, "Ленская", "урология", [{"item": "Атропин", "qty": 1}]
+            client, "Ленская", "травма", SOL, [{"item": "Физ 200/250", "qty": 4}]
+        )
+        _nurse_creates_and_submits(
+            client, "Ленская", "урология", MED, [{"item": "Атропин", "qty": 1}]
         )
         _login(client, "elena", "elena_pass")
-        r = client.post("/needs/api/close", json={"base": "Ленская", "week": WEEK})
+        r = client.post("/needs/api/close", json={"base": "Ленская", "category": MED, "week": WEEK})
         assert r.status_code == 200
         assert r.json()["unsent_points"] == []
         _logout(client)
@@ -230,40 +257,47 @@ class TestReport:
     def test_report_xlsx(self, client):
         self._seed_sent_and_close(client)
         _login(client, "elena", "elena_pass")
-        r = client.get("/needs/report.xlsx", params={"base": "Ленская", "week": WEEK})
-        assert r.status_code == 200
-        assert "spreadsheetml" in r.headers["content-type"]
-        assert r.content[:2] == b"PK"  # сигнатура zip/xlsx
+        for category in (MED, SOL):
+            r = client.get(
+                "/needs/report.xlsx",
+                params={"base": "Ленская", "category": category, "week": WEEK},
+            )
+            assert r.status_code == 200
+            assert "spreadsheetml" in r.headers["content-type"]
+            assert r.content[:2] == b"PK"  # сигнатура zip/xlsx
 
     def test_report_page_html(self, client):
         self._seed_sent_and_close(client)
         _login(client, "elena", "elena_pass")
-        r = client.get("/needs/report", params={"base": "Ленская", "week": WEEK})
+        # отчёт медикаментов: только препараты медикаментов
+        r = client.get(
+            "/needs/report",
+            params={"base": "Ленская", "category": MED, "week": WEEK},
+        )
         assert r.status_code == 200
-        # отчёт содержит название препарата из отправленных заявок
         assert "Атропин" in r.text
-        assert "Физ 200/250" in r.text
+        assert "Физ 200/250" not in r.text
         assert "База:" in r.text
 
 
 class TestClosedBlocksEdits:
-    """(c) После закрытия базы правки и отправка запрещены (409)."""
+    """(c) После закрытия раздела правки и отправка запрещены (409)."""
 
     def test_closed_week_blocks_edit_and_submit(self, client):
         _nurse_creates_and_submits(
-            client, "Ленская", "травма", [{"item": "Атропин", "qty": 2}]
+            client, "Ленская", "травма", MED, [{"item": "Атропин", "qty": 2}]
         )
         _login(client, "elena", "elena_pass")
-        r = client.post("/needs/api/close", json={"base": "Ленская", "week": WEEK})
+        r = client.post("/needs/api/close", json={"base": "Ленская", "category": MED, "week": WEEK})
         assert r.status_code == 200
         _logout(client)
 
-        # та же медсестра: правка своей заявки — 409
+        # та же медсестра: правка своей заявки раздела — 409
         _login(client, "anna", "anna_pass")
         r = client.post(
             "/needs/api/request",
             json={
-                "base": "Ленская", "point": "травма", "week": WEEK,
+                "base": "Ленская", "point": "травма", "category": MED, "week": WEEK,
                 "lines": [{"item": "Атропин", "qty": 9}],
             },
         )
@@ -271,17 +305,17 @@ class TestClosedBlocksEdits:
         # отправка — 409
         r = client.post(
             "/needs/api/request/submit",
-            json={"base": "Ленская", "point": "травма", "week": WEEK},
+            json={"base": "Ленская", "point": "травма", "category": MED, "week": WEEK},
         )
         assert r.status_code == 409
         _logout(client)
 
-        # другая медсестра: новая заявка на пустой точке закрытой базы — 409
+        # другая медсестра: новая заявка на пустой точке закрытого раздела — 409
         _login(client, "masha", "masha_pass")
         r = client.post(
             "/needs/api/request",
             json={
-                "base": "Ленская", "point": "урология", "week": WEEK,
+                "base": "Ленская", "point": "урология", "category": MED, "week": WEEK,
                 "lines": [{"item": "Дексаметазон", "qty": 1}],
             },
         )
@@ -289,17 +323,20 @@ class TestClosedBlocksEdits:
 
 
 class TestReopen:
-    """(d) Переоткрытие недели: правка снова возможна, затем повторное закрытие."""
+    """(d) Переоткрытие раздела: правка снова возможна, затем повторное закрытие."""
 
     def test_reopen_allows_edit_then_close_again(self, client):
         _nurse_creates_and_submits(
-            client, "Ленская", "травма", [{"item": "Атропин", "qty": 2}]
+            client, "Ленская", "травма", MED, [{"item": "Атропин", "qty": 2}]
         )
         _login(client, "elena", "elena_pass")
-        assert client.post("/needs/api/close", json={"base": "Ленская", "week": WEEK}).status_code == 200
+        assert (
+            client.post("/needs/api/close", json={"base": "Ленская", "category": MED, "week": WEEK}).status_code
+            == 200
+        )
 
         # переоткрытие старшей
-        r = client.post("/needs/api/reopen", json={"base": "Ленская", "week": WEEK})
+        r = client.post("/needs/api/reopen", json={"base": "Ленская", "category": MED, "week": WEEK})
         assert r.status_code == 200
         assert r.json() == {"reopened": True}
         _logout(client)
@@ -309,7 +346,7 @@ class TestReopen:
         r = client.post(
             "/needs/api/request",
             json={
-                "base": "Ленская", "point": "травма", "week": WEEK,
+                "base": "Ленская", "point": "травма", "category": MED, "week": WEEK,
                 "lines": [{"item": "Атропин", "qty": 4}],
             },
         )
@@ -319,7 +356,7 @@ class TestReopen:
 
         # снова закрытие — 200
         _login(client, "elena", "elena_pass")
-        r = client.post("/needs/api/close", json={"base": "Ленская", "week": WEEK})
+        r = client.post("/needs/api/close", json={"base": "Ленская", "category": MED, "week": WEEK})
         assert r.status_code == 200
         assert r.json()["closed"] is True
 
@@ -332,10 +369,13 @@ class TestDoctorForbidden:
         assert client.get("/needs").status_code == 403
         r = client.post(
             "/needs/api/request",
-            json={"base": "Ленская", "point": "травма", "lines": [{"item": "Атропин", "qty": 1}]},
+            json={"base": "Ленская", "point": "травма", "category": MED, "lines": [{"item": "Атропин", "qty": 1}]},
         )
         assert r.status_code == 403
-        r = client.get("/needs/report.xlsx", params={"base": "Ленская", "week": WEEK})
+        r = client.get(
+            "/needs/report.xlsx",
+            params={"base": "Ленская", "category": MED, "week": WEEK},
+        )
         assert r.status_code == 403
 
 
@@ -359,8 +399,10 @@ class TestAnalytics:
 
     def test_analytics_with_solutions_and_groups(self, client):
         _nurse_creates_and_submits(
-            client, "Ленская", "травма",
-            [{"item": "Атропин", "qty": 2}, {"item": "Физ 200/250", "qty": 3}],
+            client, "Ленская", "травма", MED, [{"item": "Атропин", "qty": 2}]
+        )
+        _nurse_creates_and_submits(
+            client, "Ленская", "травма", SOL, [{"item": "Физ 200/250", "qty": 3}]
         )
         _login(client, "elena", "elena_pass")
         r = client.get(
@@ -376,6 +418,66 @@ class TestAnalytics:
         assert data["solutions"]["Физ 200/250"]["ИТОГО"] == 3
         assert data["solutions"]["Физ 200/250"]["травма"] == 3
         assert data["solutions"]["Физ 200/250"]["урология"] == 0
+
+
+class TestSectionsIndependent:
+    """(i) Разделы независимы: отправка/закрытие/отчёт одного не трогает другой."""
+
+    def test_sections_are_independent(self, client):
+        # обе заявки на одной точке, но в разных разделах
+        _nurse_creates_and_submits(
+            client, "Ленская", "травма", MED, [{"item": "Атропин", "qty": 2}]
+        )
+        _nurse_creates_and_submits(
+            client, "Ленская", "травма", SOL, [{"item": "Физ 200/250", "qty": 4}]
+        )
+
+        # закрываем только медикаменты
+        _login(client, "elena", "elena_pass")
+        r = client.post("/needs/api/close", json={"base": "Ленская", "category": MED, "week": WEEK})
+        assert r.status_code == 200
+        assert r.json()["unsent_points"] == ["урология"]
+
+        # доска: медикаменты закрыты, растворы — открыты
+        board = client.get("/needs/api/board", params={"week": WEEK}).json()["board"]
+        cells = {(c["base"], c["point"], c["category"]): c for c in board}
+        assert cells[("Ленская", "травма", MED)]["is_closed"] is True
+        assert cells[("Ленская", "травма", SOL)]["is_closed"] is False
+
+        # отчёты: медикаменты — только Атропин, растворы — только Физ 200/250
+        r = client.get(
+            "/needs/report",
+            params={"base": "Ленская", "category": MED, "week": WEEK},
+        )
+        assert "Атропин" in r.text
+        assert "Физ 200/250" not in r.text
+        r = client.get(
+            "/needs/report",
+            params={"base": "Ленская", "category": SOL, "week": WEEK},
+        )
+        assert "Физ 200/250" in r.text
+        assert "Атропин" not in r.text
+        _logout(client)
+
+        # медсестра: правка закрытых медикаментов — 409, растворов — 200
+        _login(client, "anna", "anna_pass")
+        r = client.post(
+            "/needs/api/request",
+            json={
+                "base": "Ленская", "point": "травма", "category": MED, "week": WEEK,
+                "lines": [{"item": "Атропин", "qty": 9}],
+            },
+        )
+        assert r.status_code == 409
+        r = client.post(
+            "/needs/api/request",
+            json={
+                "base": "Ленская", "point": "травма", "category": SOL, "week": WEEK,
+                "lines": [{"item": "Физ 200/250", "qty": 5}],
+            },
+        )
+        assert r.status_code == 200
+        _logout(client)
 
 
 class TestMenu:

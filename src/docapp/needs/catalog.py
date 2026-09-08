@@ -17,6 +17,23 @@ logger = logging.getLogger(__name__)
 #: Особая группа: в отчёте для аптеки идёт поточково — НЕ переименовывать.
 SOLUTIONS_GROUP = "Растворы"
 
+#: Разделы «Потребностей» (ТЗ-растворы-медикаменты): граница выводится из
+#: каталога — группа «Растворы» = раздел «растворы», все остальные группы =
+#: раздел «медикаменты». Внутренние значения английские (хранятся в БД и API).
+CATEGORY_SOLUTIONS = "solutions"
+CATEGORY_MEDICAMENTS = "medicaments"
+
+#: Русские подписи разделов для UI, имён файлов и сообщений.
+CATEGORY_LABELS = {
+    CATEGORY_SOLUTIONS: "Растворы",
+    CATEGORY_MEDICAMENTS: "Медикаменты",
+}
+
+
+def category_of(grp: str) -> str:
+    """Раздел по названию группы: «Растворы» → solutions, иначе medicaments."""
+    return CATEGORY_SOLUTIONS if grp == SOLUTIONS_GROUP else CATEGORY_MEDICAMENTS
+
 
 @dataclass(frozen=True)
 class CatalogItem:
