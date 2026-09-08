@@ -196,9 +196,18 @@ class SqliteDutyStore:
         rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_report(r) for r in rows]
 
-    def list_drafts(self) -> list[dict]:
-        """Все черновики (для ленивого авто-закрытия по истечении окна)."""
+    def list_open(self) -> list[dict]:
+        """Все незакрытые отчёты (draft/sent) — для ленивого авто-закрытия."""
         rows = self._conn.execute(
-            "SELECT * FROM duty_report WHERE status = 'draft' ORDER BY shift_date, base"
+            "SELECT * FROM duty_report WHERE status IN ('draft', 'sent') "
+            "ORDER BY shift_date, base"
         ).fetchall()
         return [self._row_to_report(r) for r in rows]
+
+    def close_shift(self, shift_date: str) -> None:
+        """Закрыть все отчёты за смену (status → 'closed')."""
+        self._conn.execute(
+            "UPDATE duty_report SET status = 'closed', updated_at = ? WHERE shift_date = ?",
+            (_now(), shift_date),
+        )
+        self._conn.commit()

@@ -5,8 +5,11 @@
 - дата смены определяется автоматически — это дата, когда было 16:00
   (в 00:00–09:29 смена относится к вчерашней дате);
 - операции вводятся в пределах рабочего времени 16:00–08:00;
-- до отправки отчёт — черновик (редактируется), отправка или 09:30 (авто,
-  лениво) финализируют его (status → 'sent').
+- до отправки отчёт — черновик (редактируется);
+- статусы: draft (черновик), sent (отправлен — правки возможны до закрытия),
+  closed (закрыт — только чтение);
+- закрывает смену заведующий (вручную) либо окно 09:30 (авто, лениво);
+- операции при закрытии сохраняются.
 
 Ошибки окна поднимаются как DutyClosed (роутер отвечает 409).
 """
@@ -123,8 +126,8 @@ class DutyService:
         if sd is None:
             raise DutyClosed("Смена закрыта — ввод доступен с 16:00 до 09:30")
         existing = self._store.get_report(base, sd.isoformat(), doctor_id)
-        if existing is not None and existing["status"] == "sent":
-            raise DutyClosed("Отчёт уже отправлен — редактирование недоступно")
+        if existing is not None and existing["status"] == "closed":
+            raise DutyClosed("Отчёт закрыт — редактирование недоступно")
         cleaned = self._clean_operations(operations)
         self._store.save_report(base, sd.isoformat(), doctor_id, cleaned, status="draft")
         saved = self._store.get_report(base, sd.isoformat(), doctor_id)
@@ -139,6 +142,8 @@ class DutyService:
         report = self._store.get_report(base, sd.isoformat(), doctor_id)
         if report is None or not report["operations"]:
             raise ValueError("Отчёт пуст — нечего отправлять")
+        if report["status"] == "closed":
+            raise DutyClosed("Отчёт закрыт — отправка недоступна")
         if report["status"] == "sent":
             return report
         self._store.set_status(report["id"], "sent")
@@ -149,16 +154,28 @@ class DutyService:
     # ── заведующий ────────────────────────────────────────────────────
 
     def finalize_stale(self) -> None:
-        """Авто-закрыть черновики, чьё окно смены уже прошло (в 09:30).
+        """Авто-закрыть незакрытые отчёты, чьё окно смены уже прошло (в 09:30).
 
         Лениво: вызывается при обращении к доске/выгрузке — на shared-хостинге
         нет планировщика, поэтому финализация «догоняет» при первом чтении.
         """
         now = self.now()
-        for report in self._store.list_drafts():
+        for report in self._store.list_open():
             sd = date.fromisoformat(report["shift_date"])
             if not self.window_open_for(sd, now):
-                self._store.set_status(report["id"], "sent")
+                self._store.set_status(report["id"], "closed")
+
+    def close_report(self, report_id: int) -> None:
+        """Закрыть один отчёт заведующим (status → 'closed'); операции сохраняются."""
+        self._store.set_status(report_id, "closed")
+
+    def close_shift(self, shift_date: str) -> None:
+        """Закрыть все отчёты за смену (status → 'closed')."""
+        self._store.close_shift(shift_date)
+
+    def reopen_report(self, report_id: int) -> None:
+        """Переоткрыть ошибочно закрытый отчёт (status → 'sent'; снова правится)."""
+        self._store.set_status(report_id, "sent")
 
     def board(self, from_date: str, to_date: str, base: str | None = None) -> list[dict]:
         """Отчёты за диапазон дат (черновики прошлых смен финализируются)."""

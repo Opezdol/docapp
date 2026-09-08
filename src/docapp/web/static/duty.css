@@ -21,6 +21,10 @@
 
 .duty-remove { border: none; background: none; color: #c0392b; font-size: 1.15rem; cursor: pointer; padding: 4px 8px; }
 
+.duty-date-head { display: flex; align-items: center; gap: 12px; margin: 16px 0 6px; }
+.duty-date-head h3 { margin: 0; }
+.duty-board .btn { padding: 4px 12px; font-size: 0.85rem; min-height: 0; }
+
 .duty-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
 
 .duty-board-header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }

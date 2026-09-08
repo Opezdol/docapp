@@ -218,7 +218,7 @@ def _group_for_export(reports: list[dict], employees) -> list[dict]:
 def report_xlsx(request: Request):
     """Выгрузить разлиновку за диапазон дат (.xlsx, только заведующий).
 
-    В отчёт попадают только финализированные (status == 'sent') отчёты.
+    В отчёт попадают только закрытые (status == 'closed') отчёты.
     """
     user = docapp.web.app.current_user(request)
     if user is None:
@@ -230,7 +230,7 @@ def report_xlsx(request: Request):
     if not from_date or not to_date:
         raise HTTPException(status_code=400, detail="Параметры from и to обязательны")
     reports = _service(request).board(from_date, to_date)
-    reports = [r for r in reports if r["status"] == "sent"]
+    reports = [r for r in reports if r["status"] == "closed"]
     days = _group_for_export(reports, request.app.state.employees)
     filename = f"разлиновка-{from_date}-{to_date}.xlsx"
     return Response(
@@ -238,3 +238,46 @@ def report_xlsx(request: Request):
         media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": _content_disposition(filename)},
     )
+
+
+# ── заведующий: закрытие/переоткрытие ────────────────────────────────
+
+@router.post("/api/close")
+async def close_report(request: Request):
+    """Закрыть один отчёт (только заведующий). Тело: {report_id}."""
+    user = _api_user(request)
+    _require_head(user)
+    body = await request.json()
+    try:
+        report_id = int(body.get("report_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "report_id обязателен"}, status_code=400)
+    _service(request).close_report(report_id)
+    return {"ok": True}
+
+
+@router.post("/api/close-shift")
+async def close_shift(request: Request):
+    """Закрыть все отчёты за смену (только заведующий). Тело: {shift_date}."""
+    user = _api_user(request)
+    _require_head(user)
+    body = await request.json()
+    shift_date = str(body.get("shift_date") or "")
+    if not shift_date:
+        return JSONResponse({"error": "shift_date обязателен"}, status_code=400)
+    _service(request).close_shift(shift_date)
+    return {"ok": True}
+
+
+@router.post("/api/reopen")
+async def reopen_report(request: Request):
+    """Переоткрыть закрытый отчёт (только заведующий). Тело: {report_id}."""
+    user = _api_user(request)
+    _require_head(user)
+    body = await request.json()
+    try:
+        report_id = int(body.get("report_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "report_id обязателен"}, status_code=400)
+    _service(request).reopen_report(report_id)
+    return {"ok": True}

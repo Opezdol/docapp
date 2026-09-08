@@ -143,6 +143,12 @@
 
     function setStatus(t) { if (statusEl) statusEl.textContent = t; }
 
+    function statusText() {
+      if (report && report.status === 'closed') return 'Отчёт закрыт — просмотр.';
+      if (report && report.status === 'sent') return 'Отчёт отправлен — можно править до закрытия.';
+      return 'Черновик — можно редактировать.';
+    }
+
     function collectOps() {
       // нормализовать все поля времени перед чтением (снэп к 15 минутам)
       opsTbody.querySelectorAll('.duty-time').forEach(function (inp) { snapTimeInput(inp); });
@@ -172,10 +178,10 @@
         windowStatus.textContent = '';
         shiftDateEl.textContent = fmtDate(data.shift_date);
         report = data.report;
-        readOnly = !!(report && report.status === 'sent');
+        readOnly = !!(report && report.status === 'closed');
         renderOps();
         syncControls();
-        setStatus(readOnly ? 'Отчёт отправлен — просмотр.' : 'Черновик — можно редактировать.');
+        setStatus(statusText());
       }).catch(function (err) {
         showBanner('Ошибка загрузки: ' + err.message, 'error');
       });
@@ -199,6 +205,7 @@
       }).then(function (data) {
         if (!data) return;
         report = data.report;
+        readOnly = !!(report && report.status === 'closed');
         renderOps();
         setStatus('Черновик — сохранено.');
         showBanner('Черновик сохранён.', 'ok');
@@ -226,10 +233,10 @@
       }).then(function (data) {
         if (!data) return;
         report = data.report;
-        readOnly = true;
+        readOnly = !!(report && report.status === 'closed');
         renderOps();
         syncControls();
-        setStatus('Отчёт отправлен.');
+        setStatus(statusText());
         showBanner('Отчёт отправлен.', 'ok');
       }).catch(showApiError).finally(function () {
         sendBtn.disabled = readOnly;
@@ -280,6 +287,8 @@
     var exportEl = document.getElementById('duty-export');
     var boardEl = document.getElementById('duty-board');
 
+    var STATUS_LABELS = { draft: 'черновик', sent: 'отправлен', closed: 'закрыт' };
+
     function today() {
       var d = new Date();
       var p = function (n) { return (n < 10 ? '0' : '') + n; };
@@ -287,6 +296,18 @@
     }
     fromEl.value = today();
     toEl.value = today();
+
+    function post(url, body) {
+      return apiFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
+    function showBoardError(err) {
+      boardEl.innerHTML = '<p class="empty">Ошибка: ' + esc(err.message) + '</p>';
+    }
 
     function loadBoard() {
       var from = fromEl.value, to = toEl.value;
@@ -306,21 +327,45 @@
         });
         var html = '';
         Object.keys(byDate).sort().forEach(function (date) {
-          html += '<h3>' + fmtDate(date) + '</h3>';
+          html += '<div class="duty-date-head"><h3>' + fmtDate(date) + '</h3>' +
+            '<button type="button" class="btn duty-close-shift" data-date="' + date + '">Закрыть смену</button></div>';
           html += '<div class="table-wrap"><table class="duty-table">' +
-            '<thead><tr><th>База</th><th>Врач</th><th>Операций</th><th>Статус</th></tr></thead><tbody>';
+            '<thead><tr><th>База</th><th>Врач</th><th>Операций</th><th>Статус</th><th></th></tr></thead><tbody>';
           byDate[date].forEach(function (r) {
+            var action = r.status === 'closed'
+              ? '<button type="button" class="btn duty-reopen" data-id="' + r.id + '">Открыть</button>'
+              : '<button type="button" class="btn duty-close" data-id="' + r.id + '">Закрыть</button>';
             html += '<tr><td>' + esc(r.base) + '</td><td>' + esc(r.doctor_name) + '</td>' +
               '<td>' + (r.operations || []).length + '</td>' +
-              '<td>' + (r.status === 'sent' ? 'отправлен' : 'черновик') + '</td></tr>';
+              '<td>' + (STATUS_LABELS[r.status] || esc(r.status)) + '</td>' +
+              '<td>' + action + '</td></tr>';
           });
           html += '</tbody></table></div>';
         });
         boardEl.innerHTML = html;
-      }).catch(function (err) {
-        boardEl.innerHTML = '<p class="empty">Ошибка: ' + esc(err.message) + '</p>';
-      });
+      }).catch(showBoardError);
     }
+
+    boardEl.addEventListener('click', function (e) {
+      var close = e.target.closest('.duty-close');
+      if (close) {
+        post('/duty/api/close', { report_id: parseInt(close.getAttribute('data-id'), 10) })
+          .then(loadBoard).catch(showBoardError);
+        return;
+      }
+      var reopen = e.target.closest('.duty-reopen');
+      if (reopen) {
+        post('/duty/api/reopen', { report_id: parseInt(reopen.getAttribute('data-id'), 10) })
+          .then(loadBoard).catch(showBoardError);
+        return;
+      }
+      var closeShift = e.target.closest('.duty-close-shift');
+      if (closeShift) {
+        post('/duty/api/close-shift', { shift_date: closeShift.getAttribute('data-date') })
+          .then(loadBoard).catch(showBoardError);
+        return;
+      }
+    });
 
     fromEl.addEventListener('change', loadBoard);
     toEl.addEventListener('change', loadBoard);

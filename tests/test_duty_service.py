@@ -129,12 +129,13 @@ class TestSaveSend:
         sent = svc.send(1, "Ленская")
         assert sent["status"] == "sent"
 
-    def test_save_blocked_after_send(self, svc, monkeypatch):
+    def test_save_after_send_reverts_to_draft(self, svc, monkeypatch):
+        # отправленный (sent) отчёт можно править — правка возвращает его в draft
         monkeypatch.setattr(svc, "now", lambda: aware(2026, 8, 31, 18, 0))
         svc.save(1, "Ленская", [{"operation": "НХО", "start_time": "21:00", "end_time": "21:45"}])
         svc.send(1, "Ленская")
-        with pytest.raises(DutyClosed):
-            svc.save(1, "Ленская", [{"operation": "НХО", "start_time": "22:00", "end_time": "22:30"}])
+        saved = svc.save(1, "Ленская", [{"operation": "НХО", "start_time": "22:00", "end_time": "22:30"}])
+        assert saved["status"] == "draft"
 
 
 class TestFinalizeStale:
@@ -148,7 +149,7 @@ class TestFinalizeStale:
         monkeypatch.setattr(svc, "now", lambda: aware(2026, 8, 31, 18, 0))
         svc.finalize_stale()
         report = svc._store.get_report("Ленская", "2026-08-30", 1)
-        assert report["status"] == "sent"
+        assert report["status"] == "closed"
 
     def test_keeps_current_shift_draft(self, svc, monkeypatch):
         # черновик текущей смены (31.08) в 18:00 31.08 — окно ещё открыто
@@ -161,3 +162,44 @@ class TestFinalizeStale:
         svc.finalize_stale()
         report = svc._store.get_report("Ленская", "2026-08-31", 1)
         assert report["status"] == "draft"
+
+
+class TestCloseReopen:
+    def test_close_report_preserves_operations(self, svc, monkeypatch):
+        monkeypatch.setattr(svc, "now", lambda: aware(2026, 8, 31, 18, 0))
+        saved = svc.save(1, "Ленская", [{"operation": "НХО", "start_time": "21:00", "end_time": "21:45"}])
+        svc.send(1, "Ленская")
+        svc.close_report(saved["id"])
+        report = svc._store.get_report("Ленская", "2026-08-31", 1)
+        assert report["status"] == "closed"
+        assert report["operations"][0]["operation"] == "НХО"
+
+    def test_close_shift_closes_all(self, svc, monkeypatch):
+        monkeypatch.setattr(svc, "now", lambda: aware(2026, 8, 31, 18, 0))
+        svc.save(1, "Ленская", [{"operation": "НХО", "start_time": "21:00", "end_time": "21:45"}])
+        svc.save(2, "Таймырская", [{"operation": "Травма", "start_time": "22:00", "end_time": "22:30"}])
+        svc.close_shift("2026-08-31")
+        assert svc._store.get_report("Ленская", "2026-08-31", 1)["status"] == "closed"
+        assert svc._store.get_report("Таймырская", "2026-08-31", 2)["status"] == "closed"
+
+    def test_reopen_report(self, svc, monkeypatch):
+        monkeypatch.setattr(svc, "now", lambda: aware(2026, 8, 31, 18, 0))
+        saved = svc.save(1, "Ленская", [{"operation": "НХО", "start_time": "21:00", "end_time": "21:45"}])
+        svc.send(1, "Ленская")
+        svc.close_report(saved["id"])
+        svc.reopen_report(saved["id"])
+        assert svc._store.get_report("Ленская", "2026-08-31", 1)["status"] == "sent"
+
+    def test_save_blocked_after_close(self, svc, monkeypatch):
+        monkeypatch.setattr(svc, "now", lambda: aware(2026, 8, 31, 18, 0))
+        saved = svc.save(1, "Ленская", [{"operation": "НХО", "start_time": "21:00", "end_time": "21:45"}])
+        svc.close_report(saved["id"])
+        with pytest.raises(DutyClosed):
+            svc.save(1, "Ленская", [{"operation": "НХО", "start_time": "22:00", "end_time": "22:30"}])
+
+    def test_send_blocked_after_close(self, svc, monkeypatch):
+        monkeypatch.setattr(svc, "now", lambda: aware(2026, 8, 31, 18, 0))
+        saved = svc.save(1, "Ленская", [{"operation": "НХО", "start_time": "21:00", "end_time": "21:45"}])
+        svc.close_report(saved["id"])
+        with pytest.raises(DutyClosed):
+            svc.send(1, "Ленская")

@@ -140,7 +140,8 @@ class TestDoctorReport:
         assert r.status_code == 200
         assert r.json()["report"]["status"] == "sent"
 
-    def test_save_blocked_after_send(self, client):
+    def test_save_after_send_reverts_to_draft(self, client):
+        # отправленный (sent) отчёт можно править — правка возвращает в draft
         _login(client, "ivanov", "secret")
         client.post(
             "/duty/api/report",
@@ -155,7 +156,8 @@ class TestDoctorReport:
                 {"operation": "НХО", "start_time": "22:00", "end_time": "22:30"},
             ]},
         )
-        assert r.status_code == 409
+        assert r.status_code == 200
+        assert r.json()["report"]["status"] == "draft"
 
     def test_send_empty_raises(self, client):
         _login(client, "ivanov", "secret")
@@ -209,8 +211,11 @@ class TestHeadBoardExport:
         assert r.status_code == 403
 
     def test_xlsx_for_head(self, client):
+        # в разлиновку попадают только закрытые (closed) отчёты — закрываем перед выгрузкой
         self._seed_sent(client)
         _login(client, "petrov", "pass123")
+        reports = client.get("/duty/api/board", params={"from": "2026-08-31", "to": "2026-08-31"}).json()["reports"]
+        client.post("/duty/api/close", json={"report_id": reports[0]["id"]})
         r = client.get("/duty/report.xlsx", params={"from": "2026-08-31", "to": "2026-08-31"})
         assert r.status_code == 200
         assert "spreadsheetml" in r.headers["content-type"]
@@ -220,3 +225,48 @@ class TestHeadBoardExport:
         _login(client, "ivanov", "secret")
         r = client.get("/duty/report.xlsx", params={"from": "2026-08-31", "to": "2026-08-31"})
         assert r.status_code == 403
+
+
+class TestHeadClose:
+    def _seed_sent(self, client):
+        _login(client, "ivanov", "secret")
+        client.post(
+            "/duty/api/report",
+            json={"base": "Ленская", "operations": [
+                {"operation": "НХО", "start_time": "21:00", "end_time": "21:45"},
+            ]},
+        )
+        client.post("/duty/api/send", json={"base": "Ленская"})
+        client.post("/logout")
+
+    def _first_report_id(self, client):
+        r = client.get("/duty/api/board", params={"from": "2026-08-31", "to": "2026-08-31"})
+        return r.json()["reports"][0]["id"]
+
+    def test_close_and_reopen(self, client):
+        self._seed_sent(client)
+        _login(client, "petrov", "pass123")
+        rid = self._first_report_id(client)
+        assert client.post("/duty/api/close", json={"report_id": rid}).json()["ok"] is True
+        board = client.get("/duty/api/board", params={"from": "2026-08-31", "to": "2026-08-31"}).json()["reports"]
+        assert board[0]["status"] == "closed"
+        assert client.post("/duty/api/reopen", json={"report_id": rid}).json()["ok"] is True
+        board = client.get("/duty/api/board", params={"from": "2026-08-31", "to": "2026-08-31"}).json()["reports"]
+        assert board[0]["status"] == "sent"
+
+    def test_close_shift(self, client):
+        self._seed_sent(client)
+        _login(client, "petrov", "pass123")
+        assert client.post("/duty/api/close-shift", json={"shift_date": "2026-08-31"}).json()["ok"] is True
+        board = client.get("/duty/api/board", params={"from": "2026-08-31", "to": "2026-08-31"}).json()["reports"]
+        assert board[0]["status"] == "closed"
+
+    def test_close_forbidden_for_doctor(self, client):
+        self._seed_sent(client)
+        _login(client, "ivanov", "secret")
+        assert client.post("/duty/api/close", json={"report_id": 1}).status_code == 403
+
+    def test_close_forbidden_for_nurse(self, client):
+        self._seed_sent(client)
+        _login(client, "anna", "anna_pass")
+        assert client.post("/duty/api/close", json={"report_id": 1}).status_code == 403
