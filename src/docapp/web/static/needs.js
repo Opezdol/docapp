@@ -132,6 +132,7 @@
       if (tab) tabEls[cat.key] = tab;
     });
   }
+  updateFormCardState(); // исходно точка не выбрана — форма приглушена
 
   // Баннер: сообщение + вид (ok/warn/error); прячем по таймеру.
   var bannerTimer = null;
@@ -246,12 +247,18 @@
     if (formCardEl) formCardEl.classList.remove('needs-form-hidden');
   }
 
+  // Приглушить форму, пока точка не выбрана.
+  function updateFormCardState() {
+    if (formCardEl) formCardEl.classList.toggle('needs-form-inactive', !currentPoint);
+  }
+
   // Выбрать точку: обновить состояние, заголовок и подсветку, очистить поиск
   // обеих секций и загрузить заявки обоих разделов.
   function selectPoint(base, point) {
     currentBase = base;
     currentPoint = point;
     showFormCard();
+    updateFormCardState();
     if (currentPointEl) currentPointEl.textContent = point ? ('— ' + point) : '';
     if (pointsEl) renderPointGrid();
     CATEGORIES.forEach(function (cat) {
