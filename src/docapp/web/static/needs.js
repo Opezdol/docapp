@@ -79,6 +79,16 @@
   var pointsEl = document.getElementById('needs-points');
   var currentPointEl = document.getElementById('needs-current-point');
   var boardEl = document.getElementById('needs-board');
+  var boardSolutionsEl = document.getElementById('needs-board-solutions');
+  var boardMedicamentsEl = document.getElementById('needs-board-medicaments');
+  var boardTabEls = {};
+  if (boardEl) {
+    var boardTabNodes = boardEl.querySelectorAll('.needs-board-tabs .needs-tab');
+    for (var bi = 0; bi < boardTabNodes.length; bi++) {
+      var bt = boardTabNodes[bi];
+      boardTabEls[bt.getAttribute('data-board-tab')] = bt;
+    }
+  }
   var formCardEl = document.getElementById('needs-form-card');
   var formEl = document.getElementById('needs-form');
 
@@ -327,15 +337,19 @@
       return;
     }
     var html = sec.lines.map(function (line, i) {
+      var dis = sec.readOnly ? ' disabled' : '';
       return '<tr>' +
         '<td>' + esc(line.item) + '</td>' +
         '<td>' + esc(line.unit) + '</td>' +
-        '<td><input type="number" inputmode="numeric" min="0" step="1" ' +
-          'class="needs-qty" data-i="' + i + '" value="' +
-          (line.qty > 0 ? line.qty : '0') + '"' +
-          (sec.readOnly ? ' disabled' : '') + '></td>' +
+        '<td><div class="needs-qty-stepper">' +
+          '<button type="button" class="needs-qty-btn" data-i="' + i + '" data-delta="-1"' + dis + ' aria-label="Меньше">−</button>' +
+          '<input type="number" inputmode="numeric" min="0" step="1" ' +
+            'class="needs-qty" data-i="' + i + '" value="' +
+            (line.qty > 0 ? line.qty : '0') + '"' + dis + '>' +
+          '<button type="button" class="needs-qty-btn" data-i="' + i + '" data-delta="1"' + dis + ' aria-label="Больше">+</button>' +
+          '</div></td>' +
         '<td><button type="button" class="needs-remove" data-i="' + i + '" ' +
-          'aria-label="Удалить"' + (sec.readOnly ? ' disabled' : '') + '>×</button></td>' +
+          'aria-label="Удалить"' + dis + '>×</button></td>' +
         '</tr>';
     }).join('');
     sec.linesTbody.innerHTML = html;
@@ -508,8 +522,8 @@
   // Доска: точки обеих баз по двум разделам со статусом, автором, закрытием
   // раздела. Ячейки API уже содержат category — группируем по разделам.
   function loadBoard() {
-    if (!boardEl) return;
-    boardEl.innerHTML = '<p class="empty">Загрузка…</p>';
+    if (!boardSolutionsEl) return;
+    boardSolutionsEl.innerHTML = '<p class="empty">Загрузка…</p>';
     apiFetch('/needs/api/board?week=' + encodeURIComponent(week)).then(function (data) {
       if (!data) return;
       var cells = data.board || [];
@@ -519,7 +533,12 @@
           (closed[cell.base] = closed[cell.base] || {})[cell.category] = true;
         }
       });
-      renderBoard(cells);
+      var byBase = {};
+      cells.forEach(function (cell) {
+        (byBase[cell.base] = byBase[cell.base] || []).push(cell);
+      });
+      renderBoardSection(boardSolutionsEl, 'solutions', byBase);
+      renderBoardSection(boardMedicamentsEl, 'medicaments', byBase);
       // Если открытый раздел выбранной точки оказался закрыт — в просмотр.
       if (currentPoint) {
         CATEGORIES.forEach(function (cat) {
@@ -533,69 +552,69 @@
         });
       }
     }).catch(function (err) {
-      if (boardEl) boardEl.innerHTML = '<p class="empty">Доска недоступна: ' + esc(err.message) + '</p>';
+      if (boardSolutionsEl) boardSolutionsEl.innerHTML = '<p class="empty">Доска недоступна: ' + esc(err.message) + '</p>';
     });
   }
 
-  // Доска двумя секциями: у каждой своя сетка точек обеих баз, свои кнопки
-  // закрытия/переоткрытия и отчётов (по разделу).
-  function renderBoard(cells) {
-    var byBase = {};
-    cells.forEach(function (cell) {
-      (byBase[cell.base] = byBase[cell.base] || []).push(cell);
-    });
+  // Доска: секция раздела — сетка точек обеих баз, кнопки закрытия/отчётов.
+  function renderBoardSection(el, catKey, byBase) {
     var html = '';
-    CATEGORIES.forEach(function (cat) {
-      html += '<div class="needs-board-section">';
-      html += '<h2 class="needs-board-section-title">' + esc(cat.label) + '</h2>';
-      Object.keys(catalog.bases).forEach(function (base) {
-        var baseCells = (byBase[base] || []).filter(function (c) {
-          return c.category === cat.key;
-        });
-        var isClosed = !!(closed[base] && closed[base][cat.key]);
-        html += '<div class="needs-base">';
-        html += '<h3>' + esc(base) +
-          (isClosed ? ' <span class="needs-closed-badge">раздел закрыт</span>' : '') +
-          '</h3>';
-        if (!baseCells.length) {
-          html += '<p class="empty">Точек в каталоге нет.</p>';
-        } else {
-          html += '<div class="needs-board-grid">';
-          baseCells.forEach(function (cell) {
-            html += '<button type="button" class="needs-board-cell" ' +
-              'data-base="' + esc(cell.base) + '" data-point="' + esc(cell.point) + '">' +
-              '<span class="needs-dot ' + esc(cell.status) + '"></span>' +
-              '<span class="needs-cell-main">' +
-              '<span class="needs-cell-point">' + esc(cell.point) + '</span>' +
-              '<span class="needs-cell-author">' + esc(cell.author_name || STATUS_LABEL[cell.status]) + '</span>' +
-              '</span>' +
-              '</button>';
-          });
-          html += '</div>';
-        }
-        // Кнопки отчёта — строго по базе и разделу за текущую неделю.
-        var q = 'base=' + encodeURIComponent(base) +
-          '&category=' + encodeURIComponent(cat.key) +
-          '&week=' + encodeURIComponent(week);
-        html += '<div class="needs-base-report">' +
-          '<a class="btn" href="/needs/report.xlsx?' + q + '">Отчёт (xlsx)</a>' +
-          '<a class="btn" href="/needs/report?' + q + '">Отчёт (просмотр)</a>' +
-          '</div>';
-        html += '<div class="needs-actions">';
-        if (isClosed) {
-          html += '<button type="button" class="btn needs-reopen" data-base="' + esc(base) +
-            '" data-category="' + esc(cat.key) + '">Открыть заново</button>';
-        } else {
-          html += '<button type="button" class="btn needs-close" data-base="' + esc(base) +
-            '" data-category="' + esc(cat.key) + '">Закрыть ' +
-            esc(cat.label.toLowerCase()) + ' · ' + baseAccusative(base) + '</button>';
-        }
-        html += '</div>';
-        html += '</div>';
+    Object.keys(catalog.bases).forEach(function (base) {
+      var baseCells = (byBase[base] || []).filter(function (c) {
+        return c.category === catKey;
       });
+      var isClosed = !!(closed[base] && closed[base][catKey]);
+      html += '<div class="needs-base">';
+      html += '<h3>' + esc(base) +
+        (isClosed ? ' <span class="needs-closed-badge">раздел закрыт</span>' : '') +
+        '</h3>';
+      if (!baseCells.length) {
+        html += '<p class="empty">Точек в каталоге нет.</p>';
+      } else {
+        html += '<div class="needs-board-grid">';
+        baseCells.forEach(function (cell) {
+          html += '<button type="button" class="needs-board-cell" ' +
+            'data-base="' + esc(cell.base) + '" data-point="' + esc(cell.point) + '">' +
+            '<span class="needs-dot ' + esc(cell.status) + '"></span>' +
+            '<span class="needs-cell-main">' +
+            '<span class="needs-cell-point">' + esc(cell.point) + '</span>' +
+            '<span class="needs-cell-author">' + esc(cell.author_name || STATUS_LABEL[cell.status]) + '</span>' +
+            '</span>' +
+            '</button>';
+        });
+        html += '</div>';
+      }
+      // Кнопки отчёта — строго по базе и разделу за текущую неделю.
+      var q = 'base=' + encodeURIComponent(base) +
+        '&category=' + encodeURIComponent(catKey) +
+        '&week=' + encodeURIComponent(week);
+      html += '<div class="needs-base-report">' +
+        '<a class="btn" href="/needs/report.xlsx?' + q + '">Отчёт (xlsx)</a>' +
+        '<a class="btn" href="/needs/report?' + q + '">Отчёт (просмотр)</a>' +
+        '</div>';
+      html += '<div class="needs-actions">';
+      if (isClosed) {
+        html += '<button type="button" class="btn needs-reopen" data-base="' + esc(base) +
+          '" data-category="' + esc(catKey) + '">Открыть заново</button>';
+      } else {
+        html += '<button type="button" class="btn needs-close" data-base="' + esc(base) +
+          '" data-category="' + esc(catKey) + '">Закрыть ' +
+          esc(CATEGORY_LABELS[catKey].toLowerCase()) + ' · ' + baseAccusative(base) + '</button>';
+      }
+      html += '</div>';
       html += '</div>';
     });
-    boardEl.innerHTML = html;
+    el.innerHTML = html;
+  }
+
+  // Переключить вкладку доски (растворы / медикаменты / аналитика).
+  function setBoardTab(tabKey) {
+    ['solutions', 'medicaments', 'analytics'].forEach(function (key) {
+      var panel = document.getElementById('needs-board-' + key);
+      if (panel) panel.hidden = (key !== tabKey);
+      var tab = boardTabEls[key];
+      if (tab) tab.classList.toggle('needs-tab-active', key === tabKey);
+    });
   }
 
   // Клик по точке доски — открыть её в форме заявки (только у полных ролей,
@@ -619,6 +638,11 @@
       }
     });
   }
+
+  // Клик по вкладке доски — переключить панель.
+  Object.keys(boardTabEls).forEach(function (key) {
+    boardTabEls[key].addEventListener('click', function () { setBoardTab(key); });
+  });
 
   // Клик по карточке точки в сетке медсестры — выбрать её.
   if (pointsEl) {
@@ -713,6 +737,20 @@
       renderLines(sec);
     });
 
+    // Кнопки «− / +» количества: изменить значение и синхронизировать состояние.
+    sec.linesTbody.addEventListener('click', function (e) {
+      var btn = e.target.closest('.needs-qty-btn');
+      if (!btn || sec.readOnly) return;
+      var i = parseInt(btn.getAttribute('data-i'), 10);
+      var delta = parseInt(btn.getAttribute('data-delta'), 10);
+      if (isNaN(i) || i < 0 || i >= sec.lines.length) return;
+      var input = sec.linesTbody.querySelector('.needs-qty[data-i="' + i + '"]');
+      var qty = parseQty(input ? input.value : '0') + (isNaN(delta) ? 0 : delta);
+      if (qty < 0) qty = 0;
+      sec.lines[i].qty = qty;
+      if (input) input.value = qty;
+    });
+
     // Ввод количества — синхронизировать в состояние строк, чтобы значения
     // не терялись при перерисовке (добавление строки, смена точки и т.п.).
     sec.linesTbody.addEventListener('input', function (e) {
@@ -752,6 +790,9 @@
       if (IS_FULL && boardEl) loadBoard();
     });
   });
+
+  // Аналитика вкладкой у старшей — инициализировать, если панель присутствует.
+  if (document.getElementById('analytics-form')) initAnalytics();
 
   /* ── страница /needs/analytics ──────────────────────────────────── */
 

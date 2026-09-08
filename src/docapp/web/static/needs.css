@@ -44,9 +44,29 @@ table.needs-table {
 .needs-table th { color: #555; font-weight: 600; white-space: nowrap; }
 .needs-table td:first-child { min-width: 140px; }
 
-/* Поле количества: узкое, числовая клавиатура на телефоне */
+/* Количество: степпер «− / +» покрупнее + узкое поле */
+.needs-qty-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.needs-qty-btn {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid #c5cdd9;
+  border-radius: 8px;
+  background: #fff;
+  color: #1a1a2e;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.needs-qty-btn:active { background: #eef2f7; }
+.needs-qty-btn:disabled { color: #bbb; background: #eef2f7; }
 .needs-qty {
-  width: 76px;
+  width: 52px;
   min-height: 40px;
   font-size: 1rem;
   padding: 8px;
@@ -242,30 +262,35 @@ table.needs-table {
   margin-top: 4px;
 }
 
-/* ── вкладки раздела и секции формы (растворы / медикаменты) ───── */
+/* ── вкладки (растворы / медикаменты / аналитика) ────────────────── */
 
 .needs-tabs {
   display: flex;
   gap: 4px;
-  margin-bottom: 12px;
-  border-bottom: 2px solid #e3e8ef;
+  margin-bottom: 14px;
+  padding: 4px;
+  background: #eef2f7;
+  border-radius: 10px;
 }
 .needs-tab {
   flex: 1;
-  padding: 10px 12px;
-  border: none;
-  border-bottom: 2px solid transparent;
+  padding: 10px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
   background: transparent;
   font-family: inherit;
   font-size: 0.95rem;
   color: #555;
   cursor: pointer;
-  margin-bottom: -2px;
+  text-align: center;
+  white-space: nowrap;
 }
 .needs-tab-active {
+  background: #fff;
   color: #1565c0;
   font-weight: 600;
-  border-bottom-color: #1565c0;
+  border-color: #1565c0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .needs-section {
@@ -296,6 +321,13 @@ table.needs-table {
 }
 
 /* ── аналитика ─────────────────────────────────────────────────── */
+
+.analytics-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
 
 .needs-app h3.analytics-period { margin: 0 0 10px; color: #1565c0; }
 .needs-app h4 { margin: 14px 0 4px; font-size: 0.98rem; }

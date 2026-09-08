@@ -15,9 +15,56 @@
   <div class="card">
     <div class="needs-board-header">
       <h2>Доска старшей</h2>
-      <a class="btn needs-analytics-link" href="/needs/analytics">Аналитика</a>
     </div>
-    <div id="needs-board" class="needs-board"><p class="empty">Загрузка…</p></div>
+    <div id="needs-board" class="needs-board">
+      <div class="needs-tabs needs-board-tabs" role="tablist">
+        <button type="button" class="needs-tab needs-tab-active" data-board-tab="solutions" role="tab" aria-selected="true">Растворы</button>
+        <button type="button" class="needs-tab" data-board-tab="medicaments" role="tab" aria-selected="false">Медикаменты</button>
+        <button type="button" class="needs-tab" data-board-tab="analytics" role="tab" aria-selected="false">Аналитика</button>
+      </div>
+      <div id="needs-board-solutions" class="needs-board-panel"><p class="empty">Загрузка…</p></div>
+      <div id="needs-board-medicaments" class="needs-board-panel" hidden></div>
+      <div id="needs-board-analytics" class="needs-board-panel" hidden>
+        <div id="analytics-banner" class="needs-banner" hidden></div>
+        <form id="analytics-form" autocomplete="off">
+          <div class="analytics-filters">
+            <label class="field">
+              <span>Неделя с</span>
+              <input type="date" id="analytics-from">
+            </label>
+            <label class="field">
+              <span>Неделя по</span>
+              <input type="date" id="analytics-to">
+            </label>
+            <label class="field">
+              <span>База</span>
+              <select id="analytics-base"><option value="">Загрузка…</option></select>
+            </label>
+            <label class="field">
+              <span>Точка</span>
+              <select id="analytics-point"><option value="">Все точки</option></select>
+            </label>
+            <label class="field">
+              <span>Группа</span>
+              <select id="analytics-group"><option value="">Загрузка…</option></select>
+            </label>
+            <label class="field">
+              <span>Раздел</span>
+              <select id="analytics-section">
+                <option value="">Все</option>
+                <option value="solutions">Растворы</option>
+                <option value="medicaments">Медикаменты</option>
+              </select>
+            </label>
+          </div>
+          <div class="needs-actions">
+            <button type="submit" id="analytics-show" class="primary">Показать</button>
+            <a id="analytics-xlsx" class="btn" href="/needs/api/analytics.xlsx" download>Скачать .xlsx</a>
+          </div>
+        </form>
+        <div id="analytics-result" hidden></div>
+      </div>
+    </div>
   </div>
   {% endif %}
 
