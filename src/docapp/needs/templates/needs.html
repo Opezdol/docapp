@@ -32,29 +32,59 @@
   <div class="card needs-form-card{% if user.role in ('head_nurse', 'head') %} needs-form-hidden{% endif %}" id="needs-form-card">
     <h2>Заявка на неделю <span id="needs-current-point" class="needs-current-point"></span></h2>
     <form id="needs-form" autocomplete="off">
-      <label class="field">
-        <span>Поиск препарата</span>
-        <input type="text" id="needs-search" placeholder="Например: атро" autocomplete="off">
-      </label>
-      <div id="needs-search-results" class="needs-search-results" hidden></div>
+      <section class="needs-section" data-category="solutions">
+        <h3 class="needs-section-title">Растворы</h3>
+        <label class="field">
+          <span>Поиск препарата (растворы)</span>
+          <input type="text" class="needs-search" placeholder="Найти препарат…" autocomplete="off">
+        </label>
+        <div class="needs-search-results" hidden></div>
 
-      <div class="table-wrap">
-        <table class="needs-table">
-          <thead>
-            <tr><th>Название</th><th>Ед.</th><th>Количество</th><th></th></tr>
-          </thead>
-          <tbody id="needs-lines">
-            <tr><td colspan="4" class="empty">Выберите точку пополнения выше.</td></tr>
-          </tbody>
-        </table>
-      </div>
+        <div class="table-wrap">
+          <table class="needs-table">
+            <thead>
+              <tr><th>Название</th><th>Ед.</th><th>Количество</th><th></th></tr>
+            </thead>
+            <tbody class="needs-lines">
+              <tr><td colspan="4" class="empty">Выберите точку пополнения выше.</td></tr>
+            </tbody>
+          </table>
+        </div>
 
-      <p id="needs-request-status" class="hint"></p>
+        <p class="needs-request-status hint"></p>
 
-      <div class="needs-actions">
-        <button type="button" id="needs-save" class="btn">Сохранить</button>
-        <button type="button" id="needs-submit" class="primary">Отправить</button>
-      </div>
+        <div class="needs-actions">
+          <button type="button" class="needs-save btn">Сохранить</button>
+          <button type="button" class="needs-submit primary">Отправить</button>
+        </div>
+      </section>
+
+      <section class="needs-section" data-category="medicaments">
+        <h3 class="needs-section-title">Медикаменты</h3>
+        <label class="field">
+          <span>Поиск препарата (медикаменты)</span>
+          <input type="text" class="needs-search" placeholder="Найти препарат…" autocomplete="off">
+        </label>
+        <div class="needs-search-results" hidden></div>
+
+        <div class="table-wrap">
+          <table class="needs-table">
+            <thead>
+              <tr><th>Название</th><th>Ед.</th><th>Количество</th><th></th></tr>
+            </thead>
+            <tbody class="needs-lines">
+              <tr><td colspan="4" class="empty">Выберите точку пополнения выше.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="needs-request-status hint"></p>
+
+        <div class="needs-actions">
+          <button type="button" class="needs-save btn">Сохранить</button>
+          <button type="button" class="needs-submit primary">Отправить</button>
+        </div>
+      </section>
     </form>
   </div>
   {% endif %}

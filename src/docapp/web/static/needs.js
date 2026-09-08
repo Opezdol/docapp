@@ -1,8 +1,11 @@
 /* Потребности (needs.html, analytics.html): форма сестры, доска старшей,
    отчёты, аналитика. Vanilla JS, без библиотек и CDN (F10).
-   Страницы используют один скрипт: needs.html — форма+доска, analytics.html —
-   фильтры и таблица. Роли: форма — nurse/head_nurse/head, доска/отчёты/
-   аналитика — head_nurse/head (ограничение на уровне шаблона и API). */
+   Форма и доска разделены на два раздела — растворы/медикаменты
+   (ТЗ-растворы-медикаменты): у каждого раздела свой поиск по каталогу,
+   свои строки, своя отправка/закрытие/отчёт. Страницы используют один
+   скрипт: needs.html — форма+доска, analytics.html — фильтры и таблица.
+   Роли: форма — nurse/head_nurse/head, доска/отчёты/аналитика —
+   head_nurse/head (ограничение на уровне шаблона и API). */
 (function () {
   'use strict';
 
@@ -52,6 +55,17 @@
     return isNaN(n) || n < 0 ? 0 : n;
   }
 
+  /* ── разделы (ТЗ-растворы-медикаменты) ──────────────────────────── */
+
+  // Граница раздела выводится из каталога: группа «Растворы» — раздел
+  // «растворы», все остальные группы — раздел «медикаменты».
+  var SOLUTIONS_GROUP = 'Растворы';
+  var CATEGORIES = [
+    { key: 'solutions', label: 'Растворы' },
+    { key: 'medicaments', label: 'Медикаменты' },
+  ];
+  var CATEGORY_LABELS = { solutions: 'Растворы', medicaments: 'Медикаменты' };
+
   /* ── страница /needs ────────────────────────────────────────────── */
 
   var app = document.getElementById('needs-app');
@@ -64,23 +78,39 @@
   var bannerEl = document.getElementById('needs-banner');
   var pointsEl = document.getElementById('needs-points');
   var currentPointEl = document.getElementById('needs-current-point');
-  var searchInput = document.getElementById('needs-search');
-  var searchResults = document.getElementById('needs-search-results');
-  var linesTbody = document.getElementById('needs-lines');
-  var saveBtn = document.getElementById('needs-save');
-  var submitBtn = document.getElementById('needs-submit');
-  var statusEl = document.getElementById('needs-request-status');
   var boardEl = document.getElementById('needs-board');
   var formCardEl = document.getElementById('needs-form-card');
+  var formEl = document.getElementById('needs-form');
 
   // Состояние страницы.
   var catalog = { bases: {}, groups: {}, allItems: [] }; // каталог из API
-  var lines = [];          // выбранные позиции: {item, unit, group, qty}
   var currentBase = '';    // база выбранной точки
   var currentPoint = '';   // выбранная точка пополнения
   var week = iso(mondayOfWeek(new Date())); // текущая неделя (пн)
-  var readOnly = false;    // режим просмотра (чужой отправленный / закрытая база)
-  var closedBases = {};    // базы с закрытой неделей (для полных ролей — из доски)
+  // Закрытие недель — по базе и разделу: closed[base][category] = true.
+  var closed = {};
+
+  // Секции формы: {solutions: Section, medicaments: Section}. Каждая держит
+  // свои строки и режим просмотра (нет/черновик/отправлено — на уровне раздела).
+  var sections = {};
+  CATEGORIES.forEach(function (cat) {
+    if (!formEl) return;
+    var root = formEl.querySelector('.needs-section[data-category="' + cat.key + '"]');
+    if (!root) return;
+    sections[cat.key] = {
+      key: cat.key,
+      label: cat.label,
+      root: root,
+      search: root.querySelector('.needs-search'),
+      results: root.querySelector('.needs-search-results'),
+      linesTbody: root.querySelector('.needs-lines'),
+      status: root.querySelector('.needs-request-status'),
+      saveBtn: root.querySelector('.needs-save'),
+      submitBtn: root.querySelector('.needs-submit'),
+      lines: [],       // выбранные позиции: {item, unit, group, qty}
+      readOnly: false, // просмотр (чужой отправленный / раздел закрыт)
+    };
+  });
 
   // Баннер: сообщение + вид (ok/warn/error); прячем по таймеру.
   var bannerTimer = null;
@@ -149,145 +179,169 @@
     if (formCardEl) formCardEl.classList.remove('needs-form-hidden');
   }
 
-  // Выбрать точку: обновить состояние, заголовок заявки и подсветку сетки.
+  // Выбрать точку: обновить состояние, заголовок и подсветку, очистить поиск
+  // обеих секций и загрузить заявки обоих разделов.
   function selectPoint(base, point) {
     currentBase = base;
     currentPoint = point;
     showFormCard();
     if (currentPointEl) currentPointEl.textContent = point ? ('— ' + point) : '';
     if (pointsEl) renderPointGrid();
-    searchInput.value = '';
-    searchResults.hidden = true;
-    searchResults.innerHTML = '';
-    readOnly = !!closedBases[base];
-    return loadRequest();
+    CATEGORIES.forEach(function (cat) {
+      var sec = sections[cat.key];
+      if (!sec) return;
+      sec.search.value = '';
+      sec.results.hidden = true;
+      sec.results.innerHTML = '';
+    });
+    loadRequests();
   }
 
   /* ── заявка: загрузка, отрисовка, сохранение, отправка ──────────── */
 
-  // Загрузить заявку точки за неделю: есть → показать (чужая отправленная —
-  // режим просмотра), 404 (нет заявки или чужой черновик) → пустая форма.
-  function loadRequest() {
+  // Закрыт ли раздел выбранной базы (из доски или после 409 от save/submit).
+  function isClosedSection(sec) {
+    return !!(closed[currentBase] && closed[currentBase][sec.key]);
+  }
+
+  // Режим просмотра раздела: закрыт, либо чужой отправленный (для медсестры).
+  function computeReadOnly(sec, req) {
+    if (isClosedSection(sec)) return true;
+    return req.status === 'sent' && req.author_id !== MY_ID && !IS_FULL;
+  }
+
+  // Загрузить заявки обоих разделов точки (два независимых GET).
+  function loadRequests() {
+    CATEGORIES.forEach(function (cat) {
+      if (sections[cat.key]) loadRequest(sections[cat.key]);
+    });
+  }
+
+  // Загрузить заявку раздела точки за неделю: есть → показать (чужая
+  // отправленная — просмотр), 404 (нет заявки или чужой черновик) → пустая
+  // форма. Закрытый раздел — просмотр.
+  function loadRequest(sec) {
     if (!currentPoint) {
-      lines = [];
-      renderLines();
-      setStatus('Выберите точку пополнения.');
+      sec.lines = [];
+      renderLines(sec);
+      setStatus(sec, 'Выберите точку пополнения.');
       return;
     }
     var url = '/needs/api/request?base=' + encodeURIComponent(currentBase) +
-      '&point=' + encodeURIComponent(currentPoint) + '&week=' + encodeURIComponent(week);
+      '&point=' + encodeURIComponent(currentPoint) +
+      '&category=' + encodeURIComponent(sec.key) +
+      '&week=' + encodeURIComponent(week);
     return apiFetch(url).then(function (req) {
       if (!req) return;
-      lines = (req.lines || []).map(function (l) {
+      sec.lines = (req.lines || []).map(function (l) {
         return { item: l.item, unit: l.unit || '', group: l.grp || '', qty: l.qty || 0 };
       });
-      // Чужой отправленный — просмотр; свои и чужие черновики (полная роль)
-      // и свои отправленные — правка. Закрытая база — просмотр.
-      readOnly = (req.status === 'sent' && req.author_id !== MY_ID && !IS_FULL) ||
-        !!closedBases[currentBase];
-      renderLines();
-      setStatus(
+      sec.readOnly = computeReadOnly(sec, req);
+      renderLines(sec);
+      setStatus(sec,
         'Заявка: ' + (req.status === 'sent' ? 'отправлена' : 'черновик') +
-        (readOnly ? ' — просмотр (изменения заблокированы)' : '')
+        (sec.readOnly ? ' — просмотр (изменения заблокированы)' : '')
       );
-      if (readOnly && closedBases[currentBase]) {
-        showBanner('Неделя закрыта для базы «' + currentBase + '» — правки запрещены.', 'warn');
+      if (sec.readOnly && isClosedSection(sec)) {
+        showBanner('Раздел «' + sec.label + '» закрыт для базы «' + currentBase +
+          '» — правки запрещены.', 'warn');
       }
     }).catch(function (err) {
       if (err.status === 404) {
         // Заявки нет (или это чужой черновик, скрытый API) — пустая форма.
-        lines = [];
-        readOnly = !!closedBases[currentBase];
-        renderLines();
-        setStatus('Заявки на эту неделю ещё нет.');
+        sec.lines = [];
+        sec.readOnly = isClosedSection(sec);
+        renderLines(sec);
+        setStatus(sec, 'Заявки на эту неделю ещё нет.');
         return;
       }
       showBanner('Ошибка загрузки заявки: ' + err.message, 'error');
     });
   }
 
-  // Отрисовать таблицу выбранных позиций: Название | Ед. | Количество | ×.
-  function renderLines() {
-    if (!lines.length) {
-      linesTbody.innerHTML = '<tr><td colspan="4" class="empty">' +
+  // Отрисовать таблицу выбранных позиций раздела: Название | Ед. | Кол-во | ×.
+  function renderLines(sec) {
+    if (!sec.lines.length) {
+      sec.linesTbody.innerHTML = '<tr><td colspan="4" class="empty">' +
         'Позиции не выбраны — найдите препарат поиском выше.</td></tr>';
-      syncControls();
+      syncControls(sec);
       return;
     }
-    var html = lines.map(function (line, i) {
+    var html = sec.lines.map(function (line, i) {
       return '<tr>' +
         '<td>' + esc(line.item) + '</td>' +
         '<td>' + esc(line.unit) + '</td>' +
         '<td><input type="number" inputmode="numeric" min="0" step="1" ' +
           'class="needs-qty" data-i="' + i + '" value="' +
           (line.qty > 0 ? line.qty : '0') + '"' +
-          (readOnly ? ' disabled' : '') + '></td>' +
+          (sec.readOnly ? ' disabled' : '') + '></td>' +
         '<td><button type="button" class="needs-remove" data-i="' + i + '" ' +
-          'aria-label="Удалить"' + (readOnly ? ' disabled' : '') + '>×</button></td>' +
+          'aria-label="Удалить"' + (sec.readOnly ? ' disabled' : '') + '>×</button></td>' +
         '</tr>';
     }).join('');
-    linesTbody.innerHTML = html;
-    syncControls();
+    sec.linesTbody.innerHTML = html;
+    syncControls(sec);
   }
 
-  // Включить/выключить управление формой по режиму (правка/просмотр).
-  function syncControls() {
-    [searchInput, saveBtn, submitBtn].forEach(function (el) {
-      if (el) el.disabled = readOnly;
+  // Включить/выключить управление секцией по режиму (правка/просмотр).
+  function syncControls(sec) {
+    [sec.search, sec.saveBtn, sec.submitBtn].forEach(function (el) {
+      if (el) el.disabled = sec.readOnly;
     });
   }
 
-  function setStatus(text) {
-    if (statusEl) statusEl.textContent = text;
+  function setStatus(sec, text) {
+    if (sec.status) sec.status.textContent = text;
   }
 
-  // Собрать строки для API: [{item, qty}] с числами (пустое поле → 0).
-  function collectLines() {
+  // Собрать строки раздела для API: [{item, qty}] с числами (пустое поле → 0).
+  function collectLines(sec) {
     var out = [];
-    lines.forEach(function (line, i) {
-      var input = linesTbody.querySelector('.needs-qty[data-i="' + i + '"]');
+    sec.lines.forEach(function (line, i) {
+      var input = sec.linesTbody.querySelector('.needs-qty[data-i="' + i + '"]');
       out.push({ item: line.item, qty: input ? parseQty(input.value) : 0 });
     });
     return out;
   }
 
-  // Общие параметры заявки для POST /needs/api/request.
-  function requestPayload() {
+  // Тело заявки раздела для POST /needs/api/request.
+  function requestPayload(sec) {
     return {
       base: currentBase,
       point: currentPoint,
+      category: sec.key,
       week: week,
-      lines: collectLines(),
+      lines: collectLines(sec),
     };
   }
 
-  // «Сохранить»: POST /needs/api/request со status='draft'.
-  function saveDraft() {
-    if (readOnly || !currentPoint) return;
-    var payload = requestPayload();
+  // «Сохранить» раздела: POST /needs/api/request со status='draft'.
+  function saveDraft(sec) {
+    if (sec.readOnly || !currentPoint) return;
+    var payload = requestPayload(sec);
     payload.status = 'draft';
-    saveBtn.disabled = true;
+    sec.saveBtn.disabled = true;
     apiFetch('/needs/api/request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }).then(function (data) {
       if (!data) return;
-      showBanner('Черновик сохранён.', 'ok');
-      setStatus('Заявка: черновик — сохранено');
+      showBanner('Черновик раздела «' + sec.label + '» сохранён.', 'ok');
+      setStatus(sec, 'Заявка: черновик — сохранено');
       if (IS_FULL && boardEl) loadBoard(); // статус доски мог измениться
-    }).catch(showApiError).finally(function () {
-      saveBtn.disabled = readOnly;
+    }).catch(function (err) { showApiError(sec, err); }).finally(function () {
+      sec.saveBtn.disabled = sec.readOnly;
     });
   }
 
-  // «Отправить»: сначала сохранить draft, затем POST /needs/api/request/submit;
+  // «Отправить» раздела: сохранить draft, затем POST /needs/api/request/submit;
   // предупреждения о строках с нулевым количеством — из ответа.
-  function submitRequest() {
-    if (readOnly || !currentPoint) return;
-    var payload = requestPayload();
+  function submitRequest(sec) {
+    if (sec.readOnly || !currentPoint) return;
+    var payload = requestPayload(sec);
     payload.status = 'draft';
-    submitBtn.disabled = true;
+    sec.submitBtn.disabled = true;
     apiFetch('/needs/api/request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -297,110 +351,92 @@
       return apiFetch('/needs/api/request/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base: currentBase, point: currentPoint, week: week }),
+        body: JSON.stringify({
+          base: currentBase, point: currentPoint, category: sec.key, week: week,
+        }),
       });
     }).then(function (res) {
       if (!res) return;
       var warnings = (res.warnings || []).filter(Boolean);
-      var msg = 'Заявка отправлена.';
+      var msg = 'Заявка раздела «' + sec.label + '» отправлена.';
       if (warnings.length) {
-        msg = 'Заявка отправлена. Предупреждение: ' + warnings.length +
-          ' позиций с нулевым количеством: ' + warnings.join(', ') + '.';
+        msg = 'Заявка раздела «' + sec.label + '» отправлена. Предупреждение: ' +
+          warnings.length + ' позиций с нулевым количеством: ' +
+          warnings.join(', ') + '.';
       }
       showBanner(msg, warnings.length ? 'warn' : 'ok');
-      return loadRequest(); // обновить статус (sent) и режим
+      return loadRequest(sec); // обновить статус (sent) и режим
     }).then(function () {
       if (IS_FULL && boardEl) loadBoard();
-    }).catch(showApiError).finally(function () {
-      submitBtn.disabled = readOnly;
+    }).catch(function (err) { showApiError(sec, err); }).finally(function () {
+      sec.submitBtn.disabled = sec.readOnly;
     });
   }
 
-  // Показать ошибку API понятным сообщением: 409 — «неделя закрыта»,
-  // 403/400 — текст из ответа; закрытую базу запоминаем (просмотр).
-  function showApiError(err) {
+  // Показать ошибку API понятным сообщением: 409 — «раздел закрыт»,
+  // 403/400 — текст из ответа; закрытый раздел запоминаем (просмотр).
+  function showApiError(sec, err) {
     if (err.status === 409) {
-      closedBases[currentBase] = true;
-      readOnly = true;
-      renderLines();
-      showBanner('Неделя закрыта для базы «' + currentBase + '»: ' + err.message, 'error');
+      (closed[currentBase] = closed[currentBase] || {})[sec.key] = true;
+      sec.readOnly = true;
+      renderLines(sec);
+      showBanner('Раздел «' + sec.label + '» недели закрыт для базы «' +
+        currentBase + '»: ' + err.message, 'error');
     } else {
       showBanner('Ошибка: ' + err.message, 'error');
     }
   }
 
-  /* ── поиск препаратов по каталогу ───────────────────────────────── */
+  /* ── поиск препаратов по каталогу (внутри раздела) ──────────────── */
 
-  function searchMatches(q) {
+  // Поиск только по своему разделу: растворы — группа «Растворы»,
+  // медикаменты — все остальные группы.
+  function searchMatches(sec, q) {
     var needle = q.trim().toLowerCase();
     if (!needle) return [];
     return catalog.allItems.filter(function (item) {
-      return item.name.toLowerCase().indexOf(needle) !== -1;
+      if (item.name.toLowerCase().indexOf(needle) === -1) return false;
+      if (sec.key === 'solutions') return item.group === SOLUTIONS_GROUP;
+      return item.group !== SOLUTIONS_GROUP;
     });
   }
 
-  function renderSearchResults(q) {
-    var matches = searchMatches(q);
+  function renderSearchResults(sec, q) {
+    var matches = searchMatches(sec, q);
     if (!matches.length) {
-      searchResults.hidden = true;
-      searchResults.innerHTML = '';
+      sec.results.hidden = true;
+      sec.results.innerHTML = '';
       return;
     }
-    searchResults.innerHTML = matches.slice(0, 20).map(function (item) {
+    sec.results.innerHTML = matches.slice(0, 20).map(function (item) {
       return '<button type="button" class="needs-search-item" ' +
         'data-item="' + esc(item.name) + '">' +
         '<span class="needs-search-name">' + esc(item.name) + '</span>' +
         '<span class="needs-search-meta">' + esc(item.unit) + ' · ' + esc(item.group) + '</span>' +
         '</button>';
     }).join('');
-    searchResults.hidden = false;
+    sec.results.hidden = false;
   }
 
-  // Добавить позицию в список выбранного; дубль — фокус на количество.
-  function addLine(itemName) {
-    var idx = lines.findIndex(function (l) { return l.item === itemName; });
+  // Добавить позицию в список выбранного раздела; дубль — фокус на количество.
+  function addLine(sec, itemName) {
+    var idx = sec.lines.findIndex(function (l) { return l.item === itemName; });
     if (idx === -1) {
       var found = catalog.allItems.find(function (i) { return i.name === itemName; });
-      lines.push({
+      sec.lines.push({
         item: itemName,
         unit: found ? found.unit : '',
         group: found ? found.group : '',
         qty: 0,
       });
-      renderLines();
-      idx = lines.length - 1;
+      renderLines(sec);
+      idx = sec.lines.length - 1;
     }
-    var input = linesTbody.querySelector('.needs-qty[data-i="' + idx + '"]');
+    var input = sec.linesTbody.querySelector('.needs-qty[data-i="' + idx + '"]');
     if (input) { input.focus(); input.select(); }
   }
 
   /* ── доска старшей ──────────────────────────────────────────────── */
-
-  // Доска: точки обеих баз со статусом (серый — нет заявки, жёлтый —
-  // черновик, зелёный — отправлено), автор, кнопки закрытия/переоткрытия.
-  function loadBoard() {
-    if (!boardEl) return;
-    boardEl.innerHTML = '<p class="empty">Загрузка…</p>';
-    apiFetch('/needs/api/board?week=' + encodeURIComponent(week)).then(function (data) {
-      if (!data) return;
-      var cells = data.board || [];
-      closedBases = {};
-      var byBase = {};
-      cells.forEach(function (cell) {
-        (byBase[cell.base] = byBase[cell.base] || []).push(cell);
-        if (cell.is_closed) closedBases[cell.base] = true;
-      });
-      renderBoard(byBase);
-      if (currentPoint && readOnly === false && closedBases[currentBase]) {
-        // база закрыта уже при открытии формы — перевести в просмотр
-        readOnly = true;
-        renderLines();
-        showBanner('Неделя закрыта для базы «' + currentBase + '» — правки запрещены.', 'warn');
-      }
-    }).catch(function (err) {
-      if (boardEl) boardEl.innerHTML = '<p class="empty">Доска недоступна: ' + esc(err.message) + '</p>';
-    });
-  }
 
   var STATUS_LABEL = { none: 'нет заявки', draft: 'черновик', sent: 'отправлено' };
 
@@ -408,46 +444,94 @@
   var BASE_ACCUSATIVE = { 'Ленская': 'Ленскую', 'Таймырская': 'Таймырскую' };
   function baseAccusative(base) { return BASE_ACCUSATIVE[base] || base; }
 
-  function renderBoard(byBase) {
-    var html = '';
-    Object.keys(catalog.bases).forEach(function (base) {
-      var cells = byBase[base] || [];
-      var closed = !!closedBases[base];
-      html += '<div class="needs-base">';
-      html += '<h3>' + esc(base) +
-        (closed ? ' <span class="needs-closed-badge">неделя закрыта</span>' : '') +
-        '</h3>';
-      if (!cells.length) {
-        html += '<p class="empty">Точек в каталоге нет.</p>';
-      } else {
-        html += '<div class="needs-board-grid">';
-        cells.forEach(function (cell) {
-          html += '<button type="button" class="needs-board-cell" ' +
-            'data-base="' + esc(cell.base) + '" data-point="' + esc(cell.point) + '">' +
-            '<span class="needs-dot ' + esc(cell.status) + '"></span>' +
-            '<span class="needs-cell-main">' +
-            '<span class="needs-cell-point">' + esc(cell.point) + '</span>' +
-            '<span class="needs-cell-author">' + esc(cell.author_name || STATUS_LABEL[cell.status]) + '</span>' +
-            '</span>' +
-            '</button>';
+  // Доска: точки обеих баз по двум разделам со статусом, автором, закрытием
+  // раздела. Ячейки API уже содержат category — группируем по разделам.
+  function loadBoard() {
+    if (!boardEl) return;
+    boardEl.innerHTML = '<p class="empty">Загрузка…</p>';
+    apiFetch('/needs/api/board?week=' + encodeURIComponent(week)).then(function (data) {
+      if (!data) return;
+      var cells = data.board || [];
+      closed = {};
+      cells.forEach(function (cell) {
+        if (cell.is_closed) {
+          (closed[cell.base] = closed[cell.base] || {})[cell.category] = true;
+        }
+      });
+      renderBoard(cells);
+      // Если открытый раздел выбранной точки оказался закрыт — в просмотр.
+      if (currentPoint) {
+        CATEGORIES.forEach(function (cat) {
+          var sec = sections[cat.key];
+          if (sec && !sec.readOnly && isClosedSection(sec)) {
+            sec.readOnly = true;
+            renderLines(sec);
+            showBanner('Раздел «' + sec.label + '» закрыт для базы «' + currentBase +
+              '» — правки запрещены.', 'warn');
+          }
         });
+      }
+    }).catch(function (err) {
+      if (boardEl) boardEl.innerHTML = '<p class="empty">Доска недоступна: ' + esc(err.message) + '</p>';
+    });
+  }
+
+  // Доска двумя секциями: у каждой своя сетка точек обеих баз, свои кнопки
+  // закрытия/переоткрытия и отчётов (по разделу).
+  function renderBoard(cells) {
+    var byBase = {};
+    cells.forEach(function (cell) {
+      (byBase[cell.base] = byBase[cell.base] || []).push(cell);
+    });
+    var html = '';
+    CATEGORIES.forEach(function (cat) {
+      html += '<div class="needs-board-section">';
+      html += '<h2 class="needs-board-section-title">' + esc(cat.label) + '</h2>';
+      Object.keys(catalog.bases).forEach(function (base) {
+        var baseCells = (byBase[base] || []).filter(function (c) {
+          return c.category === cat.key;
+        });
+        var isClosed = !!(closed[base] && closed[base][cat.key]);
+        html += '<div class="needs-base">';
+        html += '<h3>' + esc(base) +
+          (isClosed ? ' <span class="needs-closed-badge">раздел закрыт</span>' : '') +
+          '</h3>';
+        if (!baseCells.length) {
+          html += '<p class="empty">Точек в каталоге нет.</p>';
+        } else {
+          html += '<div class="needs-board-grid">';
+          baseCells.forEach(function (cell) {
+            html += '<button type="button" class="needs-board-cell" ' +
+              'data-base="' + esc(cell.base) + '" data-point="' + esc(cell.point) + '">' +
+              '<span class="needs-dot ' + esc(cell.status) + '"></span>' +
+              '<span class="needs-cell-main">' +
+              '<span class="needs-cell-point">' + esc(cell.point) + '</span>' +
+              '<span class="needs-cell-author">' + esc(cell.author_name || STATUS_LABEL[cell.status]) + '</span>' +
+              '</span>' +
+              '</button>';
+          });
+          html += '</div>';
+        }
+        // Кнопки отчёта — строго по базе и разделу за текущую неделю.
+        var q = 'base=' + encodeURIComponent(base) +
+          '&category=' + encodeURIComponent(cat.key) +
+          '&week=' + encodeURIComponent(week);
+        html += '<div class="needs-base-report">' +
+          '<a class="btn" href="/needs/report.xlsx?' + q + '">Отчёт (xlsx)</a>' +
+          '<a class="btn" href="/needs/report?' + q + '">Отчёт (просмотр)</a>' +
+          '</div>';
+        html += '<div class="needs-actions">';
+        if (isClosed) {
+          html += '<button type="button" class="btn needs-reopen" data-base="' + esc(base) +
+            '" data-category="' + esc(cat.key) + '">Открыть заново</button>';
+        } else {
+          html += '<button type="button" class="btn needs-close" data-base="' + esc(base) +
+            '" data-category="' + esc(cat.key) + '">Закрыть ' +
+            esc(cat.label.toLowerCase()) + ' · ' + baseAccusative(base) + '</button>';
+        }
         html += '</div>';
-      }
-      // Кнопки отчёта — строго по этой базе за текущую неделю.
-      var q = 'base=' + encodeURIComponent(base) + '&week=' + encodeURIComponent(week);
-      html += '<div class="needs-base-report">' +
-        '<a class="btn" href="/needs/report.xlsx?' + q + '">Отчёт (xlsx)</a>' +
-        '<a class="btn" href="/needs/report?' + q + '">Отчёт (просмотр)</a>' +
-        '</div>';
-      html += '<div class="needs-actions">';
-      if (closed) {
-        html += '<button type="button" class="btn needs-reopen" data-base="' + esc(base) + '">' +
-          'Открыть заново</button>';
-      } else {
-        html += '<button type="button" class="btn needs-close" data-base="' + esc(base) + '">' +
-          'Закрыть ' + baseAccusative(base) + '</button>';
-      }
-      html += '</div>';
+        html += '</div>';
+      });
       html += '</div>';
     });
     boardEl.innerHTML = html;
@@ -463,9 +547,15 @@
         return;
       }
       var closeBtn = e.target.closest('.needs-close');
-      if (closeBtn) { closeBase(closeBtn.getAttribute('data-base')); return; }
+      if (closeBtn) {
+        closeBase(closeBtn.getAttribute('data-base'), closeBtn.getAttribute('data-category'));
+        return;
+      }
       var reopenBtn = e.target.closest('.needs-reopen');
-      if (reopenBtn) { reopenBase(reopenBtn.getAttribute('data-base')); return; }
+      if (reopenBtn) {
+        reopenBase(reopenBtn.getAttribute('data-base'), reopenBtn.getAttribute('data-category'));
+        return;
+      }
     });
   }
 
@@ -478,28 +568,29 @@
     });
   }
 
-  // Закрыть неделю для базы: подтверждение, POST /needs/api/close,
+  // Закрыть неделю раздела для базы: подтверждение, POST /needs/api/close,
   // затем предупреждение со списком неотправивших точек из ответа.
-  function closeBase(base) {
-    if (!window.confirm('Закрыть неделю для базы «' + base + '»? Точки без ' +
-      'отправленной заявки в отчёт не попадут.')) return;
+  function closeBase(base, category) {
+    var label = CATEGORY_LABELS[category];
+    if (!window.confirm('Закрыть раздел «' + label + '» недели для базы «' + base +
+      '»? Точки без отправленной заявки в отчёт не попадут.')) return;
     apiFetch('/needs/api/close', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ base: base, week: week }),
+      body: JSON.stringify({ base: base, category: category, week: week }),
     }).then(function (data) {
       if (!data) return;
       var unsent = data.unsent_points || [];
-      var msg = 'Неделя для базы «' + base + '» закрыта.';
+      var msg = 'Раздел «' + label + '» недели для базы «' + base + '» закрыт.';
       if (unsent.length) {
         msg += ' Не отправили заявку: ' + unsent.join(', ') + '.';
       }
       showBanner(msg, unsent.length ? 'warn' : 'ok');
-      closedBases[base] = true;
-      if (base === currentBase) {
-        readOnly = true;
-        renderLines();
-        setStatus('Заявка: просмотр (неделя закрыта)');
+      (closed[base] = closed[base] || {})[category] = true;
+      if (base === currentBase && sections[category]) {
+        sections[category].readOnly = true;
+        renderLines(sections[category]);
+        setStatus(sections[category], 'Заявка: просмотр (раздел закрыт)');
       }
       loadBoard();
     }).catch(function (err) {
@@ -507,21 +598,21 @@
     });
   }
 
-  // Открыть неделю заново: POST /needs/api/reopen.
-  function reopenBase(base) {
-    if (!window.confirm('Открыть неделю для базы «' + base + '» заново? ' +
-      'Правки и отправка снова станут доступны.')) return;
+  // Открыть неделю раздела заново: POST /needs/api/reopen.
+  function reopenBase(base, category) {
+    var label = CATEGORY_LABELS[category];
+    if (!window.confirm('Открыть раздел «' + label + '» недели для базы «' + base +
+      '» заново? Правки и отправка снова станут доступны.')) return;
     apiFetch('/needs/api/reopen', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ base: base, week: week }),
+      body: JSON.stringify({ base: base, category: category, week: week }),
     }).then(function (data) {
       if (!data) return;
-      showBanner('Неделя для базы «' + base + '» открыта заново.', 'ok');
-      delete closedBases[base];
-      if (base === currentBase) {
-        readOnly = false;
-        return loadRequest(); // вернуть режим правки
+      showBanner('Раздел «' + label + '» недели для базы «' + base + '» открыт заново.', 'ok');
+      if (closed[base]) delete closed[base][category];
+      if (base === currentBase && sections[category]) {
+        return loadRequest(sections[category]); // вернуть режим правки
       }
       loadBoard();
     }).catch(function (err) {
@@ -529,53 +620,61 @@
     });
   }
 
-  /* ── события формы ──────────────────────────────────────────────── */
+  /* ── события формы (по секциям) ─────────────────────────────────── */
 
-  searchInput.addEventListener('input', function () {
-    if (readOnly) return;
-    renderSearchResults(searchInput.value);
+  CATEGORIES.forEach(function (cat) {
+    var sec = sections[cat.key];
+    if (!sec) return;
+
+    sec.search.addEventListener('input', function () {
+      if (sec.readOnly) return;
+      renderSearchResults(sec, sec.search.value);
+    });
+
+    // Клик по найденной позиции — добавить в список, поле очистить.
+    sec.results.addEventListener('click', function (e) {
+      var item = e.target.closest('.needs-search-item');
+      if (!item) return;
+      addLine(sec, item.getAttribute('data-item'));
+      sec.search.value = '';
+      sec.results.hidden = true;
+      sec.results.innerHTML = '';
+      sec.search.focus();
+    });
+
+    // Удаление позиции из списка выбранного раздела.
+    sec.linesTbody.addEventListener('click', function (e) {
+      var btn = e.target.closest('.needs-remove');
+      if (!btn || sec.readOnly) return;
+      var i = parseInt(btn.getAttribute('data-i'), 10);
+      if (isNaN(i) || i < 0 || i >= sec.lines.length) return;
+      sec.lines.splice(i, 1);
+      renderLines(sec);
+    });
+
+    // Ввод количества — синхронизировать в состояние строк, чтобы значения
+    // не терялись при перерисовке (добавление строки, смена точки и т.п.).
+    sec.linesTbody.addEventListener('input', function (e) {
+      if (!e.target.classList || !e.target.classList.contains('needs-qty')) return;
+      var i = parseInt(e.target.getAttribute('data-i'), 10);
+      if (isNaN(i) || i < 0 || i >= sec.lines.length) return;
+      sec.lines[i].qty = parseQty(e.target.value);
+    });
+
+    sec.saveBtn.addEventListener('click', function () { saveDraft(sec); });
+    sec.submitBtn.addEventListener('click', function () { submitRequest(sec); });
   });
 
-  // Клик по найденной позиции — добавить в список, поле очистить.
-  searchResults.addEventListener('click', function (e) {
-    var item = e.target.closest('.needs-search-item');
-    if (!item) return;
-    addLine(item.getAttribute('data-item'));
-    searchInput.value = '';
-    searchResults.hidden = true;
-    searchResults.innerHTML = '';
-    searchInput.focus();
-  });
-
-  // Клик вне блока поиска — спрятать подсказки.
+  // Клик вне блока поиска секции — спрятать её подсказки.
   document.addEventListener('click', function (e) {
-    if (!searchResults.hidden && !e.target.closest('#needs-search') &&
-        !e.target.closest('#needs-search-results')) {
-      searchResults.hidden = true;
-    }
+    CATEGORIES.forEach(function (cat) {
+      var sec = sections[cat.key];
+      if (!sec || sec.results.hidden) return;
+      if (!sec.search.contains(e.target) && !sec.results.contains(e.target)) {
+        sec.results.hidden = true;
+      }
+    });
   });
-
-  // Удаление позиции из списка выбранного.
-  linesTbody.addEventListener('click', function (e) {
-    var btn = e.target.closest('.needs-remove');
-    if (!btn || readOnly) return;
-    var i = parseInt(btn.getAttribute('data-i'), 10);
-    if (isNaN(i) || i < 0 || i >= lines.length) return;
-    lines.splice(i, 1);
-    renderLines();
-  });
-
-  // Ввод количества — синхронизировать в состояние строк, чтобы значения
-  // не терялись при перерисовке (добавление строки, смена точки и т.п.).
-  linesTbody.addEventListener('input', function (e) {
-    if (!e.target.classList || !e.target.classList.contains('needs-qty')) return;
-    var i = parseInt(e.target.getAttribute('data-i'), 10);
-    if (isNaN(i) || i < 0 || i >= lines.length) return;
-    lines[i].qty = parseQty(e.target.value);
-  });
-
-  saveBtn.addEventListener('click', saveDraft);
-  submitBtn.addEventListener('click', submitRequest);
 
   /* ── запуск страницы /needs ─────────────────────────────────────── */
 
@@ -597,6 +696,7 @@
     var baseSel = document.getElementById('analytics-base');
     var pointSelA = document.getElementById('analytics-point');
     var groupSel = document.getElementById('analytics-group');
+    var sectionSel = document.getElementById('analytics-section');
     var showBtn = document.getElementById('analytics-show');
     var formA = document.getElementById('analytics-form');
     var xlsxLink = document.getElementById('analytics-xlsx');
@@ -677,6 +777,7 @@
       if (baseSel.value) params.push('base=' + encodeURIComponent(baseSel.value));
       if (pointSelA.value) params.push('point=' + encodeURIComponent(pointSelA.value));
       if (groupSel.value) params.push('group=' + encodeURIComponent(groupSel.value));
+      if (sectionSel.value) params.push('section=' + encodeURIComponent(sectionSel.value));
       return params.join('&');
     }
 
@@ -716,13 +817,15 @@
     function refreshXlsxLink() {
       xlsxLink.href = '/needs/api/analytics.xlsx?' + analyticsParams();
     }
-    [fromInput, toInput, baseSel, pointSelA, groupSel].forEach(function (el) {
+    [fromInput, toInput, baseSel, pointSelA, groupSel, sectionSel].forEach(function (el) {
       el.addEventListener('change', refreshXlsxLink);
       el.addEventListener('input', refreshXlsxLink);
     });
     refreshXlsxLink();
 
     // Растворы — таблицей с ИТОГО; остальные группы — секциями с подытогом.
+    // При фильтре «Раздел» бэкенд возвращает только один блок (другой пуст),
+    // поэтому «Все» рендерится двумя блоками, «растворы/медикаменты» — одним.
     function renderAnalytics(data) {
       var html = '<h3 class="analytics-period">' + esc(data.period_label || '') + '</h3>';
       var solutions = data.solutions || {};

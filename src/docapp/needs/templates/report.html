@@ -1,17 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Отчёт по потребностям — docapp{% endblock %}
+{% block title %}Отчёт по потребностям — {{ category_label }} — docapp{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="/static/needs.css?v={{ git_revision }}">
 
 <div class="card needs-report">
-  <h1>Отчёт по потребностям</h1>
+  <h1>Отчёт по потребностям — {{ category_label }}</h1>
   <h2>База: {{ agg['base'] }}</h2>
   <p class="report-meta">Неделя: {{ agg['week_label'] }} · сформирован {{ agg['generated_at'] }}</p>
 
   {{ report|safe }}
 
   <div class="needs-actions">
-    <a class="btn" href="/needs/report.xlsx?base={{ agg['base']|urlencode }}&amp;week={{ agg['week_start'] }}">Скачать .xlsx</a>
+    <a class="btn" href="/needs/report.xlsx?base={{ agg['base']|urlencode }}&amp;category={{ category }}&amp;week={{ agg['week_start'] }}">Скачать .xlsx</a>
     <a class="btn" href="/needs">← К заявкам</a>
   </div>
 </div>

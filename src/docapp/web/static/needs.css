@@ -93,7 +93,7 @@ table.needs-table {
 .needs-actions .btn:active { background: #eef2f7; }
 
 /* Поиск препарата: поле и выпадающий список найденного */
-#needs-search { margin-bottom: 0; }
+.needs-search { margin-bottom: 0; }
 
 .needs-search-results {
   background: #fff;
@@ -240,6 +240,35 @@ table.needs-table {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 4px;
+}
+
+/* ── секции формы (растворы / медикаменты) ──────────────────────── */
+
+.needs-section {
+  border: 1px solid #e3e8ef;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 16px;
+  background: #fff;
+}
+.needs-section:last-child { margin-bottom: 0; }
+.needs-section-title {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  color: #1565c0;
+}
+
+/* ── секции доски старшей ───────────────────────────────────────── */
+
+.needs-board-section {
+  margin-bottom: 18px;
+}
+.needs-board-section-title {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+  color: #1565c0;
+  border-bottom: 2px solid #1565c0;
+  padding-bottom: 6px;
 }
 
 /* ── аналитика ─────────────────────────────────────────────────── */

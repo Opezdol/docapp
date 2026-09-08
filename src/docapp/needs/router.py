@@ -297,11 +297,18 @@ def report_page(request: Request):
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_full(user)
-    agg, _ = _report_agg(request)
+    agg, category = _report_agg(request)
     return TEMPLATES.TemplateResponse(
         request,
         "report.html",
-        {"user": user, "flash": None, "agg": agg, "report": html_table(agg)},
+        {
+            "user": user,
+            "flash": None,
+            "agg": agg,
+            "report": html_table(agg),
+            "category": category,
+            "category_label": CATEGORY_LABELS[category],
+        },
     )
 
 
