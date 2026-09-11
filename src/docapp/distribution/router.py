@@ -95,10 +95,15 @@ async def spread_file(
     user = access.current_user(request)
     source = await file.read()
     try:
-        result = _service(request).spread(month.strip(), source)
+        service = _service(request)
+        result = service.spread(month.strip(), source)
+        # Сначала собираем файл: метки «учтена» ставим только по тому
+        # распределению, которое заведующий уже получил.
+        payload = xlsx.build(source, result)
+        service.mark(month.strip(), result)
     except ValueError as exc:
         return _vedomost_page(request, user, error=str(exc), month=month, status_code=400)
-    return web.xlsx_response(xlsx.build(source, result), xlsx.filename(month.strip()))
+    return web.xlsx_response(payload, xlsx.filename(month.strip()))
 
 
 @router.get("/counts", response_class=HTMLResponse)

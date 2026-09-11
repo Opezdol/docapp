@@ -17,10 +17,11 @@ import pytest
 from docapp.domain.anesthesia import Anesthesia
 from docapp.domain.employee import DOCTOR, HEAD, NURSE, Employee
 from docapp.distribution.service import BY_DAY, BY_MONTH, BY_NURSE, DistributionService
+from docapp.distribution.spread import Spread
 from docapp.people.store import SqliteEmployeeStore
 from docapp.records.service import AnesthesiaService
 from docapp.records.store import SqliteAnesthesiaStore
-from factories import make_db
+from factories import make_db, vedomost_xlsx
 
 DISTRIBUTION_DIR = Path(__file__).resolve().parents[1] / "src" / "docapp" / "distribution"
 
@@ -124,6 +125,8 @@ class _StubRecords:
     def __init__(self, key: str = "2") -> None:
         self.key = key
         self.calls: list[tuple] = []
+        self.mark_calls: list[tuple] = []
+        self.range_calls: list[tuple] = []
 
     def aggregate(self, from_date, to_date, by="doctor"):
         self.calls.append((from_date, to_date, by))
@@ -131,6 +134,15 @@ class _StubRecords:
             "from": from_date, "to": to_date, "by": by, "total": 1,
             "rows": [{"key": self.key, "count": 1}],
         }
+
+    def mark_distributed(self, from_date, to_date, anesthesia_ids):
+        self.mark_calls.append((from_date, to_date, tuple(anesthesia_ids)))
+        return {"cleared": 1, "marked": 2}
+
+    def list_range(self, from_date, to_date):
+        """Записи периода: для проверки шва довольно пустого списка."""
+        self.range_calls.append((from_date, to_date))
+        return []
 
 
 class TestCarcass:
@@ -169,3 +181,103 @@ class TestCarcass:
         assert not re.search(r"FROM\s+anesthesia\b", text, re.IGNORECASE), path
         assert not re.search(r"JOIN\s+anesthesia\b", text, re.IGNORECASE), path
         assert "SqliteAnesthesiaStore" not in text, path
+
+
+# ── метка «учтена» (ADR-0024, шаг 4) ──────────────────────────────────
+
+
+@pytest.fixture
+def marks(tmp_path):
+    """Распределение поверх настоящих записей: метку ставит их владелец."""
+    db = make_db(tmp_path, seed=False)
+    employees = SqliteEmployeeStore(db)
+    doctor = employees.add(Employee(last_name="Петров", first_name="Пётр", role=DOCTOR))
+    nurse = employees.add(Employee(last_name="Сидорова", first_name="Анна", role=NURSE))
+    store = SqliteAnesthesiaStore(db)
+    september = store.add(
+        make_anesthesia(date=date(2026, 9, 2), patient_name="Петров Пётр Сергеевич",
+                        doctor_id=doctor.id, nurse_id=nurse.id)
+    )
+    another = store.add(
+        make_anesthesia(date=date(2026, 9, 3), patient_name="Пациент А.",
+                        doctor_id=doctor.id, nurse_id=nurse.id)
+    )
+    august = store.add(
+        make_anesthesia(date=date(2026, 8, 20), patient_name="Петров Пётр Сергеевич",
+                        doctor_id=doctor.id, nurse_id=nurse.id)
+    )
+    service = DistributionService(AnesthesiaService(store), employees)
+    yield service, store, september, another, august
+    store.close()
+    employees.close()
+
+
+def file_with(*patients: str) -> bytes:
+    """Ведомость по строке на пациента: строка получает пару, если пациент нашёлся."""
+    return vedomost_xlsx([
+        {"date": date(2026, 9, 2), "patient": patient, "doctor": 100, "smp": 50, "mmp": 10}
+        for patient in patients
+    ])
+
+
+class TestMark:
+    """Метки «учтена»: их получают только записи, попавшие в ведомость."""
+
+    def test_marks_only_the_matched_records(self, marks):
+        service, store, september, another, august = marks
+
+        result = service.spread("2026-09", file_with("ПЕТРОВ П.С.", "МИХАЙЛОВА А.И."))
+
+        assert result.matched_ids == (september.id,)
+        assert service.mark("2026-09", result) == {"cleared": 0, "marked": 1}
+        assert store.get_by_id(september.id).accrued_at is not None
+        assert store.get_by_id(another.id).accrued_at is None
+        assert store.get_by_id(august.id).accrued_at is None     # чужой месяц не тронут
+
+    def test_rerun_of_the_month_clears_stale_marks(self, marks):
+        """Повторный прогон месяца снимает метку записи, которой в ведомости нет."""
+        service, store, september, *_ = marks
+        service.mark("2026-09", service.spread("2026-09", file_with("ПЕТРОВ П.С.")))
+
+        result = service.spread("2026-09", file_with("МИХАЙЛОВА А.И."))
+
+        assert result.matched_ids == ()
+        assert service.mark("2026-09", result) == {"cleared": 1, "marked": 0}
+        assert store.get_by_id(september.id).accrued_at is None
+
+    def test_attention_rows_get_no_mark(self, marks):
+        """Фамилия сошлась, инициалы нет — «Внимание»: пары и метки нет."""
+        service, store, september, *_ = marks
+
+        result = service.spread("2026-09", file_with("ПЕТРОВ П.И."))
+
+        assert result.attention_rows == 1 and result.matched_ids == ()
+        assert service.mark("2026-09", result) == {"cleared": 0, "marked": 0}
+        assert store.get_by_id(september.id).accrued_at is None
+
+    def test_months_are_independent(self, marks):
+        """Метки разных месяцев не мешают друг другу."""
+        service, store, september, _, august = marks
+
+        service.mark("2026-09", service.spread("2026-09", file_with("ПЕТРОВ П.С.")))
+        service.mark("2026-08", service.spread("2026-08", file_with("ПЕТРОВ П.С.")))
+
+        assert store.get_by_id(september.id).accrued_at is not None
+        assert store.get_by_id(august.id).accrued_at is not None
+
+
+class TestMarkGoesThroughTheInterface:
+    """Метки ставит владелец записей: распределение только просит (шов, ADR-0017)."""
+
+    def test_mark_asks_the_neighbour_for_the_month(self, tmp_path):
+        db = make_db(tmp_path, seed=False)
+        employees = SqliteEmployeeStore(db)
+        stub = _StubRecords()
+        result = Spread(month="2026-09", source_sheet="Sheet Name Here", rows=(),
+                        doctors=(), nurses=(), matched_ids=(7, 8))
+
+        marks = DistributionService(stub, employees).mark("2026-09", result)
+
+        assert stub.mark_calls == [("2026-09-01", "2026-09-30", (7, 8))]
+        assert marks == {"cleared": 1, "marked": 2}
+        employees.close()

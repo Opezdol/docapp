@@ -224,3 +224,79 @@ class TestAnesthesiaStore:
         with SqliteAnesthesiaStore(db_path) as s2:
             loaded = s2.get_by_id(saved.id)
             assert loaded == saved
+
+
+def add_records(store, doctor_id: int, nurse_id: int, days) -> list[int]:
+    """Записи на заданные даты: вернуть их id (метки ставятся по id)."""
+    return [
+        store.add(make_anesthesia(date=day, doctor_id=doctor_id, nurse_id=nurse_id)).id
+        for day in days
+    ]
+
+
+class TestAccruedMark:
+    """Метки «учтена» в хранилище: пересчёт месяца одной транзакцией (ADR-0024)."""
+
+    MOMENT = datetime(2026, 9, 11, 20, 0, tzinfo=timezone.utc)
+
+    def test_marks_given_records(self, emp_store, an_store):
+        doctor_id, nurse_id = add_doctor_and_nurse(emp_store)
+        first, second = add_records(an_store, doctor_id, nurse_id,
+                                    [date(2026, 9, 2), date(2026, 9, 5)])
+
+        cleared, marked = an_store.remark_accrued(
+            date(2026, 9, 1), date(2026, 9, 30), [first], self.MOMENT
+        )
+
+        assert (cleared, marked) == (0, 1)
+        assert an_store.get_by_id(first).accrued_at == self.MOMENT
+        assert an_store.get_by_id(second).accrued_at is None
+
+    def test_second_run_clears_the_previous_marks(self, emp_store, an_store):
+        doctor_id, nurse_id = add_doctor_and_nurse(emp_store)
+        first, second = add_records(an_store, doctor_id, nurse_id,
+                                    [date(2026, 9, 2), date(2026, 9, 5)])
+        an_store.remark_accrued(date(2026, 9, 1), date(2026, 9, 30), [first], self.MOMENT)
+
+        cleared, marked = an_store.remark_accrued(
+            date(2026, 9, 1), date(2026, 9, 30), [second], self.MOMENT
+        )
+
+        assert (cleared, marked) == (1, 1)
+        assert an_store.get_by_id(first).accrued_at is None
+        assert an_store.get_by_id(second).accrued_at == self.MOMENT
+
+    def test_another_month_keeps_its_marks(self, emp_store, an_store):
+        """Метка принадлежит месяцу: чужой месяц пересчёт не задевает."""
+        doctor_id, nurse_id = add_doctor_and_nurse(emp_store)
+        august, september = add_records(an_store, doctor_id, nurse_id,
+                                        [date(2026, 8, 20), date(2026, 9, 2)])
+        an_store.remark_accrued(date(2026, 8, 1), date(2026, 8, 31), [august], self.MOMENT)
+
+        an_store.remark_accrued(date(2026, 9, 1), date(2026, 9, 30), [september], self.MOMENT)
+
+        assert an_store.get_by_id(august).accrued_at == self.MOMENT
+        assert an_store.get_by_id(september).accrued_at == self.MOMENT
+
+    def test_id_of_another_month_is_ignored(self, emp_store, an_store):
+        doctor_id, nurse_id = add_doctor_and_nurse(emp_store)
+        august, = add_records(an_store, doctor_id, nurse_id, [date(2026, 8, 20)])
+
+        cleared, marked = an_store.remark_accrued(
+            date(2026, 9, 1), date(2026, 9, 30), [august], self.MOMENT
+        )
+
+        assert (cleared, marked) == (0, 0)
+        assert an_store.get_by_id(august).accrued_at is None
+
+    def test_empty_ids_only_clear(self, emp_store, an_store):
+        doctor_id, nurse_id = add_doctor_and_nurse(emp_store)
+        first, = add_records(an_store, doctor_id, nurse_id, [date(2026, 9, 2)])
+        an_store.remark_accrued(date(2026, 9, 1), date(2026, 9, 30), [first], self.MOMENT)
+
+        cleared, marked = an_store.remark_accrued(
+            date(2026, 9, 1), date(2026, 9, 30), [], self.MOMENT
+        )
+
+        assert (cleared, marked) == (1, 0)
+        assert an_store.get_by_id(first).accrued_at is None

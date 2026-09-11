@@ -140,6 +140,8 @@ class Spread:
     rows: tuple[SpreadRow, ...]
     doctors: tuple[Person, ...]
     nurses: tuple[Person, ...]
+    #: id записей, попавших в ведомость: их метит «учтена» владелец записей.
+    matched_ids: tuple[int, ...] = ()
 
     @property
     def assigned_rows(self) -> int:
@@ -176,10 +178,13 @@ def spread(month: str, vedomost: Vedomost, records: Sequence[Anesthesia],
     by_nurse: dict[int, Decimal] = defaultdict(Decimal)
     people: dict[int, Employee] = {}
 
+    matched: dict[int, None] = {}       # id записей, попавших в ведомость, по порядку
     for row in vedomost.rows:
         match = matches[normalize(row.patient)]
         doctor = employee(employees, match.record.doctor_id) if match.record else None
         nurse = employee(employees, match.record.nurse_id) if match.record else None
+        if match.record is not None and match.record.id is not None:
+            matched[match.record.id] = None     # одну запись метим один раз
         if doctor is not None:
             by_doctor[_id(doctor)] += row.doctor_amount
             people[_id(doctor)] = doctor
@@ -210,6 +215,7 @@ def spread(month: str, vedomost: Vedomost, records: Sequence[Anesthesia],
         rows=tuple(rows),
         doctors=totals(by_doctor),
         nurses=totals(by_nurse),
+        matched_ids=tuple(matched),
     )
 
 

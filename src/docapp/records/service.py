@@ -2,14 +2,18 @@
 
 Хранилище — тупой слой «запиши/удали», правила живут здесь:
 - дата подачи проставляется автоматически (не вводится врачом);
-- врач видит и правит только свои записи (ADR-5).
+- врач видит и правит только свои записи (ADR-5);
+- метку «учтена в распределении» ставит и снимает только этот сервис, по вызову
+  модуля «Распределение» (`mark_distributed`): чужой модуль к таблице не ходит.
 
 Медсестра передаётся явно из формы (поле выбора в форме анестезии);
 «активная сестра» (ADR-4) осталась только как предвыбор селектора
 при следующем входе и здесь не участвует.
 """
 
+from dataclasses import replace
 from datetime import date, datetime, timezone
+from typing import Sequence
 
 from docapp.domain.anesthesia import Anesthesia
 
@@ -63,19 +67,12 @@ class AnesthesiaService:
         patient_name: str,
         nurse_id: int,
     ) -> Anesthesia:
-        """Перезаписать свою запись. date и created_at не меняются."""
+        """Перезаписать свою запись. Дата, created_at и метка «учтена» не меняются."""
         existing = self._get_owned(doctor_id, anesthesia_id)
         if not nurse_id:
             raise ValueError("Сначала выберите медсестру")
 
-        updated = Anesthesia(
-            id=existing.id,
-            date=existing.date,
-            patient_name=patient_name,
-            doctor_id=existing.doctor_id,
-            nurse_id=nurse_id,
-            created_at=existing.created_at,
-        )
+        updated = replace(existing, patient_name=patient_name, nurse_id=nurse_id)
         self._anesthesia.update(updated)
         return updated
 
@@ -104,6 +101,36 @@ class AnesthesiaService:
         return self._anesthesia.list_range(
             date.fromisoformat(from_date), date.fromisoformat(to_date)
         )
+
+    def mark_distributed(
+        self,
+        from_date: str,
+        to_date: str,
+        anesthesia_ids: Sequence[int],
+        moment: datetime | None = None,
+    ) -> dict:
+        """Пересчитать метки «учтена» за период — интерфейс для «Распределения».
+
+        Заведующий разнёс ведомость месяца: записи, попавшие в неё, получают
+        метку `accrued_at`, а прежние метки периода снимаются — так накапливаются
+        только актуальные (ADR-0024). Снимает и ставит владелец записей, одной
+        транзакцией; чужой модуль к таблице `anesthesia` не ходит (ADR-0017).
+
+        Прав сервис не проверяет: это дело вызывающего (у распределения —
+        `distribution.manage`). Возвращает `{"cleared": снято, "marked": поставлено}`.
+        """
+        first = date.fromisoformat(from_date)
+        last = date.fromisoformat(to_date)
+        if last < first:
+            raise ValueError("Конец периода раньше начала")
+
+        cleared, marked = self._anesthesia.remark_accrued(
+            first,
+            last,
+            list(anesthesia_ids),
+            moment or datetime.now(timezone.utc),
+        )
+        return {"cleared": cleared, "marked": marked}
 
     def aggregate(
         self,

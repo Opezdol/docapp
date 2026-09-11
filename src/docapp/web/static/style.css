@@ -159,6 +159,22 @@ button.linklike {
 .record-patient { font-weight: 600; }
 .record-history, .record-nurse { font-size: 0.85rem; color: #555; }
 
+/* «Учтена в распределении»: зелёная точка, как у статуса в «Потребностях» (ADR-0024). */
+.record-accrued {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: #2e7d32;
+}
+.record-accrued::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #2e7d32;
+}
+
 .nurse-status { font-size: 0.8rem; color: #2e7d32; margin-left: 6px; }
 
 .record-actions { display: flex; gap: 8px; align-items: center; }

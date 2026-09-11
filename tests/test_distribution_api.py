@@ -231,3 +231,63 @@ class TestVedomostUpload:
         response = self._post(client, "июнь", source)
         assert response.status_code == 400
         assert "месяц" in response.text.lower()
+
+    def _month(self) -> str:
+        return date.today().strftime("%Y-%m")
+
+    def _submit_as_doctor(self, client, patient: str) -> None:
+        login(client, "doc")
+        client.post(
+            "/anesthesia",
+            data={"patient_name": patient, "nurse_id": str(client.ids["nurse"].id)},
+        )
+        client.post("/logout")
+
+    def test_upload_marks_the_record_for_both_staff(self, client):
+        """Совпавшая запись помечается «учтена» — врач и сестра это видят (ADR-0024)."""
+        self._submit_as_doctor(client, "Петров Пётр Сергеевич")
+        source = vedomost_xlsx([{"date": date.today(), "patient": "ПЕТРОВ П.С.",
+                                 "doctor": 1206.8, "smp": 431, "mmp": 86.2}])
+
+        login(client, "head")
+        assert self._post(client, self._month(), source).status_code == 200
+
+        client.post("/logout")
+        login(client, "doc")
+        assert "учтено" in client.get("/").text
+
+        client.post("/logout")
+        login(client, "nurse")
+        assert "учтено" in client.get("/").text
+
+    def test_second_run_without_the_patient_clears_the_mark(self, client):
+        """Метка живёт до пересчёта: прогон без этой строки её снимает."""
+        self._submit_as_doctor(client, "Петров Пётр Сергеевич")
+        month = self._month()
+        matching = vedomost_xlsx([{"date": date.today(), "patient": "ПЕТРОВ П.С.",
+                                   "doctor": 1206.8, "smp": 431, "mmp": 86.2}])
+        login(client, "head")
+        assert self._post(client, month, matching).status_code == 200
+
+        # второй прогон того же месяца: нашего пациента в ведомости больше нет
+        other = vedomost_xlsx([{"date": date.today(), "patient": "МИХАЙЛОВА А.И.",
+                                "doctor": 1206.8, "smp": 431, "mmp": 86.2}])
+        assert self._post(client, month, other).status_code == 200
+
+        client.post("/logout")
+        login(client, "doc")
+        assert "учтено" not in client.get("/").text
+
+    def test_attention_row_does_not_mark(self, client):
+        """Фамилия сошлась, инициалы нет: строки нет в паре — метки тоже нет."""
+        self._submit_as_doctor(client, "Петров Пётр Сергеевич")
+        source = vedomost_xlsx([{"date": date.today(), "patient": "ПЕТРОВ П.И.",
+                                 "doctor": 1206.8, "smp": 431, "mmp": 86.2}])
+
+        login(client, "head")
+        response = self._post(client, self._month(), source)
+        assert response.status_code == 200
+
+        client.post("/logout")
+        login(client, "doc")
+        assert "учтено" not in client.get("/").text

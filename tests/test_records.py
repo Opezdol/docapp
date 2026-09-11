@@ -1,9 +1,10 @@
 """Тесты сервиса записей: бизнес-правила ввода анестезий."""
 
-from datetime import date, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 
+from docapp.domain.anesthesia import Anesthesia
 from docapp.domain.employee import DOCTOR, NURSE, Employee
 from docapp.records.service import AnesthesiaService, NotFoundError, NotOwnedError
 from docapp.people.store import SqliteEmployeeStore
@@ -120,3 +121,97 @@ class TestDelete:
         doctor_id, _ = _add_doctor_and_nurse(stores)
         with pytest.raises(NotFoundError):
             service.delete(doctor_id, 999)
+
+
+class TestMarkDistributed:
+    """Пересчёт меток «учтена» — интерфейс сервиса записей для «Распределения»."""
+
+    def _record(self, stores, day):
+        """Запись на конкретную дату: `create` всегда пишет сегодняшнюю."""
+        es, as_ = stores
+        doctor = es.add(make_employee(role=DOCTOR))
+        nurse = es.add(make_employee(last_name="Сидорова", first_name="Анна", role=NURSE))
+        return as_.add(
+            Anesthesia(
+                date=day,
+                patient_name="Петров Петр Петрович",
+                doctor_id=doctor.id,
+                nurse_id=nurse.id,
+                created_at=datetime(day.year, day.month, day.day, 9, 0, tzinfo=timezone.utc),
+            )
+        )
+
+    def test_marks_and_reports_counters(self, service, stores):
+        first = self._record(stores, date(2026, 9, 2))
+        second = self._record(stores, date(2026, 9, 5))
+        _, as_ = stores
+
+        result = service.mark_distributed("2026-09-01", "2026-09-30", [first.id])
+
+        assert result == {"cleared": 0, "marked": 1}
+        assert as_.get_by_id(first.id).accrued_at is not None
+        assert as_.get_by_id(second.id).accrued_at is None
+
+    def test_second_run_clears_the_previous_marks(self, service, stores):
+        """Повторный прогон месяца не накапливает устаревшие метки (ТЗ, шаг 4)."""
+        first = self._record(stores, date(2026, 9, 2))
+        second = self._record(stores, date(2026, 9, 5))
+        _, as_ = stores
+        service.mark_distributed("2026-09-01", "2026-09-30", [first.id])
+
+        result = service.mark_distributed("2026-09-01", "2026-09-30", [second.id])
+
+        assert result == {"cleared": 1, "marked": 1}
+        assert as_.get_by_id(first.id).accrued_at is None
+        assert as_.get_by_id(second.id).accrued_at is not None
+
+    def test_other_month_keeps_its_marks(self, service, stores):
+        """Метка принадлежит месяцу: пересчёт сентября август не задевает."""
+        august = self._record(stores, date(2026, 8, 20))
+        september = self._record(stores, date(2026, 9, 2))
+        _, as_ = stores
+        service.mark_distributed("2026-08-01", "2026-08-31", [august.id])
+
+        service.mark_distributed("2026-09-01", "2026-09-30", [september.id])
+
+        assert as_.get_by_id(august.id).accrued_at is not None
+        assert as_.get_by_id(september.id).accrued_at is not None
+
+    def test_record_of_another_month_is_not_marked(self, service, stores):
+        """id из другого месяца метку не получает: метка — прогону месяца."""
+        august = self._record(stores, date(2026, 8, 20))
+        _, as_ = stores
+
+        result = service.mark_distributed("2026-09-01", "2026-09-30", [august.id])
+
+        assert result == {"cleared": 0, "marked": 0}
+        assert as_.get_by_id(august.id).accrued_at is None
+
+    def test_empty_list_only_clears(self, service, stores):
+        """Прогон без совпадений снимает прежние метки месяца и ничего не ставит."""
+        first = self._record(stores, date(2026, 9, 2))
+        _, as_ = stores
+        service.mark_distributed("2026-09-01", "2026-09-30", [first.id])
+
+        result = service.mark_distributed("2026-09-01", "2026-09-30", [])
+
+        assert result == {"cleared": 1, "marked": 0}
+        assert as_.get_by_id(first.id).accrued_at is None
+
+    def test_reversed_period_raises(self, service, stores):
+        self._record(stores, date(2026, 9, 2))
+        with pytest.raises(ValueError, match="раньше"):
+            service.mark_distributed("2026-09-30", "2026-09-01", [1])
+
+    def test_update_keeps_the_mark(self, service, stores):
+        """Правка записи метку не снимает: «учтена» — свойство прогона, а не полей."""
+        doctor_id, nurse_id = _add_doctor_and_nurse(stores)
+        created = service.create(doctor_id, nurse_id, "Пациент А")
+        _, as_ = stores
+        today = date.today()
+        first_day = today.replace(day=1)
+        service.mark_distributed(first_day.isoformat(), today.isoformat(), [created.id])
+
+        service.update(doctor_id, created.id, "Пациент Б", nurse_id)
+
+        assert as_.get_by_id(created.id).accrued_at is not None

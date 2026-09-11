@@ -19,6 +19,7 @@ import sqlite3
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Sequence
 
 from docapp.core.db import Schema, open_db
 from docapp.domain.anesthesia import Anesthesia
@@ -105,6 +106,16 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
     return open_db(db_path, SCHEMA)
 
 
+def _moment(value: str | None) -> datetime | None:
+    """Момент времени из БД: пусто — None, иначе UTC (как пишет `created_at`)."""
+    if not value:
+        return None
+    moment = datetime.fromisoformat(value)
+    if moment.utcoffset() == timedelta(0):
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment
+
+
 class SqliteAnesthesiaStore:
     """Анестезии в SQLite-файле."""
 
@@ -175,6 +186,38 @@ class SqliteAnesthesiaStore:
         rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_anesthesia(r) for r in rows]
 
+    def remark_accrued(
+        self,
+        from_date: date,
+        to_date: date,
+        anesthesia_ids: Sequence[int],
+        moment: datetime,
+    ) -> tuple[int, int]:
+        """Пересчитать метки «учтена» за период: снять прежние и поставить новые.
+
+        Одна транзакция: либо пересчёт применился целиком, либо период остался как
+        был. Метка принадлежит прогону месяца, поэтому `anesthesia_ids` вне границ
+        периода игнорируются. Возвращает (снято, поставлено).
+        """
+        first, last = from_date.isoformat(), to_date.isoformat()
+        cleared = self._conn.execute(
+            "UPDATE anesthesia SET accrued_at = NULL "
+            "WHERE date >= ? AND date <= ? AND accrued_at IS NOT NULL",
+            (first, last),
+        ).rowcount
+
+        marked = 0
+        ids = [int(anesthesia_id) for anesthesia_id in anesthesia_ids]
+        if ids:
+            placeholders = ", ".join("?" * len(ids))
+            marked = self._conn.execute(
+                f"UPDATE anesthesia SET accrued_at = ? "
+                f"WHERE id IN ({placeholders}) AND date >= ? AND date <= ?",
+                (moment.isoformat(), *ids, first, last),
+            ).rowcount
+        self._conn.commit()
+        return cleared, marked
+
     def update(self, anesthesia: Anesthesia) -> None:
         cur = self._conn.execute(
             "UPDATE anesthesia SET date = ?, patient_name = ?, "
@@ -200,9 +243,9 @@ class SqliteAnesthesiaStore:
 
     @staticmethod
     def _row_to_anesthesia(row: sqlite3.Row) -> Anesthesia:
-        created_at = datetime.fromisoformat(row["created_at"])
-        if created_at.utcoffset() == timedelta(0):
-            created_at = created_at.replace(tzinfo=timezone.utc)
+        created_at = _moment(row["created_at"])
+        if created_at is None:      # NOT NULL в схеме: None тут — испорченная строка
+            raise ValueError(f"У записи {row['id']} нет created_at")
         return Anesthesia(
             id=row["id"],
             date=date.fromisoformat(row["date"]),
@@ -210,6 +253,7 @@ class SqliteAnesthesiaStore:
             doctor_id=row["doctor_id"],
             nurse_id=row["nurse_id"],
             created_at=created_at,
+            accrued_at=_moment(row["accrued_at"]),
         )
 
 

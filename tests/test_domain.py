@@ -161,3 +161,24 @@ class TestFrozen:
         an = make_anesthesia()
         with pytest.raises(Exception):
             an.patient_name = "Другой"
+
+
+class TestAccruedMark:
+    """Метка «учтена в распределении» — поле домена (ADR-0024)."""
+
+    def test_not_marked_by_default(self):
+        """Новая запись не учтена: метку ставит только прогон распределения."""
+        assert make_anesthesia().accrued_at is None
+
+    def test_accepts_utc_moment(self):
+        moment = datetime(2026, 9, 11, 20, 0, tzinfo=timezone.utc)
+        assert make_anesthesia(accrued_at=moment).accrued_at == moment
+
+    def test_rejects_naive_moment(self):
+        with pytest.raises(ValueError, match="accrued_at"):
+            make_anesthesia(accrued_at=datetime(2026, 9, 11, 20, 0))
+
+    def test_rejects_wrong_tz_moment(self):
+        msk = timezone(timedelta(hours=3))
+        with pytest.raises(ValueError, match="accrued_at"):
+            make_anesthesia(accrued_at=datetime(2026, 9, 11, 20, 0, tzinfo=msk))

@@ -36,6 +36,9 @@
         {% if nurse %}
         <span class="record-nurse">{{ nurse.short_name }}</span>
         {% endif %}
+        {% if record.accrued_at %}
+        <span class="record-accrued" title="Учтена в распределении за месяц">учтено</span>
+        {% endif %}
       </div>
       <div class="record-actions">
         <a class="btn" href="/anesthesia/{{ record.id }}/edit">Изменить</a>

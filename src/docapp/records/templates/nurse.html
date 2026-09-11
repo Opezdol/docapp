@@ -20,6 +20,9 @@
         {% if doctor %}
         <span class="record-nurse">врач: {{ doctor.short_name }}</span>
         {% endif %}
+        {% if record.accrued_at %}
+        <span class="record-accrued" title="Учтена в распределении за месяц">учтено</span>
+        {% endif %}
       </div>
     </li>
     {% endfor %}

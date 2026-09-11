@@ -60,6 +60,10 @@ class RecordsInterface(Protocol):
         """Все записи за период: имя пациента, врач, сестра."""
         ...
 
+    def mark_distributed(self, from_date: str, to_date: str, anesthesia_ids) -> dict:
+        """Пересчитать метки «учтена» за период: снять прежние, поставить новые."""
+        ...
+
 
 class DistributionService:
     """Счёт поданных анестезий за период — через интерфейсы соседних модулей."""
@@ -100,6 +104,22 @@ class DistributionService:
         first, last = period.month_bounds(month)
         records = self._records.list_range(first.isoformat(), last.isoformat())
         return spread_vedomost(month, parse(source), records, self._employees)
+
+    def mark(self, month: str, result: Spread) -> dict:
+        """Пересчитать метки «учтена» за месяц — через интерфейс `records`.
+
+        Метку получают записи, чья пара попала в ведомость; неоднозначные и
+        ненайденные — нет: «учтена» значит «за неё в этой ведомости начислены
+        деньги» (ADR-0024). Прежние метки месяца снимаются, поэтому повторный
+        прогон не накапливает устаревшие (ТЗ, шаг 4).
+
+        Вызывается после сборки файла: распределение учтено тогда, когда
+        заведующий его получил. Возвращает `{"cleared": снято, "marked": поставлено}`.
+        """
+        first, last = period.month_bounds(month)
+        return self._records.mark_distributed(
+            first.isoformat(), last.isoformat(), result.matched_ids
+        )
 
     def sources(self) -> dict:
         """Чем живёт модуль: для страницы и для проверки, что своих таблиц нет."""
