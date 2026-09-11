@@ -179,7 +179,7 @@ class TestSubsetOfModules:
             assert client.get("/needs").status_code == 303
             # остальные модули не подключены вовсе
             assert client.get("/duty").status_code == 404
-            assert client.get("/compendium").status_code == 404
+            assert client.get("/wiki").status_code == 404
 
     def test_app_with_two_modules(self, tmp_path, monkeypatch):
         from docapp.web.app import create_app
@@ -198,7 +198,7 @@ class TestSubsetOfModules:
         with TestClient(app, follow_redirects=False) as client:
             assert client.get("/needs").status_code == 303
             assert client.get("/duty").status_code == 303
-            assert client.get("/compendium").status_code == 404
+            assert client.get("/wiki").status_code == 404
 
 
 class TestContainerIsolation:

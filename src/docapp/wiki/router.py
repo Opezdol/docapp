@@ -1,6 +1,6 @@
 """Маршруты модуля `wiki` («Чат»): страница, JSON/SSE-API, источники, статьи.
 
-Маршруты под префиксом /compendium. Авторизация — core.access (`current_user`,
+Маршруты под префиксом /wiki. Авторизация — core.access (`current_user`,
 `require`, `ensure`): модуль не импортирует docapp.web.app, кругового импорта нет.
 Роли: медсёстрам доступ закрыт (403); врачи/старшая сестра/заведующий задают
 вопросы; head/editor курируют (источники, статьи, публикация); настройки —
@@ -26,7 +26,7 @@ from docapp.wiki.service import WikiForbidden, WikiService
 #: Шаблоны «Чата» поверх общих (base.html).
 TEMPLATES = web.templates(Path(__file__).parent / "templates")
 
-router = APIRouter(prefix="/compendium")
+router = APIRouter(prefix="/wiki")
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 МБ
 
@@ -274,7 +274,7 @@ async def article_edit(request: Request, article_id: int):
         _service(request).save_article(user.id, user.role, article_id, body_md, change_note)
     except ValueError as exc:
         request.session["flash"] = str(exc)
-    return RedirectResponse(f"/compendium/articles/{article_id}", status_code=303)
+    return RedirectResponse(f"/wiki/articles/{article_id}", status_code=303)
 
 
 @router.post("/articles/{article_id}/publish")

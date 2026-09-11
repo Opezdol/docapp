@@ -382,17 +382,17 @@ class TestCompendiumAccess:
 
     def test_nurse_forbidden_compendium(self, client):
         _login(client, "anna", "anna_pass")
-        assert client.get("/compendium").status_code == 403
+        assert client.get("/wiki").status_code == 403
 
     def test_head_nurse_forbidden_compendium(self, client):
         """Старшая сестра тоже закрыта: право `wiki.read` снято 12.09.2026."""
         _login(client, "elena", "elena_pass")
-        assert client.get("/compendium").status_code == 403
+        assert client.get("/wiki").status_code == 403
 
     def test_doctor_forbidden_compendium(self, client):
         """И врач: раздел вернётся ему после доработки."""
         _login(client, "ivanov", "secret")
-        assert client.get("/compendium").status_code == 403
+        assert client.get("/wiki").status_code == 403
 
 
 class TestAnalytics:

@@ -42,7 +42,7 @@
       link.textContent = '[' + (i + 1) + '] ' + (cit.article_title || 'Статья') +
         (cit.section ? ' · ' + cit.section : '');
       if (cit.article_id) {
-        link.href = '/compendium/articles/' + cit.article_id;
+        link.href = '/wiki/articles/' + cit.article_id;
         link.title = 'Открыть статью';
       }
       sum.appendChild(link);
@@ -66,7 +66,7 @@
 
   function loadHistory() {
     if (!conversationId) { addMessage('bot', greeting()); return; }
-    fetch('/compendium/conversation?conversation_id=' + encodeURIComponent(conversationId))
+    fetch('/wiki/conversation?conversation_id=' + encodeURIComponent(conversationId))
       .then(function (r) {
         if (r.status === 401) { location.href = '/login'; return null; }
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -142,7 +142,7 @@
     busy = true;
     sendBtn.disabled = true;
 
-    fetch('/compendium/ask', {
+    fetch('/wiki/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: q, conversation_id: conversationId })
@@ -211,7 +211,7 @@
   function loadArticles() {
     var list = document.getElementById('articles-list');
     list.innerHTML = '<p class="empty">Загрузка…</p>';
-    fetch('/compendium/articles')
+    fetch('/wiki/articles')
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var articles = data.articles || [];
@@ -231,7 +231,7 @@
           return '<div class="doc-item">' +
             '<div class="doc-title">' + esc(a.title || '(без названия)') + ' <span class="status ' + esc(a.status) + '">' + statusLabel(a.status) + '</span></div>' +
             '<div class="doc-meta">v' + esc(a.version) + ' · ' + esc(String(a.updated_at || '').slice(0, 10)) + '</div>' +
-            '<div class="doc-links"><a href="/compendium/articles/' + a.id + '">Читать</a>' + actions + '</div>' +
+            '<div class="doc-links"><a href="/wiki/articles/' + a.id + '">Читать</a>' + actions + '</div>' +
             '</div>';
         }).join('');
         attachArticleHandlers();
@@ -246,16 +246,16 @@
       btn.addEventListener('click', function () { openArticleEditor(btn.getAttribute('data-id')); });
     });
     document.querySelectorAll('.article-publish').forEach(function (btn) {
-      btn.addEventListener('click', function () { articleAction('/compendium/articles/' + btn.getAttribute('data-id') + '/publish'); });
+      btn.addEventListener('click', function () { articleAction('/wiki/articles/' + btn.getAttribute('data-id') + '/publish'); });
     });
     document.querySelectorAll('.article-unpublish').forEach(function (btn) {
-      btn.addEventListener('click', function () { articleAction('/compendium/articles/' + btn.getAttribute('data-id') + '/unpublish'); });
+      btn.addEventListener('click', function () { articleAction('/wiki/articles/' + btn.getAttribute('data-id') + '/unpublish'); });
     });
     document.querySelectorAll('.article-delete').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var id = btn.getAttribute('data-id');
         if (!window.confirm('Удалить статью #' + id + '?')) return;
-        fetch('/compendium/articles/' + id, { method: 'DELETE' })
+        fetch('/wiki/articles/' + id, { method: 'DELETE' })
           .then(function (r) { if (!r.ok) return r.json().then(function (b) { throw new Error(b.error); }); return r.json(); })
           .then(function () { loaded.articles = false; loadArticles(); })
           .catch(function (err) { window.alert('Ошибка: ' + err.message); });
@@ -271,7 +271,7 @@
   }
 
   function openArticleEditor(id) {
-    fetch('/compendium/articles/' + id)
+    fetch('/wiki/articles/' + id)
       .then(function (r) { return r.json(); })
       .then(function (article) {
         document.getElementById('compendium-editor-title').textContent = 'Правка: ' + (article.title || '#');
@@ -302,7 +302,7 @@
       change_note: document.getElementById('compendium-change-note').value
     };
     if (id) body.article_id = parseInt(id, 10);
-    fetch('/compendium/articles', {
+    fetch('/wiki/articles', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -311,7 +311,7 @@
       .then(function (data) {
         var articleId = data.article.id;
         if (publish) {
-          return fetch('/compendium/articles/' + articleId + '/publish', { method: 'POST' })
+          return fetch('/wiki/articles/' + articleId + '/publish', { method: 'POST' })
             .then(function (r) { if (!r.ok) return r.json().then(function (b) { throw new Error(b.error); }); return r.json(); });
         }
         return null;
@@ -332,7 +332,7 @@
   function loadSources() {
     var list = document.getElementById('sources-list');
     list.innerHTML = '<p class="empty">Загрузка…</p>';
-    fetch('/compendium/sources')
+    fetch('/wiki/sources')
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var sources = data.sources || [];
@@ -348,8 +348,8 @@
             '<div class="doc-title">' + esc(s.title || s.filename) + '</div>' +
             '<div class="doc-meta">' + esc(s.filename) + ' · OCR: ' + esc(s.ocr_status) + ' · стр.: ' + esc(s.page_count) + '</div>' +
             '<div class="doc-links">' +
-            '<a href="/compendium/sources/' + s.id + '/text">Текст</a>' +
-            ' · <a href="/compendium/sources/' + s.id + '/download" download>Скачать PDF</a>' +
+            '<a href="/wiki/sources/' + s.id + '/text">Текст</a>' +
+            ' · <a href="/wiki/sources/' + s.id + '/download" download>Скачать PDF</a>' +
             del +
             '</div></div>';
         }).join('');
@@ -357,7 +357,7 @@
           btn.addEventListener('click', function () {
             var id = btn.getAttribute('data-id');
             if (!window.confirm('Удалить источник #' + id + '?')) return;
-            fetch('/compendium/sources/' + id, { method: 'DELETE' })
+            fetch('/wiki/sources/' + id, { method: 'DELETE' })
               .then(function (r) { if (!r.ok) return r.json().then(function (b) { throw new Error(b.error); }); return r.json(); })
               .then(function () { loaded.sources = false; loadSources(); })
               .catch(function (err) { window.alert('Ошибка: ' + err.message); });
@@ -377,7 +377,7 @@
       if (!inputFile.files.length) return;
       var fd = new FormData();
       Array.prototype.forEach.call(inputFile.files, function (f) { fd.append('files', f); });
-      fetch('/compendium/sources/upload', { method: 'POST', body: fd })
+      fetch('/wiki/sources/upload', { method: 'POST', body: fd })
         .then(function (r) { if (!r.ok) return r.json().then(function (b) { throw new Error(b.error); }); return r.json(); })
         .then(function (data) {
           window.alert('Загружено: ' + data.saved + '. Распознавание (OCR) запущено в фоне.');
@@ -398,7 +398,7 @@
     var params = new URLSearchParams();
     if (from) params.set('from', from);
     if (to) params.set('to', to);
-    fetch('/compendium/questions?' + params.toString())
+    fetch('/wiki/questions?' + params.toString())
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var qs = data.questions || [];
@@ -449,7 +449,7 @@
   function loadSettings() {
     var panel = document.getElementById('settings-panel');
     panel.innerHTML = '<p class="empty">Загрузка…</p>';
-    fetch('/compendium/settings')
+    fetch('/wiki/settings')
       .then(function (r) { return r.json(); })
       .then(function (s) {
         panel.innerHTML =
@@ -461,7 +461,7 @@
           '</div>' +
           '<button type="button" id="set-save" class="primary">Сохранить</button>';
         document.getElementById('set-save').addEventListener('click', function () {
-          fetch('/compendium/settings', {
+          fetch('/wiki/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

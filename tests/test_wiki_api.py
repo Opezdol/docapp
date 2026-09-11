@@ -73,13 +73,13 @@ def _login(client, login, password):
 
 class TestCompendiumPage:
     def test_page_requires_login(self, client):
-        r = client.get("/compendium", follow_redirects=False)
+        r = client.get("/wiki", follow_redirects=False)
         assert r.status_code == 303
 
     def test_page_renders_for_editor(self, client):
         """Раздел открыт заведующему и редактору; видимое имя — «Чат» (12.09.2026)."""
         _login(client, "ed", "edpass")
-        r = client.get("/compendium")
+        r = client.get("/wiki")
         assert r.status_code == 200
         assert "Чат" in r.text
 
@@ -90,20 +90,20 @@ class TestCompendiumPage:
     def test_others_forbidden(self, client, login, password):
         """Врач, медсестра и старшая сестра закрыты до доработки раздела."""
         _login(client, login, password)
-        assert client.get("/compendium").status_code == 403
+        assert client.get("/wiki").status_code == 403
 
 
 class TestArticlePage:
     def test_article_page_renders_for_editor(self, client):
         _login(client, "ed", "edpass")
-        r = client.get("/compendium/articles/1")
+        r = client.get("/wiki/articles/1")
         assert r.status_code == 200
         assert "Атропин" in r.text
         assert "Дозировка 0.5 мг" in r.text
 
     def test_article_page_curator_has_edit(self, client):
         _login(client, "ed", "edpass")
-        r = client.get("/compendium/articles/1")
+        r = client.get("/wiki/articles/1")
         assert r.status_code == 200
         assert 'id="article-edit"' in r.text
         assert 'id="article-edit-panel"' in r.text
@@ -115,14 +115,14 @@ class TestArticlePage:
         врачам: сейчас обе роли с доступом (зав и редактор) панель видят.
         """
         _login(client, "doc", "secret")
-        assert client.get("/compendium/articles/1").status_code == 403
+        assert client.get("/wiki/articles/1").status_code == 403
 
     def test_article_page_missing_404(self, client):
         _login(client, "ed", "edpass")
-        assert client.get("/compendium/articles/999").status_code == 404
+        assert client.get("/wiki/articles/999").status_code == 404
 
     def test_article_page_requires_login(self, client):
-        r = client.get("/compendium/articles/1", follow_redirects=False)
+        r = client.get("/wiki/articles/1", follow_redirects=False)
         assert r.status_code == 303
 
 

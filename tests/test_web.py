@@ -382,17 +382,17 @@ class TestAppMenu:
     def test_compendium_page(self, client):
         """Раздел открывается заведующему; видимое имя — «Чат» (12.09.2026)."""
         _login(client, login="zav", password="zav_pass")
-        r = client.get("/compendium")
+        r = client.get("/wiki")
         assert r.status_code == 200
         assert "Чат" in r.text
 
     def test_compendium_page_closed_for_doctor(self, client):
         """Врачу раздел закрыт до доработки: 403, а не редирект на вход."""
         _login(client)
-        assert client.get("/compendium").status_code == 403
+        assert client.get("/wiki").status_code == 403
 
     def test_compendium_requires_login(self, client):
-        r = client.get("/compendium", follow_redirects=False)
+        r = client.get("/wiki", follow_redirects=False)
         assert r.status_code == 303
         assert r.headers["location"] == "/login"
 
