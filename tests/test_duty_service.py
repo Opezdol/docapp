@@ -4,8 +4,9 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+from docapp.core.period import minutes_into_shift
 from docapp.duty.config import DutyConfig
-from docapp.duty.service import DutyClosed, DutyService, _offset_minutes
+from docapp.duty.service import DutyClosed, DutyService
 from docapp.duty.store import SqliteDutyStore
 from factories import test_db
 
@@ -26,6 +27,8 @@ def svc(tmp_path):
 
 
 class TestOffsetMinutes:
+    """Минуты от начала дежурства считает общий механизм периода (ADR-0018)."""
+
     @pytest.mark.parametrize(
         "hhmm,expected",
         [
@@ -36,7 +39,7 @@ class TestOffsetMinutes:
         ],
     )
     def test_offsets(self, hhmm, expected):
-        assert _offset_minutes(hhmm) == expected
+        assert minutes_into_shift(hhmm) == expected
 
 
 class TestShiftDate:

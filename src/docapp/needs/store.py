@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from docapp.core.db import Schema, open_db
+from docapp.needs import statuses
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS needs_requests (
@@ -158,7 +159,7 @@ class SqliteNeedsStore:
         week_start: str,
         author_id: int,
         lines: list[dict],
-        status: str = "draft",
+        status: str = statuses.DRAFT,
     ) -> int:
         """Создать или обновить заявку (upsert по UNIQUE(base, point, week_start, category)).
 

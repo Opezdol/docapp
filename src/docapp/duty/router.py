@@ -24,6 +24,7 @@ from docapp.duty.config import BASES
 from docapp.duty.container import DutyContainer
 from docapp.duty.report import build_xlsx
 from docapp.duty.service import DutyClosed, DutyService
+from docapp.duty import statuses
 
 #: Шаблоны «Дежурств» поверх общих (base.html).
 TEMPLATES = web.templates(Path(__file__).parent / "templates")
@@ -218,7 +219,7 @@ def report_xlsx(request: Request):
     if not from_date or not to_date:
         raise HTTPException(status_code=400, detail="Параметры from и to обязательны")
     reports = _service(request).board(from_date, to_date)
-    reports = [r for r in reports if r["status"] == "closed"]
+    reports = [r for r in reports if r["status"] == statuses.CLOSED]
     days = _group_for_export(reports, request.app.state.employees)
     filename = f"разлиновка-{from_date}-{to_date}.xlsx"
     return web.xlsx_response(build_xlsx(days), filename)

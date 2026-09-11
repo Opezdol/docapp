@@ -12,6 +12,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from docapp.core import period
+
 #: Часы в шапке разлиновки (17 подписей: 16…23, 0…8). «8» — граница 08:00.
 HOURS = [16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8]
 
@@ -35,17 +37,9 @@ _BASE_FILL = PatternFill("solid", fgColor="DDEBF7")
 _HEADER_FILL = PatternFill("solid", fgColor="F2F2F2")
 
 
-def _offset_minutes(hhmm: str) -> int:
-    """'HH:MM' → минуты от 16:00 (16:00=0 … 08:00=960)."""
-    hh, mm = (int(x) for x in hhmm.split(":"))
-    if hh >= 16:
-        return (hh - 16) * 60 + mm
-    return (hh + 8) * 60 + mm
-
-
 def _slot_index(hhmm: str) -> int:
     """'HH:MM' → индекс 15-минутного слота от 16:00 (0..64)."""
-    return _offset_minutes(hhmm) // 15
+    return period.minutes_into_shift(hhmm) // 15
 
 
 def _date_title(iso_date: str) -> str:

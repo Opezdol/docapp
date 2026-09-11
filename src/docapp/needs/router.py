@@ -23,19 +23,15 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from docapp.core import access, web
+from docapp.core import access, period, web
 from docapp.core.registry import container_of
 from docapp.domain.employee import Employee
+from docapp.needs import statuses
 from docapp.needs.analytics import summarize
 from docapp.needs.catalog import CATEGORY_LABELS, CATEGORY_MEDICAMENTS, CATEGORY_SOLUTIONS
 from docapp.needs.container import NeedsContainer
 from docapp.needs.report import aggregate_requests, build_xlsx, html_table
-from docapp.needs.service import (
-    NeedsClosed,
-    NeedsForbidden,
-    NeedsService,
-    monday_of_week,
-)
+from docapp.needs.service import NeedsClosed, NeedsForbidden, NeedsService
 
 #: Директории шаблонов: сначала «Потребностей», затем общие (base.html).
 TEMPLATES = web.templates(Path(__file__).parent / "templates")
@@ -124,7 +120,7 @@ def closed_sections(request: Request):
     """
     user = _api_user(request)
     _require_not_doctor(user)
-    week = request.query_params.get("week") or monday_of_week()
+    week = request.query_params.get("week") or period.week_start()
     return {"closed": _service(request).closed_sections(week), "week": week}
 
 
@@ -138,7 +134,7 @@ def points_status(request: Request):
     user = _api_user(request)
     _require_not_doctor(user)
     category = _valid_category(request.query_params.get("category"))
-    week = request.query_params.get("week") or monday_of_week()
+    week = request.query_params.get("week") or period.week_start()
     return {
         "points": _service(request).points_for_user(user.id, user.role, category, week),
         "category": category,
@@ -163,7 +159,7 @@ def get_request(request: Request):
     category = _valid_category(params.get("category"))
     if not base or not point:
         raise HTTPException(status_code=400, detail="Параметры base и point обязательны")
-    week = params.get("week") or monday_of_week()
+    week = params.get("week") or period.week_start()
     result = _service(request).get_for_user(user.id, user.role, base, point, category, week)
     if result is None:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
@@ -186,9 +182,9 @@ async def save_request(request: Request):
     if not base or not point:
         return JSONResponse({"error": "base и point обязательны"}, status_code=400)
     category = _valid_category(body.get("category"))
-    week = body.get("week") or monday_of_week()
+    week = body.get("week") or period.week_start()
     lines = body.get("lines") or []
-    status = body.get("status") or "draft"
+    status = body.get("status") or statuses.DRAFT
     try:
         saved = _service(request).save(
             user.id, user.role, base, point, category, week, lines, status=status
@@ -217,7 +213,7 @@ async def submit_request(request: Request):
     if not base or not point:
         return JSONResponse({"error": "base и point обязательны"}, status_code=400)
     category = _valid_category(body.get("category"))
-    week = body.get("week") or monday_of_week()
+    week = body.get("week") or period.week_start()
     try:
         result = _service(request).submit(user.id, user.role, base, point, category, week)
     except NeedsForbidden as exc:
@@ -241,7 +237,7 @@ def board(request: Request):
     """
     user = _api_user(request)
     _require_full(user)
-    week = request.query_params.get("week") or monday_of_week()
+    week = request.query_params.get("week") or period.week_start()
     service = _service(request)
     cells = service.board(week)
     employees = request.app.state.employees
@@ -263,7 +259,7 @@ async def close_week(request: Request):
     if not base:
         return JSONResponse({"error": "base обязателен"}, status_code=400)
     category = _valid_category(body.get("category"))
-    week = body.get("week") or monday_of_week()
+    week = body.get("week") or period.week_start()
     try:
         result = _service(request).close(user.id, user.role, base, category, week)
     except NeedsForbidden as exc:
@@ -281,7 +277,7 @@ async def reopen_week(request: Request):
     if not base:
         return JSONResponse({"error": "base обязателен"}, status_code=400)
     category = _valid_category(body.get("category"))
-    week = body.get("week") or monday_of_week()
+    week = body.get("week") or period.week_start()
     try:
         result = _service(request).reopen(user.id, user.role, base, category, week)
     except NeedsForbidden as exc:
@@ -297,7 +293,7 @@ def _report_agg(request: Request) -> tuple[dict, str]:
     if not base:
         raise HTTPException(status_code=400, detail="Параметр base обязателен")
     category = _valid_category(request.query_params.get("category"))
-    week = request.query_params.get("week") or monday_of_week()
+    week = request.query_params.get("week") or period.week_start()
     container = _container(request)
     requests = container.store.list_requests(base, category, week)
     return aggregate_requests(requests, base, category, week, container.catalog), category

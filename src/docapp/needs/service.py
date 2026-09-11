@@ -5,13 +5,17 @@
 доска старшей, закрытие/переоткрытие недель с предупреждением
 о неотправленных точках (ТЗ F6/A2).
 
+Статусы заявки и недели описаны таблицей переходов (needs/statuses.py, общий
+механизм core/statuses, ADR-0018), неделя считается общим механизмом периода
+(core/period): своих `monday_of_week` и кортежа ролей здесь больше нет.
+
 Ошибки прав и закрытой недели бросаются исключениями-подклассами ValueError;
 роутер (T6) транслирует их в HTTP 403 (NeedsForbidden) и 409 (NeedsClosed).
 """
 
-from datetime import date, timedelta
-
-from docapp.domain.employee import HEAD, HEAD_NURSE, NURSE
+from docapp.core import access, period
+from docapp.domain.employee import NURSE
+from docapp.needs import statuses
 from docapp.needs.catalog import (
     CATEGORY_MEDICAMENTS,
     CATEGORY_SOLUTIONS,
@@ -20,24 +24,12 @@ from docapp.needs.catalog import (
 )
 from docapp.needs.store import SqliteNeedsStore
 
-#: Роли с полными правами в подприложении: доска, правка чужих заявок,
-#: закрытие/переоткрытие недель.
-ALLOWED_FULL = (HEAD_NURSE, HEAD)
-
-
 class NeedsForbidden(ValueError):
     """Нет прав на операцию (роутер отвечает 403)."""
 
 
 class NeedsClosed(ValueError):
     """Неделя/база закрыта — правки и отправка запрещены (роутер отвечает 409)."""
-
-
-def monday_of_week(d: date | None = None) -> str:
-    """Понедельник недели даты d (по умолчанию — сегодня) как 'YYYY-MM-DD'."""
-    if d is None:
-        d = date.today()
-    return (d - timedelta(days=d.weekday())).isoformat()
 
 
 class NeedsService:
@@ -75,8 +67,12 @@ class NeedsService:
         return snapshots
 
     def _has_full_rights(self, role: str) -> bool:
-        """Полные права (доска, чужие заявки, закрытие): head_nurse/head."""
-        return role in ALLOWED_FULL
+        """Полные права (доска, чужие заявки, закрытие) — из таблицы прав.
+
+        Раньше здесь был свой кортеж ролей; теперь решение принимает
+        `core/access` — единственное место, где роль связана с правами (ADR-0023).
+        """
+        return access.has(role, access.NEEDS_MANAGE)
 
     @staticmethod
     def _validate_category(category: str) -> None:
@@ -124,7 +120,7 @@ class NeedsService:
         request = self._store.get_request(base, point, category, week_start)
         if request is None or self._has_full_rights(role):
             return request
-        if request["author_id"] == user_id or request["status"] == "sent":
+        if request["author_id"] == user_id or request["status"] == statuses.SENT:
             return request
         return None
 
@@ -142,7 +138,7 @@ class NeedsService:
         head_nurse/head видят всё (как board, но без авторства).
         """
         self._validate_category(category)
-        week_start = week_start or monday_of_week()
+        week_start = week_start or period.week_start()
         cells: list[dict] = []
         for base, points in self._catalog.bases().items():
             for point in points:
@@ -153,7 +149,7 @@ class NeedsService:
                     {
                         "base": base,
                         "point": point,
-                        "status": request["status"] if request else "none",
+                        "status": request["status"] if request else statuses.NONE,
                     }
                 )
         return cells
@@ -167,11 +163,11 @@ class NeedsService:
         category: str,
         week_start: str,
         lines: list[dict],
-        status: str = "draft",
+        status: str = statuses.DRAFT,
     ) -> dict:
         """Создать или отредактировать заявку раздела; возвращает полную заявку.
 
-        Права: автор заявки или роль из ALLOWED_FULL; новая заявка
+        Права: автор заявки или полная роль (needs.manage); новая заявка
         создаётся медсестрой или полной ролью. Закрытая неделя — NeedsClosed.
         F9: при правке существующей заявки исходный автор сохраняется
         (store.save_request перезаписывает author_id, поэтому автор
@@ -219,7 +215,7 @@ class NeedsService:
     ) -> dict:
         """Отправить заявку раздела (статус 'sent'); возвращает заявку и предупреждения.
 
-        Права как у save: автор или ALLOWED_FULL. Закрытая неделя — NeedsClosed.
+        Права как у save: автор или полная роль. Закрытая неделя — NeedsClosed.
         Строки с qty == 0 не блокируют отправку (ТЗ F3/F4) — они попадают
         в warnings как 'item: 0'.
         """
@@ -237,7 +233,10 @@ class NeedsService:
             raise NeedsClosed(
                 f"Неделя {week_start} для базы «{base}» закрыта — отправка запрещена"
             )
-        self._store.set_status(request["id"], "sent")
+        # Переход «черновик → отправлено» объявлен в needs/statuses (ADR-0018):
+        # из закрытого статуса отправлять нечего, и это видно по таблице.
+        assert statuses.REQUEST.can(request["status"], statuses.SUBMIT, role)
+        self._store.set_status(request["id"], statuses.SENT)
         updated = self._store.get_request(base, point, category, week_start)
         assert updated is not None  # заявка существует — только что обновлена
         warnings = [
@@ -257,7 +256,7 @@ class NeedsService:
         без заявки раздела получает status 'none' и пустые
         author_id/request_id/updated_at.
         """
-        week_start = week_start or monday_of_week()
+        week_start = week_start or period.week_start()
         cells: list[dict] = []
         for base, points in self._catalog.bases().items():
             for point in points:
@@ -269,7 +268,7 @@ class NeedsService:
                                 "base": base,
                                 "point": point,
                                 "category": category,
-                                "status": "none",
+                                "status": statuses.NONE,
                                 "author_id": None,
                                 "request_id": None,
                                 "updated_at": None,
@@ -302,16 +301,16 @@ class NeedsService:
         Неотправленные точки не блокируют закрытие (ТЗ A2) — они
         возвращаются в 'unsent_points' как предупреждение (по разделу).
         """
-        if not self._has_full_rights(role):
+        if not statuses.WEEK.can(statuses.OPEN, statuses.CLOSE, role):
             raise NeedsForbidden(
                 f"Закрытие недели доступно только старшей сестре или заведующему"
             )
         self._validate_category(category)
-        week_start = week_start or monday_of_week()
+        week_start = week_start or period.week_start()
         sent_points = {
             req["point"]
             for req in self._store.list_requests(base, category, week_start)
-            if req["status"] == "sent"
+            if req["status"] == statuses.SENT
         }
         unsent_points = [
             point for point in self._catalog.points(base) if point not in sent_points
@@ -328,19 +327,19 @@ class NeedsService:
         week_start: str | None = None,
     ) -> dict:
         """Переоткрыть неделю для базы и раздела (только head_nurse/head)."""
-        if not self._has_full_rights(role):
+        if not statuses.WEEK.can(statuses.CLOSED, statuses.REOPEN, role):
             raise NeedsForbidden(
                 f"Переоткрытие недели доступно только старшей сестре или заведующему"
             )
         self._validate_category(category)
-        week_start = week_start or monday_of_week()
+        week_start = week_start or period.week_start()
         self._store.reopen(base, category, week_start)
         return {"reopened": True}
 
     def is_closed(self, base: str, category: str, week_start: str | None = None) -> bool:
         """Закрыта ли неделя для базы и раздела (пасс-тру в хранилище)."""
-        return self._store.is_closed(base, category, week_start or monday_of_week())
+        return self._store.is_closed(base, category, week_start or period.week_start())
 
     def closed_sections(self, week_start: str | None = None) -> list[dict]:
         """Закрытые разделы недели (base, category) — для отображения закрытий."""
-        return self._store.closed_sections(week_start or monday_of_week())
+        return self._store.closed_sections(week_start or period.week_start())

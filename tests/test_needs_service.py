@@ -9,23 +9,16 @@
 включая «Растворы») + SQLite-БД на tmp_path.
 """
 
-from datetime import date, timedelta
-
 import pytest
 
+from docapp.core import access, period
 from docapp.domain.employee import HEAD, HEAD_NURSE, NURSE, Employee
 from docapp.needs.catalog import (
     CATEGORY_MEDICAMENTS,
     CATEGORY_SOLUTIONS,
     Catalog,
 )
-from docapp.needs.service import (
-    ALLOWED_FULL,
-    NeedsClosed,
-    NeedsForbidden,
-    NeedsService,
-    monday_of_week,
-)
+from docapp.needs.service import NeedsClosed, NeedsForbidden, NeedsService
 from docapp.needs.store import SqliteNeedsStore
 from factories import test_db
 
@@ -62,20 +55,6 @@ def service(tmp_path):
     store = SqliteNeedsStore(test_db(tmp_path))
     yield NeedsService(store, Catalog(catalog_path))
     store.close_conn()
-
-
-class TestMondayOfWeek:
-    def test_current_week(self):
-        """a) Понедельник текущей недели."""
-        today = date.today()
-        expected = (today - timedelta(days=today.weekday())).isoformat()
-        assert monday_of_week() == expected
-
-    def test_given_date(self):
-        """a') По конкретной дате: четверг 2026-08-13 -> понедельник 2026-08-10."""
-        assert monday_of_week(date(2026, 8, 13)) == "2026-08-10"  # четверг
-        assert monday_of_week(date(2026, 8, 10)) == "2026-08-10"  # сам понедельник
-        assert monday_of_week(date(2026, 8, 16)) == "2026-08-10"  # воскресенье
 
 
 class TestSave:
@@ -252,7 +231,7 @@ class TestBoard:
 
     def test_board_default_week_is_current(self, service):
         """j') Без week_start доска смотрит на текущую неделю."""
-        week = monday_of_week()
+        week = period.week_start()
         service.save(7, NURSE, "Ленская", "травма", MED, week, [make_line("Атропин", 5)])
         cells = service.board()
         assert any(
@@ -360,9 +339,10 @@ class TestRolesAndExceptions:
         assert issubclass(NeedsForbidden, ValueError)
         assert issubclass(NeedsClosed, ValueError)
 
-    def test_allowed_full_roles(self):
-        """ALLOWED_FULL — head_nurse и head (полные права)."""
-        assert set(ALLOWED_FULL) == {HEAD_NURSE, HEAD}
+    def test_full_rights_come_from_access_table(self):
+        """Полные права — из таблицы core/access, а не из своего кортежа ролей."""
+        roles = {role for role, allowed in access.ALLOWED.items() if access.NEEDS_MANAGE in allowed}
+        assert roles == {HEAD_NURSE, HEAD}
         assert HEAD_NURSE == "head_nurse"
 
     def test_head_nurse_role_in_domain(self):

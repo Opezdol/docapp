@@ -11,13 +11,15 @@
 """
 
 import html
-from datetime import date, datetime, timedelta
+from datetime import datetime
 from io import BytesIO
 
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
+from docapp.core import period
+from docapp.needs import statuses
 from docapp.needs.catalog import (
     CATEGORY_MEDICAMENTS,
     CATEGORY_SOLUTIONS,
@@ -32,14 +34,8 @@ UNKNOWN_GROUP_LABEL = "Без группы"
 
 
 def week_label(week_start: str) -> str:
-    """Понедельник недели 'YYYY-MM-DD' -> 'ДД.ММ.ГГГГ – ДД.ММ.ГГГГ' (пн–вс).
-
-    Пример: '2026-08-10' -> '10.08.2026 – 16.08.2026'. Тире — en-dash
-    с пробелами с обеих сторон.
-    """
-    monday = date.fromisoformat(week_start)
-    sunday = monday + timedelta(days=6)
-    return f"{monday.strftime('%d.%m.%Y')} – {sunday.strftime('%d.%m.%Y')}"
+    """Подпись недели: «10.08.2026 – 16.08.2026» (общий механизм периода)."""
+    return period.label(week_start)
 
 
 def _group_of(catalog: Catalog, item: str) -> str:
@@ -94,7 +90,7 @@ def aggregate_requests(
     by_group: dict[str, dict[str, dict]] = {}
 
     for req in requests:
-        if req.get("status") != "sent" or req.get("base") != base:
+        if req.get("status") != statuses.SENT or req.get("base") != base:
             continue  # черновики и заявки других баз в отчёт не попадают
         point = req.get("point", "")
         if point not in point_set:

@@ -7,42 +7,23 @@
 - операции вводятся в пределах рабочего времени 16:00–08:00;
 - до отправки отчёт — черновик (редактируется);
 - статусы: draft (черновик), sent (отправлен — правки возможны до закрытия),
-  closed (закрыт — только чтение);
+  closed (закрыт — только чтение); таблица переходов — duty/statuses.py
+  (общий механизм core/statuses, ADR-0018);
 - закрывает смену заведующий (вручную) либо окно 09:30 (авто, лениво);
 - операции при закрытии сохраняются.
 
 Ошибки окна поднимаются как DutyClosed (роутер отвечает 409).
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
+from docapp.core import period
+from docapp.duty import statuses
 from docapp.duty.config import OPERATION_WINDOW_MINUTES, WINDOW_END, WINDOW_START
 
 
 class DutyClosed(ValueError):
     """Смена закрыта — ввод/правка недоступны (роутер отвечает 409)."""
-
-
-def _parse_hhmm(hhmm: str) -> tuple[int, int]:
-    """'HH:MM' → (часы, минуты); неверный формат/диапазон — ValueError."""
-    parts = str(hhmm).strip().split(":")
-    if len(parts) != 2:
-        raise ValueError(f"Неверный формат времени {hhmm!r}: нужно ЧЧ:ММ")
-    try:
-        hh, mm = int(parts[0]), int(parts[1])
-    except ValueError:
-        raise ValueError(f"Неверный формат времени {hhmm!r}: нужно ЧЧ:ММ")
-    if not (0 <= hh < 24 and 0 <= mm < 60):
-        raise ValueError(f"Неверное время {hhmm!r}")
-    return hh, mm
-
-
-def _offset_minutes(hhmm: str) -> int:
-    """'HH:MM' → минуты от начала дежурства 16:00 (16:00=0 … 08:00=960)."""
-    hh, mm = _parse_hhmm(hhmm)
-    if hh >= 16:  # 16..23 — вечер
-        return (hh - 16) * 60 + mm
-    return (hh + 8) * 60 + mm  # 00..08 — после полуночи
 
 
 class DutyService:
@@ -55,6 +36,11 @@ class DutyService:
     def __init__(self, store, config) -> None:
         self._store = store
         self._config = config
+        # Окно смены — из общего механизма периода (core/period, ADR-0018);
+        # границы и часовой пояс приходят из настроек модуля.
+        self._window = period.ShiftWindow(
+            start=WINDOW_START, end=WINDOW_END, tz=config.tz
+        )
 
     def now(self) -> datetime:
         """Текущее время в часовом поясе смены."""
@@ -69,24 +55,15 @@ class DutyService:
         - 00:00–09:29 → вчера (та же смена);
         - 09:30–15:59 → None (между сменами, вкладка закрыта).
         """
-        now = now or self.now()
-        t = now.time()
-        if t >= WINDOW_START:
-            return now.date()
-        if t < WINDOW_END:
-            return now.date() - timedelta(days=1)
-        return None
+        return self._window.date_of(now or self.now())
 
     def is_open(self, now: datetime | None = None) -> bool:
         """Открыто ли окно смены прямо сейчас."""
-        return self.shift_date(now) is not None
+        return self._window.is_open(now or self.now())
 
     def window_open_for(self, shift_date: date, now: datetime | None = None) -> bool:
         """Открыто ли окно конкретной смены: [16:00 даты, 09:30 следующего дня)."""
-        now = now or self.now()
-        start = datetime.combine(shift_date, WINDOW_START, tzinfo=self._config.tz)
-        end = datetime.combine(shift_date + timedelta(days=1), WINDOW_END, tzinfo=self._config.tz)
-        return start <= now < end
+        return self._window.open_for(shift_date, now or self.now())
 
     # ── валидация операций ────────────────────────────────────────────
 
@@ -97,8 +74,8 @@ class DutyService:
             raise ValueError("Название операции не может быть пустым")
         start = str(op.get("start_time") or "").strip()
         end = str(op.get("end_time") or "").strip()
-        start_off = _offset_minutes(start)
-        end_off = _offset_minutes(end)
+        start_off = period.minutes_into_shift(start, start=WINDOW_START)
+        end_off = period.minutes_into_shift(end, start=WINDOW_START)
         if not (0 <= start_off < OPERATION_WINDOW_MINUTES):
             raise ValueError(f"Время начала {start} вне окна дежурства (16:00–08:00)")
         if not (0 < end_off <= OPERATION_WINDOW_MINUTES):
@@ -126,10 +103,14 @@ class DutyService:
         if sd is None:
             raise DutyClosed("Смена закрыта — ввод доступен с 16:00 до 09:30")
         existing = self._store.get_report(base, sd.isoformat(), doctor_id)
-        if existing is not None and existing["status"] == "closed":
+        # Статус решает таблица переходов (duty/statuses): из «закрыт» правки
+        # невозможны. Право на ввод отчёта проверяет роутер — только врачу.
+        if existing is not None and not statuses.REPORT.can(existing["status"], statuses.EDIT):
             raise DutyClosed("Отчёт закрыт — редактирование недоступно")
         cleaned = self._clean_operations(operations)
-        self._store.save_report(base, sd.isoformat(), doctor_id, cleaned, status="draft")
+        self._store.save_report(
+            base, sd.isoformat(), doctor_id, cleaned, status=statuses.DRAFT
+        )
         saved = self._store.get_report(base, sd.isoformat(), doctor_id)
         assert saved is not None  # только что сохранён
         return saved
@@ -142,11 +123,11 @@ class DutyService:
         report = self._store.get_report(base, sd.isoformat(), doctor_id)
         if report is None or not report["operations"]:
             raise ValueError("Отчёт пуст — нечего отправлять")
-        if report["status"] == "closed":
+        if not statuses.REPORT.can(report["status"], statuses.SUBMIT):
             raise DutyClosed("Отчёт закрыт — отправка недоступна")
-        if report["status"] == "sent":
-            return report
-        self._store.set_status(report["id"], "sent")
+        if report["status"] == statuses.SENT:
+            return report  # уже отправлен: повторная отправка ничего не меняет
+        self._store.set_status(report["id"], statuses.SENT)
         sent = self._store.get_report(base, sd.isoformat(), doctor_id)
         assert sent is not None
         return sent
@@ -163,19 +144,21 @@ class DutyService:
         for report in self._store.list_open():
             sd = date.fromisoformat(report["shift_date"])
             if not self.window_open_for(sd, now):
-                self._store.set_status(report["id"], "closed")
+                self._store.set_status(report["id"], statuses.CLOSED)
 
     def close_report(self, report_id: int) -> None:
         """Закрыть один отчёт заведующим (status → 'closed'); операции сохраняются."""
-        self._store.set_status(report_id, "closed")
+        self._store.set_status(report_id, statuses.CLOSED)
 
     def close_shift(self, shift_date: str) -> None:
         """Закрыть все отчёты за смену (status → 'closed')."""
         self._store.close_shift(shift_date)
 
     def reopen_report(self, report_id: int) -> None:
-        """Переоткрыть ошибочно закрытый отчёт (status → 'sent'; снова правится)."""
-        self._store.set_status(report_id, "sent")
+        """Переоткрыть ошибочно закрытый отчёт: новый статус даёт таблица переходов."""
+        reopened = statuses.REPORT.next_status(statuses.CLOSED, statuses.REOPEN)
+        assert reopened is not None  # переход объявлен в таблице
+        self._store.set_status(report_id, reopened)
 
     def board(self, from_date: str, to_date: str, base: str | None = None) -> list[dict]:
         """Отчёты за диапазон дат (черновики прошлых смен финализируются)."""

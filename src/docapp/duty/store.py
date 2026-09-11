@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from docapp.core.db import Schema, open_db
+from docapp.duty import statuses
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS duty_reports (
@@ -115,7 +116,7 @@ class SqliteDutyStore:
         shift_date: str,
         doctor_id: int,
         operations: list[dict],
-        status: str = "draft",
+        status: str = statuses.DRAFT,
     ) -> int:
         """Создать или обновить отчёт (upsert по UNIQUE(base, shift_date, doctor_id)).
 

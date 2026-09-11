@@ -16,8 +16,9 @@ html_table работают с ним без изменений (дополни�
 period_label, from_week, to_week, group — их xlsx/HTML игнорируют).
 """
 
-from datetime import date, datetime
+from datetime import datetime
 
+from docapp.core import period
 from docapp.needs.catalog import (
     CATEGORY_MEDICAMENTS,
     CATEGORY_SOLUTIONS,
@@ -28,17 +29,12 @@ from docapp.needs.report import aggregate_requests
 
 
 def period_label(from_week: str, to_week: str) -> str:
-    """Подпись периода по понедельникам недель: 'ДД.ММ.ГГГГ – ДД.ММ.ГГГГ'.
+    """Подпись периода по неделям (общий механизм периода, ADR-0018).
 
     Примеры: ('2026-08-10', '2026-08-24') -> '10.08.2026 – 24.08.2026';
-    одна неделя ('2026-08-10', '2026-08-10') -> '10.08.2026' (одна дата).
-    Тире — en-dash с пробелами с обеих сторон, как в week_label из report.py.
+    одна неделя ('2026-08-10', '2026-08-10') -> '10.08.2026'.
     """
-    monday = date.fromisoformat(from_week)
-    if from_week == to_week:
-        return monday.strftime("%d.%m.%Y")
-    to_monday = date.fromisoformat(to_week)
-    return f"{monday.strftime('%d.%m.%Y')} – {to_monday.strftime('%d.%m.%Y')}"
+    return period.range_label(from_week, to_week)
 
 
 def _merge_solutions(aggs: list[dict], catalog: Catalog, points: list[str]) -> dict:
