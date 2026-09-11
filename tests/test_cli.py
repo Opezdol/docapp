@@ -104,7 +104,7 @@ class TestCreateNurse:
         assert "роль: nurse" in out
 
         with SqliteEmployeeStore(cli_env) as store:
-            nurses = store.list_nurses()
+            nurses = store.list_nurse_staff()
             assert len(nurses) == 1
             assert nurses[0].role == NURSE
             assert nurses[0].login is None
@@ -150,7 +150,7 @@ class TestCreateNurse:
         code, _, _ = _run_cli("nurse", "Сидорова", "Анна", "--buh-id", "S-7")
         assert code == 0
         with SqliteEmployeeStore(cli_env) as store:
-            nurses = store.list_nurses()
+            nurses = store.list_nurse_staff()
             assert len(nurses) == 1
             assert nurses[0].buh_id == "S-7"
 

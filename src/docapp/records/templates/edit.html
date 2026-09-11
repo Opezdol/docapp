@@ -22,4 +22,11 @@
   <p><a href="/">← Назад</a></p>
 </div>
 
+<script>
+  // Список сестёр — с поиском по набираемому тексту (общая библиотека).
+  document.addEventListener('DOMContentLoaded', function () {
+    dc.combobox(document.querySelector('select[name="nurse_id"]'));
+  });
+</script>
+
 {% endblock %}

@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from docapp.domain.anesthesia import Anesthesia
-from docapp.domain.employee import DOCTOR, HEAD, NURSE, Employee
+from docapp.domain.employee import DOCTOR, HEAD, HEAD_NURSE, NURSE, Employee
 from docapp.people.store import SqliteEmployeeStore
 from docapp.records.store import SqliteAnesthesiaStore
 from factories import make_db
@@ -99,13 +99,16 @@ class TestEmployeeStore:
             ("Иванов", "Пётр"),
         ]
 
-    def test_list_nurses_only(self, emp_store):
+    def test_list_nurse_staff_includes_head_nurse(self, emp_store):
+        """В пару врачу выбирают и медсестру, и старшую сестру (решение владельца)."""
         emp_store.add(make_employee(role=NURSE, last_name="Сидорова", first_name="Анна"))
-        emp_store.add(make_employee(role=NURSE, last_name="Козлова", first_name="Мария"))
+        emp_store.add(make_employee(role=HEAD_NURSE, last_name="Волкова", first_name="Вера"))
         emp_store.add(make_employee(role=DOCTOR))
-        nurses = emp_store.list_nurses()
-        assert len(nurses) == 2
-        assert all(n.role == NURSE for n in nurses)
+        staff = emp_store.list_nurse_staff()
+        assert [(e.last_name, e.role) for e in staff] == [
+            ("Волкова", HEAD_NURSE),
+            ("Сидорова", NURSE),
+        ]
 
     def test_duplicate_login_raises(self, emp_store):
         emp_store.add(make_employee(login="ivanov", password_hash="abc"))

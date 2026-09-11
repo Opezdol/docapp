@@ -20,7 +20,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from docapp.core.db import Schema, open_db
-from docapp.domain.employee import Employee
+from docapp.domain.employee import HEAD_NURSE, NURSE, Employee
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS employees (
@@ -94,9 +94,16 @@ class SqliteEmployeeStore:
         ).fetchall()
         return [self._row_to_employee(r) for r in rows]
 
-    def list_nurses(self) -> list[Employee]:
+    def list_nurse_staff(self) -> list[Employee]:
+        """Сестринский состав для выбора в паре с врачом: медсёстры и старшие сёстры.
+
+        Старшая сестра тоже работает в смене, поэтому врач может записать её
+        в пару — решение владельца от 11.09.2026. Права ролей (ADR-0023) это не
+        меняет: расширен только справочный список.
+        """
         rows = self._conn.execute(
-            "SELECT * FROM employees WHERE role = 'nurse' ORDER BY last_name, first_name"
+            "SELECT * FROM employees WHERE role IN (?, ?) ORDER BY last_name, first_name",
+            (NURSE, HEAD_NURSE),
         ).fetchall()
         return [self._row_to_employee(r) for r in rows]
 

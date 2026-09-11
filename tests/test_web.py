@@ -132,6 +132,23 @@ class TestNurseSelection:
         r = client.get("/")
         assert "Сидорова Анна" in r.text
 
+    def test_picker_offers_nurses_and_head_nurse(self, client):
+        """Список сестёр для выбора пары: медсёстры и старшие сёстры."""
+        _login(client)
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "Сидорова Анна Петровна" in r.text
+        assert "Волкова Вера Сергеевна" in r.text
+
+    def test_edit_page_offers_head_nurse_too(self, client):
+        """Правка записи берёт тот же список сестёр."""
+        _login(client)
+        client.post("/anesthesia", data={"patient_name": "Петров Петр Петрович", "nurse_id": 2})
+        record_id = 1
+        r = client.get(f"/anesthesia/{record_id}/edit")
+        assert r.status_code == 200
+        assert "Волкова Вера Сергеевна" in r.text
+
 
 class TestAnesthesiaFlow:
     def _add(self, client, patient_name="Петров Петр Петрович", nurse_id: int | None = 2):

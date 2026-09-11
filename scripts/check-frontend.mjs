@@ -48,17 +48,41 @@ function equal(name, actual, expected) {
 }
 
 // ── 1. общая библиотека ──────────────────────────────────────────────
+
+/* Подставной DOM для проверки комбобокса: `dc.combobox` трогает ровно это —
+   создание узлов, вставку в разметку, обработчики и классы. В песочнице
+   `document` не глобальный объект, поэтому передаём его явно (как и dc). */
+function comboNode(tag) {
+  const node = {
+    tagName: tag, className: "", value: "", hidden: false, innerHTML: "", text: "",
+    required: false, type: "", placeholder: "", autocomplete: "",
+    dataset: {}, children: [], attributes: {}, handlers: {}, events: [],
+    classList: { add(name) { node.className += " " + name; }, remove() {}, contains: () => false },
+    addEventListener(name, fn) { node.handlers[name] = fn; },
+    appendChild(child) { node.children.push(child); return child; },
+    insertBefore(child) { node.children.push(child); return child; },
+    getAttribute(name) { return name in node.attributes ? node.attributes[name] : null; },
+    setAttribute(name, value) { node.attributes[name] = String(value); },
+    closest: () => null,
+    querySelector: () => null,
+    dispatchEvent(event) { node.events.push(event); return true; },
+  };
+  return node;
+}
+const comboDocument = { createElement: (tag) => comboNode(tag) };
+
 const window = { location: { href: "" } };
 const timers = [];
 /* Один счётчик запросов на всю проверку: dc.apiFetch — замыкание библиотеки,
    и запрос страницы придёт именно в этот fetch, а не в отдельный для файла. */
 const netCalls = [];
 const recordingFetch = (url) => { netCalls.push(url); return new Promise(() => {}); };
-new Function("window", "fetch", "setTimeout", "clearTimeout", read(join(STATIC, "lib", "core.js")))(
+new Function("window", "fetch", "setTimeout", "clearTimeout", "document", read(join(STATIC, "lib", "core.js")))(
   window,
   recordingFetch,
   (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
-  () => {}
+  () => {},
+  comboDocument
 );
 const dc = window.dc;
 
@@ -66,7 +90,7 @@ check("библиотека положила объект dc", () => {
   if (!dc || typeof dc !== "object") return "dc не создан";
 });
 for (const name of ["esc", "apiFetch", "banner", "iso", "mondayOf", "parseTimeMin",
-                    "fmtTimeMin", "timeFields", "snapTimeFields"]) {
+                    "fmtTimeMin", "timeFields", "snapTimeFields", "combobox"]) {
   check("dc." + name + " — функция", () => (typeof dc[name] === "function" ? null : typeof dc[name]));
 }
 
@@ -130,6 +154,90 @@ check("баннер уходит по таймеру", () => {
 netCalls.length = 0;
 dc.apiFetch("/проверка");
 equal("apiFetch идёт в сеть", netCalls, ["/проверка"]);
+
+// ── 2b. выбор из списка с поиском (dc.combobox) ──────────────────────
+
+/* Разметка страницы записей: select с сестрами вложен в подпись. Узлы
+   подставные — проверяем поведение библиотеки, а не устройство браузера. */
+function makeNurseSelect() {
+  const label = comboNode("label");
+  const holder = comboNode("div");
+  const select = comboNode("select");
+  select.required = true;
+  select.value = "2";
+  select.options = [
+    { value: "", text: "— выберите сестру —", disabled: true },
+    { value: "1", text: "Сидорова Анна Петровна", disabled: false },
+    { value: "2", text: "Волкова Вера Сергеевна", disabled: false },
+  ];
+  select.parentNode = label;
+  select.closest = (sel) => (sel === "label" ? label : null);
+  label.parentNode = holder;
+  return { label, holder, select };
+}
+
+const valuesIn = (html) => Array.from(html.matchAll(/data-value="([^"]*)"/g), (m) => m[1]);
+
+const { label, holder, select } = makeNurseSelect();
+dc.combobox(select);
+const input = label.children[0] && label.children[0].children[0];
+const list = holder.children[0];
+
+check("комбобокс: поле в подписи, список рядом с ней", () => {
+  if (!input || !list) {
+    return "узлы не созданы: label=" + label.children.length + ", holder=" + holder.children.length;
+  }
+  if (label.children[0].className.indexOf("dc-combo") < 0) return "обёртка " + label.children[0].className;
+  return list.className === "dc-combo-list" ? null : "список " + list.className;
+});
+
+equal("комбобокс: поле показывает выбранную сестру", input.value, "Волкова Вера Сергеевна");
+equal("комбобокс: подсказка — из пункта «не выбрано»", input.placeholder, "— выберите сестру —");
+equal("комбобокс: обязательность переехала на видимое поле", [input.required, select.required], [true, false]);
+check("комбобокс: нативный select скрыт, но остался в форме", () =>
+  (select.className.indexOf("dc-combo-native") >= 0 ? null : "классы: " + select.className));
+
+input.handlers.focus();
+equal("комбобокс: на фокусе — весь список сестёр", valuesIn(list.innerHTML), ["1", "2"]);
+
+input.value = "сидор";
+input.handlers.input();
+equal("комбобокс: фильтр по подстроке без учёта регистра", valuesIn(list.innerHTML), ["1"]);
+
+input.value = "михайлов";
+input.handlers.input();
+check("комбобокс: ничего не найдено — подсказка, а не пустой список", () =>
+  (/Никого не найдено/.test(list.innerHTML) ? null : list.innerHTML));
+
+let mousedownPrevented = false;
+input.value = "сидор";
+input.handlers.input();
+list.handlers.mousedown({ preventDefault() { mousedownPrevented = true; } });
+check("комбобокс: mousedown гасится, иначе список закроется до клика", () =>
+  (mousedownPrevented ? null : "preventDefault не вызван"));
+
+list.handlers.click({ target: { closest: () => ({ getAttribute: () => "1" }) } });
+equal("комбобокс: клик выбирает сестру", [select.value, input.value, list.hidden],
+      ["1", "Сидорова Анна Петровна", true]);
+equal("комбобокс: выбор шлёт change — на нём держится сохранение", select.events.map((e) => e.type),
+      ["change"]);
+
+input.value = "не то";
+input.handlers.blur();
+equal("комбобокс: уход с набранным мусором возвращает выбранную сестру",
+      input.value, "Сидорова Анна Петровна");
+
+input.value = "волк";
+input.handlers.input();
+list.querySelector = () => ({ getAttribute: () => valuesIn(list.innerHTML)[0] });
+let enterPrevented = false;
+input.handlers.keydown({ key: "Enter", preventDefault() { enterPrevented = true; } });
+equal("комбобокс: Enter выбирает первую найденную", [select.value, enterPrevented], ["2", true]);
+
+input.value = "не то";
+input.handlers.keydown({ key: "Escape", preventDefault() {} });
+equal("комбобокс: Escape сбрасывает набранное", [input.value, list.hidden],
+      ["Волкова Вера Сергеевна", true]);
 
 // ── 3. загрузка сценариев в подставном DOM ───────────────────────────
 function fakeElement(id) {
@@ -251,6 +359,20 @@ check("класс баннера один — dc-banner", () => {
 check("баннер стилизован в style.css", () => {
   const css = read(join(STATIC, "style.css"));
   return /\.dc-banner\b/.test(css) ? null : "нет правила .dc-banner";
+});
+
+check("выбор сестры с поиском подключён в шаблонах записей", () => {
+  const guilty = [];
+  for (const name of ["index.html", "edit.html"]) {
+    const path = join(SOURCE, "records", "templates", name);
+    if (!/dc\.combobox\s*\(/.test(read(path))) guilty.push(name);
+  }
+  return guilty.length ? "нет вызова dc.combobox: " + guilty.join(", ") : null;
+});
+
+check("комбобокс стилизован в style.css", () => {
+  const css = read(join(STATIC, "style.css"));
+  return /\.dc-combo-item\b/.test(css) ? null : "нет правила .dc-combo-item";
 });
 
 check("service worker кэширует статику правилом, а не списком", () => {

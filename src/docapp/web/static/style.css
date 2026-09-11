@@ -185,3 +185,35 @@ button.linklike {
 .dc-banner.ok { background: #e8f5e9; border: 1px solid #a5d6a7; color: #1b5e20; }
 .dc-banner.warn { background: #fff3cd; border: 1px solid #ffe082; color: #6d4c00; }
 .dc-banner.error { background: #fdecea; border: 1px solid #f5c6cb; color: #8b0000; }
+
+/* Выбор из списка с поиском — общий для разделов (lib/core.js, dc.combobox).
+   Нативный select остаётся в форме, но скрыт: значение уходит как раньше. */
+.dc-combo-native { display: none; }
+
+.dc-combo { position: relative; }
+
+.dc-combo-input { margin-bottom: 0; }
+
+.dc-combo-list {
+  background: #fff;
+  border: 1px solid #e3e8ef;
+  border-radius: 8px;
+  margin-top: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  box-shadow: 0 2px 6px rgba(0,0,0,.08);
+}
+.dc-combo-item {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid #eef1f5;
+  background: #fff;
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+}
+.dc-combo-item:last-child { border-bottom: none; }
+.dc-combo-item:active { background: #eef2f7; }
+.dc-combo-empty { padding: 10px 12px; color: #888; font-size: 0.9rem; }

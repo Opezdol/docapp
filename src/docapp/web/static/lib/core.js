@@ -5,9 +5,9 @@
  * проще и не требует менять разметку всех страниц.
  *
  * Здесь то, что раньше было скопировано по модулям: экранирование, запрос к API,
- * баннер-сообщение, календарные помощники и поле времени. Своё у модуля остаётся
- * своим: у «Потребностей» — степпер количества и своя разметка, у «Дежурств» —
- * сетка смены.
+ * баннер-сообщение, календарные помощники, поле времени и выбор из списка с
+ * поиском. Своё у модуля остаётся своим: у «Потребностей» — степпер количества и
+ * своя разметка, у «Дежурств» — сетка смены.
  *
  * Подключается в base.html в <head>, поэтому к моменту запуска модульных скриптов
  * (они в конце страницы) объект уже есть.
@@ -168,6 +168,134 @@
     });
   }
 
+  /* ── выбор из списка с поиском ─────────────────────────────────────── */
+
+  // Надстройка над <select>: поле ввода с фильтром по набираемому тексту и
+  // выпадающий список.
+  //
+  // Разметку страницы менять не нужно: select остаётся в форме (только скрыт),
+  // поэтому уходит ровно то же значение, а без JS работает прежний нативный
+  // список. Выбор строки выставляет значение select и шлёт обычное событие
+  // change — обработчики страницы остаются как были.
+  //
+  // Требование «значение выбрано» переезжает на видимое поле: скрытый
+  // обязательный select браузер показать не может и молча блокирует отправку
+  // формы, поэтому required снимается с select и ставится на поле ввода.
+  function combobox(select) {
+    if (!select || !select.options || select.dataset.dcCombo) return;
+    select.dataset.dcCombo = '1';
+
+    var options = [];
+    var placeholder = '';
+    for (var i = 0; i < select.options.length; i++) {
+      var option = select.options[i];
+      var label = String(option.text).trim();
+      if (!option.value) { placeholder = label; continue; }  // «— выберите… —»
+      if (option.disabled) continue;
+      options.push({ value: option.value, label: label });
+    }
+
+    var wrapper = document.createElement('div');
+    wrapper.className = 'dc-combo';
+
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'dc-combo-input';
+    input.autocomplete = 'off';
+    input.placeholder = placeholder;
+    input.required = !!select.required;
+    select.required = false;
+    select.classList.add('dc-combo-native');
+
+    var list = document.createElement('div');
+    list.className = 'dc-combo-list';
+    list.hidden = true;
+
+    wrapper.appendChild(input);
+    select.parentNode.insertBefore(wrapper, select);
+
+    // Список — сосед подписи, а не её содержимое: кнопками внутри <label>
+    // браузер подписывает не то поле (та же разметка, что у поиска препарата
+    // в «Потребностях» — поле в подписи, список под ней).
+    var label = select.closest ? select.closest('label') : null;
+    if (label && label.parentNode) label.parentNode.insertBefore(list, label.nextSibling);
+    else wrapper.appendChild(list);
+
+    function labelOf(value) {
+      for (var k = 0; k < options.length; k++) {
+        if (options[k].value === String(value)) return options[k].label;
+      }
+      return '';
+    }
+
+    // Совпадение — по подстроке без учёта регистра: «иван» находит «Иванова».
+    function render(query) {
+      var q = String(query == null ? '' : query).trim().toLowerCase();
+      var found = options;
+      if (q) {
+        found = options.filter(function (o) {
+          return o.label.toLowerCase().indexOf(q) >= 0;
+        });
+      }
+      if (!found.length) {
+        list.innerHTML = '<div class="dc-combo-empty">Никого не найдено</div>';
+        return;
+      }
+      list.innerHTML = found.map(function (o) {
+        return '<button type="button" class="dc-combo-item" data-value="' + esc(o.value) + '">' +
+          esc(o.label) + '</button>';
+      }).join('');
+    }
+
+    // Показать в поле выбранное значение. Набранный, но не выбранный текст
+    // иначе выглядит как выбор — поэтому фильтр при уходе сбрасывается.
+    function syncFromSelect() {
+      input.value = labelOf(select.value);
+    }
+
+    function pick(value) {
+      var changed = String(select.value) !== String(value);
+      select.value = value;
+      input.value = labelOf(value);
+      list.hidden = true;
+      if (changed) select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    input.addEventListener('focus', function () {
+      render('');
+      list.hidden = false;
+    });
+
+    input.addEventListener('input', function () {
+      render(input.value);
+      list.hidden = false;
+    });
+
+    input.addEventListener('blur', function () {
+      list.hidden = true;
+      syncFromSelect();
+    });
+
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { list.hidden = true; syncFromSelect(); return; }
+      if (e.key !== 'Enter' || list.hidden) return;
+      var first = list.querySelector('.dc-combo-item');
+      if (!first) return;
+      e.preventDefault();          // Enter выбирает строку, а не отправляет форму
+      pick(first.getAttribute('data-value'));
+    });
+
+    // Клик по строке: mousedown гасим, иначе поле теряет фокус и список
+    // закрывается раньше, чем придёт click.
+    list.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    list.addEventListener('click', function (e) {
+      var item = e.target && e.target.closest ? e.target.closest('.dc-combo-item') : null;
+      if (item) pick(item.getAttribute('data-value'));
+    });
+
+    syncFromSelect();
+  }
+
   window.dc = {
     TIME_STEP: TIME_STEP,
     esc: esc,
@@ -181,5 +309,6 @@
     adjustTimeInput: adjustTimeInput,
     timeFields: timeFields,
     snapTimeFields: snapTimeFields,
+    combobox: combobox,
   };
 })();

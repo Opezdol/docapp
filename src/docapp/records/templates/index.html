@@ -58,6 +58,9 @@
     var sel = document.querySelector('select[name="nurse_id"]');
     var status = document.getElementById('nurse-status');
     if (!sel) return;
+    // Список сестёр — с поиском по набираемому тексту (общая библиотека).
+    // Нативный select остаётся в форме, поэтому change приходит как раньше.
+    dc.combobox(sel);
     sel.addEventListener('change', function () {
       var nurseId = sel.value;
       if (!nurseId) return;

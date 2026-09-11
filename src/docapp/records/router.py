@@ -71,7 +71,7 @@ def index(request: Request):
             },
         )
 
-    nurses = employees.list_nurses()
+    nurses = employees.list_nurse_staff()
     nurse_by_id = {n.id: n for n in nurses}
     return TEMPLATES.TemplateResponse(
         request,
@@ -143,7 +143,7 @@ def edit_page(request: Request, anesthesia_id: int):
         {
             "user": user,
             "record": record,
-            "nurses": _people(request).employees.list_nurses(),
+            "nurses": _people(request).employees.list_nurse_staff(),
             "flash": None,
         },
     )
