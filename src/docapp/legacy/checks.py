@@ -23,7 +23,12 @@ MODULE_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("wiki_sources", "wiki_articles", "wiki_revisions", "wiki_article_links",
          "wiki_messages", "wiki_settings"),
     ),
-    ("needs", ("needs_requests", "needs_request_lines", "needs_closures")),
+    (
+        "needs",
+        ("needs_requests", "needs_request_lines", "needs_closures",
+         "needs_catalog_bases", "needs_catalog_points", "needs_catalog_groups",
+         "needs_catalog_items", "needs_catalog_audit"),
+    ),
     ("duty", ("duty_reports", "duty_operations")),
 )
 

@@ -46,11 +46,52 @@ CREATE TABLE IF NOT EXISTS needs_closures (
     closed_by INTEGER NOT NULL REFERENCES employees(id),
     PRIMARY KEY (base, week_start, category)
 );
+-- Каталог расходки (ADR-0019): был файлом catalog.yaml, стал таблицами.
+-- Порядок строк значим (в нём каталог показывается) — хранится в `position`.
+-- Колонка группы называется grp, как снимок группы в строках заявок:
+-- слово `group` — ключевое в SQL, и записи пришлось бы брать в кавычки везде.
+CREATE TABLE IF NOT EXISTS needs_catalog_bases (
+    name     TEXT PRIMARY KEY,
+    position INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS needs_catalog_points (
+    base     TEXT NOT NULL REFERENCES needs_catalog_bases(name) ON DELETE CASCADE,
+    name     TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (base, name)
+);
+CREATE TABLE IF NOT EXISTS needs_catalog_groups (
+    name     TEXT PRIMARY KEY,
+    position INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS needs_catalog_items (
+    grp      TEXT NOT NULL REFERENCES needs_catalog_groups(name) ON DELETE CASCADE,
+    name     TEXT NOT NULL,
+    unit     TEXT NOT NULL DEFAULT '',
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (grp, name)
+);
+-- Журнал правки каталога: кто, когда и что менял. employee_id пуст для
+-- системных действий (первичный импорт seed или перенос прежних данных).
+CREATE TABLE IF NOT EXISTS needs_catalog_audit (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    at          TEXT NOT NULL,
+    employee_id INTEGER REFERENCES employees(id),
+    action      TEXT NOT NULL,               -- import / upsert / delete
+    entity      TEXT NOT NULL,               -- base / point / group / item
+    entity_key  TEXT NOT NULL DEFAULT '',    -- «Растворы/Физ 200/250», «Ленская»
+    details     TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_catalog_audit_at ON needs_catalog_audit(at DESC);
 """
 
 
-def _now() -> str:
-    """Текущее время как ISO-строка (как в sqlite_store.py: isoformat())."""
+def now_iso() -> str:
+    """Текущее время как ISO-строка (как в sqlite_store.py: isoformat()).
+
+    Публичная: тем же способом помечает время и журнал каталога
+    (`catalog_store`), а второй формат времени модулю не нужен.
+    """
     return datetime.now().isoformat()
 
 
@@ -66,10 +107,35 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
 # closures, а колонка `category` появлялась миграцией v2. В новой схеме они
 # создаются сразу с префиксом модуля и колонкой `category`, поэтому миграций нет:
 # данные прежних баз переносит `docapp import-legacy` (docs/ТЗ-каркас.md §9).
-SCHEMA_VERSION = 1
+# v2: каталог расходки переехал из файла в таблицы needs_catalog_* (ADR-0019).
+SCHEMA_VERSION = 2
 
-#: Миграций нет: схема создаётся сразу в целевом виде (см. комментарий выше).
-_MIGRATIONS: list[tuple[int, str, list[str]]] = []
+_CATALOG_TABLES = [
+    "CREATE TABLE IF NOT EXISTS needs_catalog_bases ("
+    "name TEXT PRIMARY KEY, position INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS needs_catalog_points ("
+    "base TEXT NOT NULL REFERENCES needs_catalog_bases(name) ON DELETE CASCADE, "
+    "name TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, "
+    "PRIMARY KEY (base, name))",
+    "CREATE TABLE IF NOT EXISTS needs_catalog_groups ("
+    "name TEXT PRIMARY KEY, position INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS needs_catalog_items ("
+    "grp TEXT NOT NULL REFERENCES needs_catalog_groups(name) ON DELETE CASCADE, "
+    "name TEXT NOT NULL, unit TEXT NOT NULL DEFAULT '', "
+    "position INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (grp, name))",
+    "CREATE TABLE IF NOT EXISTS needs_catalog_audit ("
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, "
+    "employee_id INTEGER REFERENCES employees(id), action TEXT NOT NULL, "
+    "entity TEXT NOT NULL, entity_key TEXT NOT NULL DEFAULT '', "
+    "details TEXT NOT NULL DEFAULT '')",
+    "CREATE INDEX IF NOT EXISTS idx_catalog_audit_at ON needs_catalog_audit(at DESC)",
+]
+
+#: v1 — схема модуля как есть (прежние таблицы под новыми именами);
+#: v2 — каталог расходки переезжает в таблицы (ADR-0019).
+_MIGRATIONS: list[tuple[int, str, list[str]]] = [
+    (2, "каталог расходки в БД", _CATALOG_TABLES),
+]
 
 
 #: Схема модуля «Потребности» для общего механизма БД (core.db).
@@ -167,7 +233,7 @@ class SqliteNeedsStore:
         её строки ЗАМЕНЯЮТСЯ (DELETE + INSERT). Возвращает id заявки.
         """
         self._validate_lines(lines)
-        now = _now()
+        now = now_iso()
         existing = self._conn.execute(
             "SELECT id FROM needs_requests "
             "WHERE base = ? AND point = ? AND week_start = ? AND category = ?",
@@ -214,7 +280,7 @@ class SqliteNeedsStore:
         """Сменить статус заявки (обновляет updated_at)."""
         self._conn.execute(
             "UPDATE needs_requests SET status = ?, updated_at = ? WHERE id = ?",
-            (status, _now(), request_id),
+            (status, now_iso(), request_id),
         )
         self._conn.commit()
 
@@ -266,7 +332,7 @@ class SqliteNeedsStore:
             "INSERT OR REPLACE INTO needs_closures "
             "(base, week_start, category, closed_at, closed_by) "
             "VALUES (?, ?, ?, ?, ?)",
-            (base, week_start, category, _now(), closed_by),
+            (base, week_start, category, now_iso(), closed_by),
         )
         self._conn.commit()
 

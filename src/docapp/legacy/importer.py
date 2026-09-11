@@ -261,6 +261,7 @@ def import_legacy(
     needs_db: str | Path | None = None,
     wiki_db: str | Path | None = None,
     duty_db: str | Path | None = None,
+    catalog_path: str | Path | None = None,
     sources_dir: str | Path | None = None,
     skip_orphans: bool = False,
 ) -> ImportReport:
@@ -270,6 +271,9 @@ def import_legacy(
     не обязательно). Ссылки на несуществующих сотрудников — ошибка: с ними
     внешние ключи не дадут вставить строки, а молча терять данные нельзя.
     `skip_orphans=True` переносит всё остальное, потерянное попадает в отчёт.
+
+    `catalog_path` — файл каталога расходки: из него наполняются таблицы
+    `needs_catalog_*` (ADR-0019), первой записью журнала становится `import`.
 
     `sources_dir` — папка, куда переезжают PDF-источники «Компендиума» (ADR-0020);
     без неё берётся папка из настроек модуля.
@@ -298,6 +302,8 @@ def import_legacy(
             _import_wiki(Path(wiki_db), dst, report, sources_dir=wiki_sources_dir)
         if duty_db is not None:
             _import_duty(Path(duty_db), dst, report)
+        if catalog_path is not None:
+            _import_catalog(Path(catalog_path), target, report)
 
         report.orphans = find_orphans(dst)
     finally:
@@ -611,6 +617,32 @@ def _import_wiki_sources(
     if not moved and has_blob and any(row["source"] for row in rows):
         notes.append("часть источников осталась без файла")
     report.add("wiki_sources", len(rows), len(payload), "; ".join(notes))
+
+
+def _import_catalog(source: Path, target: Path, report: ImportReport) -> None:
+    """Каталог расходки из файла в таблицы БД (ADR-0019).
+
+    Каталог — не строки прежних баз, а файл: заливаем его целиком, поэтому
+    отдельное соединение и отдельная запись журнала (`action='import'`).
+    """
+    from docapp.needs.catalog_store import SqliteCatalog
+    from docapp.needs.catalog_yaml import parse_file
+
+    if not source.exists():
+        report.skipped.append(f"нет файла {source}")
+        return
+    data = parse_file(source)
+    catalog = SqliteCatalog(target)
+    try:
+        counts = catalog.import_catalog(data, None, source=str(source))
+    finally:
+        catalog.close()
+    report.add("needs_catalog_bases", counts["bases"], counts["bases"])
+    report.add("needs_catalog_points", counts["points"], counts["points"])
+    report.add("needs_catalog_groups", counts["groups"], counts["groups"])
+    report.add(
+        "needs_catalog_items", counts["items"], counts["items"], note=f"источник {source.name}"
+    )
 
 
 def _import_duty(source: Path, dst: sqlite3.Connection, report: ImportReport) -> None:

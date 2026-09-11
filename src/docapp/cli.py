@@ -167,6 +167,7 @@ def _import_legacy(args: argparse.Namespace) -> int:
         "needs": Path(args.needs) if args.needs else None,
         "wiki": Path(args.wiki) if args.wiki else None,
         "duty": Path(args.duty) if args.duty else None,
+        "catalog": Path(args.catalog) if args.catalog else None,
     }
     if not any(sources.values()):
         print(
@@ -187,6 +188,7 @@ def _import_legacy(args: argparse.Namespace) -> int:
             needs_db=sources["needs"],
             wiki_db=sources["wiki"],
             duty_db=sources["duty"],
+            catalog_path=sources["catalog"],
             sources_dir=args.sources_dir,
             skip_orphans=args.skip_orphans,
         )
@@ -259,6 +261,10 @@ def main() -> int:
     p_import.add_argument("--needs", help="прежняя БД «Потребностей» (data/needs/needs.db)")
     p_import.add_argument("--wiki", help="прежняя БД «Компендиума» (data/wiki/wiki.db)")
     p_import.add_argument("--duty", help="прежняя БД «Дежурств» (data/duty/duty.db)")
+    p_import.add_argument(
+        "--catalog",
+        help="файл каталога расходки (data/needs/catalog.yaml) — до ADR-0019 каталог жил файлом",
+    )
     p_import.add_argument("--target", help="целевая единая БД (по умолчанию DOCAPP_DB)")
     p_import.add_argument(
         "--sources-dir",

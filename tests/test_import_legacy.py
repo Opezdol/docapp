@@ -473,6 +473,30 @@ class TestImport:
         conn.close()
         assert "source" not in columns         # BLOB в целевой схеме больше нет
 
+    def test_catalog_file_fills_catalog_tables(self, tmp_path):
+        """Каталог — файл, а не строки прежней базы: заливается целиком (ADR-0019)."""
+        paths = _build_legacy(tmp_path)
+        catalog_path = tmp_path / "catalog.yaml"
+        catalog_path.write_text(
+            "bases:\n  Ленская: [травма]\ngroups:\n  Растворы:\n    Физ 200/250: фл\n",
+            encoding="utf-8",
+        )
+
+        report = _import(paths, catalog_path=catalog_path)
+        target = str(paths["target"])
+
+        assert _scalar(target, "SELECT COUNT(*) FROM needs_catalog_items") == 1
+        assert _scalar(target, "SELECT unit FROM needs_catalog_items") == "фл"
+        assert _scalar(target, "SELECT COUNT(*) FROM needs_catalog_points") == 1
+
+        # первая запись журнала каталога — импорт, без человека (системное действие)
+        row = _one(target, "SELECT action, entity, employee_id, details FROM needs_catalog_audit")
+        assert row[0] == "import" and row[1] == "catalog"
+        assert row[2] is None and "catalog.yaml" in row[3]
+
+        counters = {t.table: t for t in report.tables}
+        assert counters["needs_catalog_items"].imported == 1
+
     def test_missing_source_is_reported_not_silent(self, tmp_path):
         """Базы может не быть (сервер её не вёл) — об этом сообщается."""
         paths = _build_legacy(tmp_path)
@@ -512,7 +536,7 @@ class TestCheck:
         assert report.counts["employees"] == 3
         assert report.counts["needs_requests"] == 2
         assert report.versions["docapp"] == 3
-        assert report.versions["needs"] == 1
+        assert report.versions["needs"] == 2
         assert report.versions["duty"] == 1
         assert "всё сходится" in report.summary()
 

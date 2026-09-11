@@ -19,11 +19,11 @@ period_label, from_week, to_week, group — их xlsx/HTML игнорируют)
 from datetime import datetime
 
 from docapp.core import period
+from docapp.needs.catalog_store import SqliteCatalog
 from docapp.needs.catalog import (
     CATEGORY_MEDICAMENTS,
     CATEGORY_SOLUTIONS,
     SOLUTIONS_GROUP,
-    Catalog,
 )
 from docapp.needs.report import aggregate_requests
 
@@ -37,7 +37,7 @@ def period_label(from_week: str, to_week: str) -> str:
     return period.range_label(from_week, to_week)
 
 
-def _merge_solutions(aggs: list[dict], catalog: Catalog, points: list[str]) -> dict:
+def _merge_solutions(aggs: list[dict], catalog: SqliteCatalog, points: list[str]) -> dict:
     """Слить 'solutions' нескольких агрегатов в один поточковый свод.
 
     Для каждого раствора складываются количества по каждой точке и ИТОГО
@@ -70,7 +70,7 @@ def _merge_solutions(aggs: list[dict], catalog: Catalog, points: list[str]) -> d
     return ordered
 
 
-def _merge_groups(aggs: list[dict], catalog: Catalog) -> dict:
+def _merge_groups(aggs: list[dict], catalog: SqliteCatalog) -> dict:
     """Слить 'groups' нескольких агрегатов: суммы по препарату за период.
 
     Группы и препараты внутри — в порядке каталога (незнакомые — после),
@@ -105,7 +105,7 @@ def _merge_groups(aggs: list[dict], catalog: Catalog) -> dict:
 
 def summarize(
     requests: list[dict],
-    catalog: Catalog,
+    catalog: SqliteCatalog,
     from_week: str,
     to_week: str,
     base: str | None = None,

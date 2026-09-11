@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from docapp.needs.catalog import Catalog
+from docapp.needs.catalog_store import SqliteCatalog
 from docapp.needs.config import NeedsConfig
 from docapp.needs.service import NeedsService
 from docapp.needs.store import SqliteNeedsStore
@@ -19,6 +19,6 @@ class NeedsContainer:
     """Всё, чем владеет модуль: конфиг, каталог расходки, хранилище и сервис."""
 
     config: NeedsConfig
-    catalog: Catalog
+    catalog: SqliteCatalog
     store: SqliteNeedsStore
     service: NeedsService

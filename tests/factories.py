@@ -61,3 +61,17 @@ def test_db(tmp_path, *, seed: bool = True) -> Path:
     if seed:
         seed_employees(db)
     return db
+
+
+def catalog(db_path, yaml_text: str):
+    """Каталог расходки из БД, наполненный YAML-текстом.
+
+    Так же, как при первом старте приложения: пустая БД получает каталог из
+    seed-файла, дальше источник правды — таблицы (ADR-0019).
+    """
+    from docapp.needs.catalog_store import SqliteCatalog
+    from docapp.needs.catalog_yaml import parse
+
+    cat = SqliteCatalog(db_path)
+    cat.import_catalog(parse(yaml_text, source="тесты"), None, source="тесты")
+    return cat

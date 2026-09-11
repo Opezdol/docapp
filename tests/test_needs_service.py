@@ -16,11 +16,10 @@ from docapp.domain.employee import HEAD, HEAD_NURSE, NURSE, Employee
 from docapp.needs.catalog import (
     CATEGORY_MEDICAMENTS,
     CATEGORY_SOLUTIONS,
-    Catalog,
 )
 from docapp.needs.service import NeedsClosed, NeedsForbidden, NeedsService
 from docapp.needs.store import SqliteNeedsStore
-from factories import test_db
+from factories import catalog, test_db
 
 CATALOG_YAML = """\
 bases:
@@ -49,11 +48,10 @@ def make_line(item, qty):
 
 @pytest.fixture
 def service(tmp_path):
-    """Сервис на временных БД и YAML-каталоге (2 базы × 2 точки)."""
-    catalog_path = tmp_path / "catalog.yaml"
-    catalog_path.write_text(CATALOG_YAML, encoding="utf-8")
-    store = SqliteNeedsStore(test_db(tmp_path))
-    yield NeedsService(store, Catalog(catalog_path))
+    """Сервис на временной БД: каталог расходки залит в таблицы (2 базы × 2 точки)."""
+    db = test_db(tmp_path)
+    store = SqliteNeedsStore(db)
+    yield NeedsService(store, catalog(db, CATALOG_YAML))
     store.close_conn()
 
 

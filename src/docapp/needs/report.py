@@ -20,11 +20,11 @@ from openpyxl.utils import get_column_letter
 
 from docapp.core import period
 from docapp.needs import statuses
+from docapp.needs.catalog_store import SqliteCatalog
 from docapp.needs.catalog import (
     CATEGORY_MEDICAMENTS,
     CATEGORY_SOLUTIONS,
     SOLUTIONS_GROUP,
-    Catalog,
 )
 
 #: Отображаемое имя секции для строк, чья снимковая группа пуста (препарата
@@ -38,7 +38,7 @@ def week_label(week_start: str) -> str:
     return period.label(week_start)
 
 
-def _group_of(catalog: Catalog, item: str) -> str:
+def _group_of(catalog: SqliteCatalog, item: str) -> str:
     """Группа препарата по каталогу; '' если позиции в каталоге нет.
 
     Подстраховка для строк с пустым снимком группы (строки, сохранённые
@@ -52,7 +52,7 @@ def _group_of(catalog: Catalog, item: str) -> str:
 
 
 def aggregate_requests(
-    requests: list[dict], base: str, category: str | None, week_start: str, catalog: Catalog
+    requests: list[dict], base: str, category: str | None, week_start: str, catalog: SqliteCatalog
 ) -> dict:
     """Агрегировать заявки базы за неделю в отчёт-форму для аптеки (ТЗ F7/F9).
 

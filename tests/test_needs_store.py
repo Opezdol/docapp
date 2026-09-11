@@ -1,4 +1,4 @@
-"""Тесты хранилища подприложения «Потребности» (SqliteNeedsStore)."""
+"""Тесты хранилища модуля «Потребности» (SqliteNeedsStore)."""
 
 import sqlite3
 
@@ -295,9 +295,9 @@ class TestValidationAndCascade:
 
 
 class TestSchema:
-    def test_schema_version_is_1(self):
+    def test_schema_version(self):
         """В единой БД схема создаётся сразу в целевом виде (ADR-0016)."""
-        assert SCHEMA_VERSION == 1
+        assert SCHEMA_VERSION == 2
 
     def test_requests_have_category_column(self, store):
         store.save_request(

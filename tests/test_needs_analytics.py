@@ -18,12 +18,11 @@ from docapp.needs.catalog import (
     CATEGORY_MEDICAMENTS,
     CATEGORY_SOLUTIONS,
     SOLUTIONS_GROUP,
-    Catalog,
 )
 from docapp.needs.report import build_xlsx
 from docapp.needs.service import NeedsService
 from docapp.needs.store import SqliteNeedsStore
-from factories import test_db
+from factories import catalog, test_db
 
 CATALOG_YAML = """\
 bases:
@@ -51,12 +50,11 @@ MED = CATEGORY_MEDICAMENTS
 @pytest.fixture
 def env(tmp_path):
     """Каталог + хранилище + сервис на временных файлах (2 базы × 2 точки)."""
-    catalog_path = tmp_path / "catalog.yaml"
-    catalog_path.write_text(CATALOG_YAML, encoding="utf-8")
-    catalog = Catalog(catalog_path)
-    store = SqliteNeedsStore(test_db(tmp_path))
-    service = NeedsService(store, catalog)
-    yield service, store, catalog
+    db = test_db(tmp_path)
+    catalog_obj = catalog(db, CATALOG_YAML)
+    store = SqliteNeedsStore(db)
+    service = NeedsService(store, catalog_obj)
+    yield service, store, catalog_obj
     store.close_conn()
 
 

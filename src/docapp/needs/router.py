@@ -18,9 +18,10 @@ NeedsClosed → 409, прочие ValueError → 400. Полный UI стран
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from docapp.core import access, period, web
@@ -71,6 +72,11 @@ def _require_not_doctor(user: Employee) -> None:
     )
 
 
+def _require_catalog(user: Employee) -> None:
+    """Правка каталога расходки: разрешение needs.catalog (ADR-0019, ADR-0023)."""
+    access.ensure(user, access.NEEDS_CATALOG, message="Доступ к каталогу запрещён")
+
+
 def _require_full(user: Employee) -> None:
     """Полные права: доска, отчёты, закрытие недель (head_nurse/head)."""
     access.ensure(
@@ -108,6 +114,112 @@ def catalog(request: Request):
     _require_not_doctor(user)
     catalog_obj = _container(request).catalog
     return {"bases": catalog_obj.bases(), "groups": catalog_obj.groups()}
+
+
+@router.get("/api/catalog/audit")
+def catalog_audit(request: Request):
+    """Журнал правок каталога (needs.catalog): кто, когда и что менял.
+
+    Отвечает на вопрос «кто убрал позицию из расходки», которого раньше не было:
+    каталог был файлом, и правку было не проследить.
+    """
+    user = _api_user(request)
+    _require_catalog(user)
+    return {"audit": _service(request).catalog_audit(user.role)}
+
+
+@router.get("/api/catalog/export")
+def catalog_export(request: Request):
+    """Выгрузка каталога в YAML — резервная копия, которую видно глазами.
+
+    Импорт YAML остаётся только командой CLI (`docapp import-legacy --catalog`):
+    в интерфейсе каталог правят по позициям, файлом его не затирают.
+    """
+    user = _api_user(request)
+    _require_catalog(user)
+    text = _service(request).catalog_export()
+    filename = f"catalog-{date.today().isoformat()}.yaml"
+    return Response(
+        content=text.encode("utf-8"),
+        media_type="application/x-yaml; charset=utf-8",
+        headers={"Content-Disposition": web.content_disposition(filename)},
+    )
+
+
+@router.post("/api/catalog/item")
+async def catalog_item_save(request: Request):
+    """Добавить или изменить позицию каталога (needs.catalog).
+
+    Тело: {group, name, unit}. Ответ — {ok, message}: текст для баннера.
+    Правка пишется в журнал каталога тем же действием (ADR-0019).
+    """
+    user = _api_user(request)
+    _require_catalog(user)
+    body = await request.json()
+    try:
+        message = _service(request).catalog_upsert(
+            user.id,
+            user.role,
+            str(body.get("group") or ""),
+            str(body.get("name") or ""),
+            str(body.get("unit") or ""),
+        )
+    except NeedsForbidden as exc:
+        return JSONResponse({"error": str(exc)}, status_code=403)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return {"ok": True, "message": message}
+
+
+@router.post("/api/catalog/item/delete")
+async def catalog_item_delete(request: Request):
+    """Убрать позицию каталога (в отправленных заявках остаются снимки)."""
+    user = _api_user(request)
+    _require_catalog(user)
+    body = await request.json()
+    try:
+        message = _service(request).catalog_delete_item(
+            user.id, user.role, str(body.get("group") or ""), str(body.get("name") or "")
+        )
+    except NeedsForbidden as exc:
+        return JSONResponse({"error": str(exc)}, status_code=403)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return {"ok": True, "message": message}
+
+
+@router.post("/api/catalog/point")
+async def catalog_point_save(request: Request):
+    """Добавить точку пополнения (нужна, когда у базы появляется новое место)."""
+    user = _api_user(request)
+    _require_catalog(user)
+    body = await request.json()
+    try:
+        message = _service(request).catalog_add_point(
+            user.id, user.role, str(body.get("base") or ""), str(body.get("point") or "")
+        )
+    except NeedsForbidden as exc:
+        return JSONResponse({"error": str(exc)}, status_code=403)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return {"ok": True, "message": message}
+
+
+@router.post("/api/catalog/point/delete")
+async def catalog_point_delete(request: Request):
+    """Убрать точку пополнения."""
+    user = _api_user(request)
+    _require_catalog(user)
+    body = await request.json()
+    try:
+        message = _service(request).catalog_delete_point(
+            user.id, user.role, str(body.get("base") or ""), str(body.get("point") or "")
+        )
+    except NeedsForbidden as exc:
+        return JSONResponse({"error": str(exc)}, status_code=403)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return {"ok": True, "message": message}
 
 
 @router.get("/api/closed")

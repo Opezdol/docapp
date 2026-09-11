@@ -20,8 +20,8 @@ from docapp.needs.catalog import (
     CATEGORY_MEDICAMENTS,
     CATEGORY_SOLUTIONS,
     SOLUTIONS_GROUP,
-    Catalog,
 )
+from docapp.needs.catalog_store import SqliteCatalog
 from docapp.needs.store import SqliteNeedsStore
 
 class NeedsForbidden(ValueError):
@@ -35,11 +35,12 @@ class NeedsClosed(ValueError):
 class NeedsService:
     """Бизнес-правила подприложения «Потребности».
 
-    store — SQLite-хранилище (SqliteNeedsStore), catalog — YAML-каталог (Catalog).
+    store — SQLite-хранилище (SqliteNeedsStore), catalog — каталог расходки
+    из БД (SqliteCatalog, ADR-0019).
     Сервис ничего не знает про HTTP: доступность по ролям — исключениями.
     """
 
-    def __init__(self, store: SqliteNeedsStore, catalog: Catalog) -> None:
+    def __init__(self, store: SqliteNeedsStore, catalog: SqliteCatalog) -> None:
         self._store = store
         self._catalog = catalog
 
@@ -245,6 +246,62 @@ class NeedsService:
             if line["qty"] == 0
         ]
         return {"request": updated, "warnings": warnings}
+
+    # ── каталог расходки (правка — старшая сестра и заведующий, ADR-0019) ──
+
+    def _require_catalog(self, role: str) -> None:
+        """Правка каталога — разрешение needs.catalog (старшая сестра, заведующий)."""
+        if not access.has(role, access.NEEDS_CATALOG):
+            raise NeedsForbidden(
+                "Правка каталога расходки доступна старшей сестре или заведующему"
+            )
+
+    @staticmethod
+    def _guard_solutions(group: str) -> None:
+        """Группа «Растворы» особая: её имя задаёт раздел (ADR-12, ADR-0019).
+
+        Другое написание («растворы», «Растворы ») завело бы вторую группу и
+        развалило деление на растворы и медикаменты — просим писать ровно так.
+        """
+        name = group.strip()
+        if name.lower() == SOLUTIONS_GROUP.lower() and name != SOLUTIONS_GROUP:
+            raise ValueError(
+                f"Группа растворов называется ровно «{SOLUTIONS_GROUP}» — "
+                f"раздел определяется её именем"
+            )
+
+    def catalog_upsert(self, user_id: int | None, role: str, group: str, name: str, unit: str) -> str:
+        """Добавить или изменить позицию каталога; возвращает текст для ответа."""
+        self._require_catalog(role)
+        self._guard_solutions(group)
+        return self._catalog.upsert_item(group, name, unit, employee_id=user_id)
+
+    def catalog_delete_item(self, user_id: int | None, role: str, group: str, name: str) -> str:
+        """Убрать позицию каталога; в отправленных заявках остаются снимки."""
+        self._require_catalog(role)
+        self._guard_solutions(group)
+        return self._catalog.delete_item(group, name, employee_id=user_id)
+
+    def catalog_add_point(self, user_id: int | None, role: str, base: str, point: str) -> str:
+        """Добавить точку пополнения (база заводится автоматически)."""
+        self._require_catalog(role)
+        return self._catalog.add_point(base, point, employee_id=user_id)
+
+    def catalog_delete_point(self, user_id: int | None, role: str, base: str, point: str) -> str:
+        """Убрать точку пополнения."""
+        self._require_catalog(role)
+        return self._catalog.delete_point(base, point, employee_id=user_id)
+
+    def catalog_audit(self, role: str, limit: int = 50) -> list[dict]:
+        """Журнал правок каталога (кто, когда, что) — старшая сестра и заведующий."""
+        self._require_catalog(role)
+        return self._catalog.audit(limit)
+
+    def catalog_export(self) -> str:
+        """Каталог в YAML (резервная копия глазами)."""
+        from docapp.needs import catalog_yaml
+
+        return catalog_yaml.dump(self._catalog.export_data())
 
     # ── доска и закрытие недель ───────────────────────────────────────
 
