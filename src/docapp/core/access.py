@@ -39,11 +39,12 @@ RECORDS_EDIT = "records.edit"
 #: ролей, поэтому разрешение одно.
 DISTRIBUTION_MANAGE = "distribution.manage"
 
-#: «Компендиум»: чтение статей и ответы консультанта.
+#: «Чат»: чтение статей и ответы консультанта. Выдано заведующему и редактору —
+#: раздел закрыт для остальных до доработки (12.09.2026).
 WIKI_READ = "wiki.read"
-#: «Компендиум»: источники и статьи (заведующий, редактор).
+#: «Чат»: источники и статьи (заведующий, редактор).
 WIKI_CURATE = "wiki.curate"
-#: «Компендиум»: настройки консультанта (только заведующий).
+#: «Чат»: настройки консультанта (только заведующий).
 WIKI_SETTINGS = "wiki.settings"
 
 #: «Потребности»: своя заявка точки пополнения.
@@ -73,7 +74,6 @@ ALLOWED: dict[str, frozenset[str]] = {
         {
             RECORDS_VIEW_OWN,
             RECORDS_EDIT,
-            WIKI_READ,
             DUTY_VIEW_OWN,
             DUTY_EDIT_OWN,
         }
@@ -88,7 +88,6 @@ ALLOWED: dict[str, frozenset[str]] = {
     HEAD_NURSE: frozenset(
         {
             RECORDS_VIEW_OWN,
-            WIKI_READ,
             NEEDS_VIEW_OWN,
             NEEDS_EDIT_OWN,
             NEEDS_MANAGE,
@@ -139,7 +138,10 @@ class MenuItem:
 #: Новый модуль добавляет здесь одну строку (и объявляет разрешения выше).
 MENU: tuple[MenuItem, ...] = (
     MenuItem("/", "Анестезии", "records"),
-    MenuItem("/compendium", "Компендиум", "wiki"),
+    # Раздел «Чат» (модуль `wiki`, адрес `/compendium`): до доработки виден
+    # только заведующему и редактору — у врача и старшей сестры права
+    # `wiki.read` нет вовсе, поэтому и пункта меню у них нет.
+    MenuItem("/compendium", "Чат", "wiki"),
     MenuItem("/needs", "Потребности", "needs"),
     MenuItem("/duty", "Дежурства", "duty"),
     # «Распределение» — раздел заведующего: у него своё разрешение

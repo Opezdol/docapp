@@ -36,24 +36,25 @@ class TestPermissionsTable:
     @pytest.mark.parametrize(
         "role,permission,expected",
         [
-            # врач: свои анестезии, свой отчёт дежурства, компендиум; без потребностей
+            # врач: свои анестезии, свой отчёт дежурства; без потребностей и «Чата»
             (DOCTOR, access.RECORDS_EDIT, True),
-            (DOCTOR, access.WIKI_READ, True),
+            (DOCTOR, access.WIKI_READ, False),
             (DOCTOR, access.DUTY_EDIT_OWN, True),
             (DOCTOR, access.NEEDS_VIEW_OWN, False),
             (DOCTOR, access.DUTY_MANAGE, False),
-            # медсестра: свои анестезии, своя заявка; без компендиума и дежурств
+            # медсестра: свои анестезии, своя заявка; без «Чата» и дежурств
             (NURSE, access.NEEDS_EDIT_OWN, True),
             (NURSE, access.RECORDS_EDIT, False),
             (NURSE, access.WIKI_READ, False),
             (NURSE, access.DUTY_VIEW_OWN, False),
-            # старшая сестра: потребности полностью + компендиум на чтение
+            # старшая сестра: потребности полностью; «Чат» ей закрыт до доработки
             (HEAD_NURSE, access.NEEDS_MANAGE, True),
             (HEAD_NURSE, access.NEEDS_CATALOG, True),
-            (HEAD_NURSE, access.WIKI_READ, True),
+            (HEAD_NURSE, access.WIKI_READ, False),
             (HEAD_NURSE, access.WIKI_CURATE, False),
             (HEAD_NURSE, access.DUTY_MANAGE, False),
-            # заведующий: всё, включая настройки и выгрузку
+            # заведующий: всё, включая «Чат»
+            (HEAD, access.WIKI_READ, True),
             (HEAD, access.WIKI_SETTINGS, True),
             (HEAD, access.DUTY_MANAGE, True),
             (HEAD, access.DISTRIBUTION_MANAGE, True),
@@ -88,16 +89,20 @@ class TestPermissionsTable:
         assert access.has(HEAD, access.DUTY_EDIT_OWN) is False
 
     def test_editor_is_doctor_plus_curator(self):
-        """Редактор получает права врача — за вычетом настроек компендиума."""
+        """Редактор получает права врача и доступ к «Чату» (чтение и курирование)."""
         doctor = access.permissions(DOCTOR)
         editor = access.permissions(EDITOR)
         assert doctor - editor == frozenset()
-        assert editor - doctor == frozenset({access.WIKI_CURATE})
+        assert editor - doctor == frozenset({access.WIKI_READ, access.WIKI_CURATE})
 
-    def test_head_nurse_reads_compendium(self):
-        """Старшей сестре «Компендиум» доступен, медсестре — нет (ADR-11)."""
-        assert access.has(HEAD_NURSE, access.WIKI_READ) is True
-        assert access.has(NURSE, access.WIKI_READ) is False
+    def test_chat_is_only_for_head_and_editor(self):
+        """«Чат» до доработки — только у заведующего и редактора (12.09.2026)."""
+        for role in (DOCTOR, NURSE, HEAD_NURSE):
+            assert access.has(role, access.WIKI_READ) is False, role
+        assert access.has(HEAD, access.WIKI_READ) is True
+        assert access.has(EDITOR, access.WIKI_READ) is True
+        assert access.has(EDITOR, access.WIKI_CURATE) is True
+        assert access.has(HEAD, access.WIKI_SETTINGS) is True
 
 
 class TestMenu:
@@ -114,13 +119,13 @@ class TestMenu:
     @pytest.mark.parametrize(
         "role,expected",
         [
-            # «Распределение» — раздел заведующего (ADR-0024): у остальных ролей
-            # его в меню нет вовсе.
-            (DOCTOR, ["Анестезии", "Компендиум", "Дежурства"]),
+            # «Распределение» — раздел заведующего (ADR-0024); «Чат» до доработки
+            # виден только заведующему и редактору (12.09.2026).
+            (DOCTOR, ["Анестезии", "Дежурства"]),
             (NURSE, ["Анестезии", "Потребности"]),
-            (HEAD_NURSE, ["Анестезии", "Компендиум", "Потребности"]),
-            (HEAD, ["Анестезии", "Компендиум", "Потребности", "Дежурства", "Распределение"]),
-            (EDITOR, ["Анестезии", "Компендиум", "Дежурства"]),
+            (HEAD_NURSE, ["Анестезии", "Потребности"]),
+            (HEAD, ["Анестезии", "Чат", "Потребности", "Дежурства", "Распределение"]),
+            (EDITOR, ["Анестезии", "Чат", "Дежурства"]),
         ],
     )
     def test_menu_for_role(self, role, expected):

@@ -1,4 +1,4 @@
-"""Настройки модуля «Компендиум»: env WIKI_SOURCES_DIR.
+"""Настройки модуля «Чат»: env WIKI_SOURCES_DIR.
 
 Путь к БД сюда не входит: база одна на всё приложение (ADR-0016), её передаёт
 AppContext. Здесь остаётся папка PDF-источников — по ADR-0020 источники хранятся
@@ -19,7 +19,7 @@ DEFAULT_SOURCES_DIR = DATA_DIR / "wiki" / "sources"
 
 @dataclass(frozen=True)
 class WikiConfig:
-    """Конфигурация «Компендиума»: папка PDF-источников."""
+    """Конфигурация «Чата»: папка PDF-источников."""
 
     sources_dir: Path
 

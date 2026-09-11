@@ -79,7 +79,7 @@ def client(tmp_path, monkeypatch):
     catalog = tmp_path / "catalog.yaml"
     catalog.write_text(CATALOG_YAML, encoding="utf-8")
     monkeypatch.setenv("NEEDS_CATALOG", str(catalog))
-    # «Компендиум» — тоже во временный каталог, чтобы не трогать data/wiki
+    # «Чат» — тоже во временный каталог, чтобы не трогать data/wiki
     db_path = tmp_path / "web.db"
     _seed(db_path)
     app = create_app(db_path=db_path, secret="test-secret")

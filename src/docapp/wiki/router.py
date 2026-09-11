@@ -1,4 +1,4 @@
-"""Маршруты модуля `wiki` («Компендиум»): страница, JSON/SSE-API, источники, статьи.
+"""Маршруты модуля `wiki` («Чат»): страница, JSON/SSE-API, источники, статьи.
 
 Маршруты под префиксом /compendium. Авторизация — core.access (`current_user`,
 `require`, `ensure`): модуль не импортирует docapp.web.app, кругового импорта нет.
@@ -23,7 +23,7 @@ from docapp.wiki.container import WikiContainer
 from docapp.wiki.markdown import render_html
 from docapp.wiki.service import WikiForbidden, WikiService
 
-#: Шаблоны «Компендиума» поверх общих (base.html).
+#: Шаблоны «Чата» поверх общих (base.html).
 TEMPLATES = web.templates(Path(__file__).parent / "templates")
 
 router = APIRouter(prefix="/compendium")
@@ -32,12 +32,12 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 МБ
 
 
 def _container(request: Request) -> WikiContainer:
-    """Контейнер модуля «Компендиум» из состояния приложения."""
+    """Контейнер модуля «Чат» из состояния приложения."""
     return container_of(request, "wiki", WikiContainer)
 
 
 def _service(request: Request) -> WikiService:
-    """Сервис «Компендиума» из контейнера модуля."""
+    """Сервис «Чата» из контейнера модуля."""
     return _container(request).service
 
 
@@ -47,7 +47,7 @@ def _api_user(request: Request):
 
 
 def _require_not_nurse(user) -> None:
-    """«Компендиум» доступен всем, кроме медсестёр (ADR-10, ADR-11)."""
+    """«Чат» доступен всем, кроме медсестёр (ADR-10, ADR-11)."""
     access.ensure(user, access.WIKI_READ, message="Медсёстрам доступ закрыт")
 
 

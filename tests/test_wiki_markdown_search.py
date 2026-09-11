@@ -1,4 +1,4 @@
-"""Тесты разбора Markdown и поиска по секциям «Компендиума»."""
+"""Тесты разбора Markdown и поиска по секциям «Чата»."""
 
 from docapp.wiki.markdown import render_html, render_plain, split_sections, title_of
 from docapp.wiki.search import WikiSearch

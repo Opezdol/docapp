@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Источник — Компендиум — docapp{% endblock %}
+{% block title %}Источник — Чат — docapp{% endblock %}
 {% block content %}
 <div class="card">
   <h1>{{ src.title or src.filename }}</h1>
@@ -7,6 +7,6 @@
   <p class="hint">Статус распознавания: {{ src.ocr_status }} · страниц: {{ src.page_count }}</p>
   {% if src.ocr_error %}<p class="flash">{{ src.ocr_error }}</p>{% endif %}
   <pre class="source-text">{{ src.text }}</pre>
-  <p><a href="/compendium">← Компендиум</a></p>
+  <p><a href="/compendium">← Чат</a></p>
 </div>
 {% endblock %}

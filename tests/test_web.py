@@ -325,10 +325,10 @@ class TestAppMenu:
     """Меню разделов и заглушки (ADR-9)."""
 
     def test_menu_on_main_page(self, client):
-        _login(client)
+        _login(client)      # врач: «Чата» в меню нет — раздел закрыт до доработки
         r = client.get("/")
         assert "Анестезии" in r.text
-        assert "Компендиум" in r.text
+        assert "Чат" not in r.text
         assert 'href="/me"' in r.text  # кликабельное имя
 
     def test_active_item_on_main(self, client):
@@ -338,26 +338,27 @@ class TestAppMenu:
         assert 'class="app-link active"' in r.text
 
     def test_nurse_menu_hides_compendium_shows_needs(self, client):
-        # ADR-11: медсёстрам «Компендиум» закрыт, «Потребности» — открыты.
+        # ADR-11: медсёстрам «Чат» закрыт, «Потребности» — открыты.
         _login(client, login="anna", password="anna_pass")
         r = client.get("/")
-        assert "Компендиум" not in r.text
+        assert "Чат" not in r.text
         assert "Потребности" in r.text
         assert 'href="/needs"' in r.text
 
-    def test_doctor_menu_shows_compendium_hides_needs(self, client):
-        # ADR-11: врачам «Потребности» закрыты, «Компендиум» — открыт.
+    def test_doctor_menu_hides_chat_and_needs(self, client):
+        # «Чат» закрыт до доработки (12.09.2026), «Потребности» врачу недоступны.
         _login(client)  # врач ivanov
         r = client.get("/")
-        assert "Компендиум" in r.text
+        assert "Чат" not in r.text
         assert "Потребности" not in r.text
+        assert "Дежурства" in r.text
 
     def test_head_nurse_menu(self, client):
-        # ADR-11 + ADR-0023: старшая сестра читает «Компендиум» и ведёт «Потребности»,
-        # но «Дежурства» ей недоступны (она не врач).
+        # ADR-0023: старшая сестра ведёт «Потребности», «Дежурства» ей недоступны,
+        # а «Чат» закрыт до доработки раздела (12.09.2026).
         _login(client, login="vera", password="vera_pass")
         r = client.get("/")
-        assert "Компендиум" in r.text
+        assert "Чат" not in r.text
         assert "Потребности" in r.text
         assert "Дежурства" not in r.text
 
@@ -365,7 +366,7 @@ class TestAppMenu:
         # заведующий видит все разделы, включая «Дежурства»
         _login(client, login="zav", password="zav_pass")
         r = client.get("/")
-        for label in ("Анестезии", "Компендиум", "Потребности", "Дежурства"):
+        for label in ("Анестезии", "Чат", "Потребности", "Дежурства"):
             assert label in r.text
 
     def test_menu_is_rendered_from_permissions(self, client):
@@ -379,10 +380,16 @@ class TestAppMenu:
         assert "user.role" not in text
 
     def test_compendium_page(self, client):
-        _login(client)
+        """Раздел открывается заведующему; видимое имя — «Чат» (12.09.2026)."""
+        _login(client, login="zav", password="zav_pass")
         r = client.get("/compendium")
         assert r.status_code == 200
-        assert "Компендиум" in r.text
+        assert "Чат" in r.text
+
+    def test_compendium_page_closed_for_doctor(self, client):
+        """Врачу раздел закрыт до доработки: 403, а не редирект на вход."""
+        _login(client)
+        assert client.get("/compendium").status_code == 403
 
     def test_compendium_requires_login(self, client):
         r = client.get("/compendium", follow_redirects=False)
@@ -391,7 +398,7 @@ class TestAppMenu:
 
     def test_no_menu_on_login_page(self, client):
         r = client.get("/login")
-        assert "Компендиум" not in r.text
+        assert "Чат" not in r.text
         assert "Анестезии" not in r.text
 
 
@@ -419,7 +426,7 @@ class TestSessionConfig:
     """Конфигурация сессий: https_only управляется DOCAPP_HTTPS_ONLY (ADR-7)."""
 
     def _make_app(self, tmp_path, monkeypatch):
-        # «Компендиум» в tmp, чтобы не трогать реальные data/wiki
+        # «Чат» в tmp, чтобы не трогать реальные data/wiki
         return create_app(tmp_path / "w.db", "s")
 
     def _session_middleware(self, app):

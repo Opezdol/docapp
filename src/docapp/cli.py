@@ -287,7 +287,7 @@ def main() -> int:
     )
     p_import.add_argument("--core", help="прежняя основная БД (data/docapp.db)")
     p_import.add_argument("--needs", help="прежняя БД «Потребностей» (data/needs/needs.db)")
-    p_import.add_argument("--wiki", help="прежняя БД «Компендиума» (data/wiki/wiki.db)")
+    p_import.add_argument("--wiki", help="прежняя БД «Чата» (data/wiki/wiki.db)")
     p_import.add_argument("--duty", help="прежняя БД «Дежурств» (data/duty/duty.db)")
     p_import.add_argument(
         "--catalog",
@@ -296,7 +296,7 @@ def main() -> int:
     p_import.add_argument("--target", help="целевая единая БД (по умолчанию DOCAPP_DB)")
     p_import.add_argument(
         "--sources-dir",
-        help="папка PDF-источников «Компендиума» (по умолчанию WIKI_SOURCES_DIR)",
+        help="папка PDF-источников «Чата» (по умолчанию WIKI_SOURCES_DIR)",
     )
     p_import.add_argument(
         "--skip-orphans",

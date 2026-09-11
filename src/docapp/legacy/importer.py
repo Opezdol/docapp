@@ -274,7 +274,7 @@ def import_legacy(
     `catalog_path` — файл каталога расходки: из него наполняются таблицы
     `needs_catalog_*` (ADR-0019), первой записью журнала становится `import`.
 
-    `sources_dir` — папка, куда переезжают PDF-источники «Компендиума» (ADR-0020);
+    `sources_dir` — папка, куда переезжают PDF-источники «Чата» (ADR-0020);
     без неё берётся папка из настроек модуля.
     """
     from docapp.wiki.config import load_wiki_config
@@ -524,7 +524,7 @@ def _import_wiki(
         return
     src = _open_source(source)
     try:
-        # Ссылки на сотрудников проверяются до записи: перенос «Компендиума» —
+        # Ссылки на сотрудников проверяются до записи: перенос «Чата» —
         # всё или ничего (пропустить статью значит потерять её молча).
         for table, column in (
             ("sources", "uploaded_by"),
@@ -537,7 +537,7 @@ def _import_wiki(
                     row[0]
                     for row in src.execute(f"SELECT DISTINCT {column} FROM {table}")
                 ]
-                _guard_employees(dst, ids, f"«Компендиум»: {table}.{column}")
+                _guard_employees(dst, ids, f"«Чат»: {table}.{column}")
 
         _import_wiki_sources(src, dst, report, sources_dir=sources_dir)
         _copy_simple(src, dst, "articles", "wiki_articles", report, key=("id",))

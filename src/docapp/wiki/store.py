@@ -1,4 +1,4 @@
-"""Хранилище модуля `wiki` («Компендиум») на SQLite.
+"""Хранилище модуля `wiki` («Чат») на SQLite.
 
 Собственная база (data/wiki/wiki.db), основную docapp.db не трогаем.
 Стиль — как в остальных хранилищах (docapp/needs/store.py, docapp/records/store.py):
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS wiki_settings (
 );
 """
 
-# Версия схемы БД «Компендиума».
+# Версия схемы БД «Чата».
 SCHEMA_VERSION = 2
 
 _MIGRATIONS: list[tuple[int, str, list[str]]] = [
@@ -140,11 +140,11 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
 
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
-    """Открыть БД «Компендиума»: подключение, PRAGMA, схема, миграции — в core.db."""
+    """Открыть БД «Чата»: подключение, PRAGMA, схема, миграции — в core.db."""
     return open_db(db_path, SCHEMA)
 
 
-#: Схема модуля «Компендиум» для общего механизма БД (core.db).
+#: Схема модуля «Чат» для общего механизма БД (core.db).
 SCHEMA = Schema(
     module="wiki",
     sql=_SCHEMA,

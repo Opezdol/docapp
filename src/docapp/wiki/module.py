@@ -1,4 +1,4 @@
-"""Модуль «Компендиум» для реестра приложения (ADR-0017).
+"""Модуль «Чат» для реестра приложения (ADR-0017).
 
 Собирает контейнер (см. `container.py`) один раз при старте; роутер берёт его
 через `registry.container_of(request, "wiki", WikiContainer)`.
@@ -31,7 +31,7 @@ def build(context: AppContext) -> WikiContainer:
     ai_config = load_ai_config()
     if not ai_config.api_key:
         logger.warning(
-            "AI_API_KEY не задан: «Компендиум» будет возвращать ошибки "
+            "AI_API_KEY не задан: «Чат» будет возвращать ошибки "
             "до его настройки в .env"
         )
     config = load_wiki_config()

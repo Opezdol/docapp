@@ -22,9 +22,9 @@ create_app(db_path, secret). Никаких внешних вызовов: вс�
   c) закрытый раздел: правки и отправка — 409;
   d) переоткрытие раздела: правка снова возможна, повторное закрытие;
   e) врач: 403 на страницу, заявки и отчёт;
-  f) «Компендиум»: медсестре — 403, старшей сестре — 200;
+  f) «Чат»: медсестре — 403, старшей сестре — 200;
   g) аналитика: solutions (растворы поточково) и groups за период;
-  h) меню по ролям: «Потребности»/«Компендиум» в зависимости от роли;
+  h) меню по ролям: «Потребности»/«Чат» в зависимости от роли;
   i) разделы независимы: отправка/закрытие/отчёт одного раздела не трогает
      другой.
 """
@@ -111,7 +111,7 @@ def client(tmp_path, monkeypatch):
     catalog = tmp_path / "catalog.yaml"
     catalog.write_text(CATALOG_YAML, encoding="utf-8")
     monkeypatch.setenv("NEEDS_CATALOG", str(catalog))
-    # «Компендиум» — тоже во временный каталог, чтобы не трогать data/wiki
+    # «Чат» — тоже во временный каталог, чтобы не трогать data/wiki
     db_path = tmp_path / "web.db"
     _seed(db_path)
     app = create_app(db_path=db_path, secret="test-secret")
@@ -378,18 +378,21 @@ class TestDoctorForbidden:
 
 
 class TestCompendiumAccess:
-    """(f) «Компендиум»: медсестре закрыт (403), старшей сестре — доступен (200)."""
+    """(f) «Чат» до доработки закрыт всем, кроме заведующего и редактора."""
 
     def test_nurse_forbidden_compendium(self, client):
         _login(client, "anna", "anna_pass")
         assert client.get("/compendium").status_code == 403
 
-    def test_head_nurse_can_open_compendium(self, client):
+    def test_head_nurse_forbidden_compendium(self, client):
+        """Старшая сестра тоже закрыта: право `wiki.read` снято 12.09.2026."""
         _login(client, "elena", "elena_pass")
-        r = client.get("/compendium")
-        # Старшая сестра проходит; страница может быть с пустой базой —
-        # проверяем только статус: не 403 (роль допущена) и не 303 (нет редиректа).
-        assert r.status_code not in (403, 303)
+        assert client.get("/compendium").status_code == 403
+
+    def test_doctor_forbidden_compendium(self, client):
+        """И врач: раздел вернётся ему после доработки."""
+        _login(client, "ivanov", "secret")
+        assert client.get("/compendium").status_code == 403
 
 
 class TestAnalytics:
@@ -479,20 +482,20 @@ class TestSectionsIndependent:
 
 
 class TestMenu:
-    """(h) Меню по ролям: «Потребности»/«Компендиум» в зависимости от роли."""
+    """(h) Меню по ролям: «Потребности»/«Чат» в зависимости от роли."""
 
     def test_menu_for_nurse(self, client):
         _login(client, "anna", "anna_pass")
         r = client.get("/")
         assert r.status_code == 200
         assert "Потребности" in r.text
-        assert "Компендиум" not in r.text
+        assert "Чат" not in r.text
 
     def test_menu_for_doctor(self, client):
         _login(client, "ivanov", "secret")
         r = client.get("/")
         assert r.status_code == 200
-        assert "Компендиум" in r.text
+        assert "Чат" not in r.text          # раздел закрыт до доработки (12.09.2026)
         assert "Потребности" not in r.text
 
     def test_menu_for_head_nurse(self, client):
@@ -500,4 +503,4 @@ class TestMenu:
         r = client.get("/")
         assert r.status_code == 200
         assert "Потребности" in r.text
-        assert "Компендиум" in r.text
+        assert "Чат" not in r.text          # старшая сестра тоже закрыта

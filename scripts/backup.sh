@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Бэкап БД docapp: основная + «Компендиум» + потребности. Запуск: ./scripts/backup.sh
+# Бэкап БД docapp: основная + «Чат» + потребности. Запуск: ./scripts/backup.sh
 # (cron: 0 3 * * * cd /путь/к/docapp && ./scripts/backup.sh >> logs/backup.log 2>&1)
 set -euo pipefail
 cd "$(dirname "$0")/.."

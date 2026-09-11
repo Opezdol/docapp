@@ -1,4 +1,4 @@
-/* Компендиум (compendium.html): чат со стримингом SSE, статьи, источники,
+/* Чат (compendium.html): чат со стримингом SSE, статьи, источники,
    аналитика (head), настройки (head). Vanilla JS, без CDN. */
 (function () {
   'use strict';
