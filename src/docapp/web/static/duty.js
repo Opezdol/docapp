@@ -1,83 +1,14 @@
 /* Дежурства (duty.html): форма врача (операции за смену) и доска заведующего
-   (выгрузка разлиновки). Vanilla JS, без библиотек и CDN — как needs.js. */
+   (выгрузка разлиновки). Vanilla JS, без библиотек и CDN — как needs.js.
+
+   Общее (экранирование, запрос к API, баннер, поле времени) — из
+   /static/lib/core.js: объект dc. Здесь остаётся только своё:
+   сетка смены, расчёт окна и выгрузка. */
 (function () {
   'use strict';
 
-  /* ── утилиты ────────────────────────────────────────────────────── */
-
-  function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  // JSON-запрос с единой обработкой ошибок: 401 → на логин,
-  // остальные → Error с текстом из тела (поле error) и кодом статуса.
-  function apiFetch(url, opts) {
-    return fetch(url, opts).then(function (r) {
-      if (r.status === 401) { location.href = '/login'; return null; }
-      if (!r.ok) {
-        return r.json().catch(function () { return {}; }).then(function (body) {
-          var err = new Error(body.error || ('HTTP ' + r.status));
-          err.status = r.status;
-          throw err;
-        });
-      }
-      return r.json();
-    });
-  }
-
-  function fmtDate(iso) {
-    if (!iso) return '';
-    var p = iso.split('-');
-    return p[2] + '.' + p[1] + '.' + p[0];
-  }
-
-  /* ── время ЧЧ:ММ с шагом 15 минут ──────────────────────────────── */
-
-  // Разобрать ввод в минуты от полуночи; неверный формат → null.
-  // Принимает «16:30», «16.30», «16 30», «1630», «830», «16», «8».
-  function parseTimeMin(s) {
-    var t = String(s == null ? '' : s).trim();
-    if (!t) return null;
-    var m = t.match(/^(\d{1,2})[:.\s](\d{1,2})$/);
-    var h, mm;
-    if (m) {
-      h = parseInt(m[1], 10); mm = parseInt(m[2], 10);
-    } else if (/^\d{1,4}$/.test(t)) {
-      if (t.length <= 2) { h = parseInt(t, 10); mm = 0; }
-      else { var n = parseInt(t, 10); h = Math.floor(n / 100); mm = n % 100; }
-    } else {
-      return null;
-    }
-    if (h > 23 || mm > 59) return null;
-    return h * 60 + mm;
-  }
-
-  // Минуты от полуночи → 'ЧЧ:ММ'.
-  function fmtTimeMin(total) {
-    var h = Math.floor(total / 60) % 24;
-    var mm = total % 60;
-    var p = function (n) { return (n < 10 ? '0' : '') + n; };
-    return p(h) + ':' + p(mm);
-  }
-
-  // Нормализовать поле времени: разобрать, округлить до 15 минут, записать ЧЧ:ММ.
-  function snapTimeInput(input) {
-    var parsed = parseTimeMin(input.value);
-    input.value = parsed == null ? '' : fmtTimeMin(Math.round(parsed / 15) * 15);
-  }
-
-  // Сдвинуть время на deltaMin (скролл), оборачивая через полночь.
-  function adjustTimeInput(input, deltaMin) {
-    var parsed = parseTimeMin(input.value);
-    var total = (parsed == null ? 0 : Math.round(parsed / 15) * 15) + deltaMin;
-    total = ((total % 1440) + 1440) % 1440;
-    input.value = fmtTimeMin(total);
-  }
+  var esc = dc.esc;
+  var apiFetch = dc.apiFetch;
 
   var app = document.getElementById('duty-app');
   if (!app) return;
@@ -85,15 +16,7 @@
   var BASES = JSON.parse(app.getAttribute('data-bases') || '[]');
 
   var bannerEl = document.getElementById('duty-banner');
-  var bannerTimer = null;
-  function showBanner(msg, kind) {
-    if (!bannerEl) return;
-    bannerEl.textContent = msg;
-    bannerEl.className = 'duty-banner ' + (kind || 'ok');
-    bannerEl.hidden = false;
-    if (bannerTimer) clearTimeout(bannerTimer);
-    bannerTimer = setTimeout(function () { bannerEl.hidden = true; }, 6000);
-  }
+  function showBanner(msg, kind) { dc.banner(bannerEl, msg, kind); }
 
   if (ROLE === 'doctor') initDoctor();
   else if (ROLE === 'head') initHead();
@@ -150,8 +73,8 @@
     }
 
     function collectOps() {
-      // нормализовать все поля времени перед чтением (снэп к 15 минутам)
-      opsTbody.querySelectorAll('.duty-time').forEach(function (inp) { snapTimeInput(inp); });
+      // нормализовать все поля времени перед чтением (снэп к шагу поля)
+      dc.snapTimeFields(opsTbody, '.duty-time');
       var ops = [];
       opsTbody.querySelectorAll('tr').forEach(function (tr) {
         var name = tr.querySelector('.duty-op-name');
@@ -259,22 +182,9 @@
       renderOps();
     });
 
-    // Ввод времени: нормализация по уходу фокуса и по Enter,
-    // шаг 15 минут скроллом колеса (десктоп).
-    opsTbody.addEventListener('focusout', function (e) {
-      if (!e.target.classList || !e.target.classList.contains('duty-time')) return;
-      snapTimeInput(e.target);
-    });
-    opsTbody.addEventListener('wheel', function (e) {
-      if (!e.target.classList || !e.target.classList.contains('duty-time')) return;
-      e.preventDefault();
-      adjustTimeInput(e.target, e.deltaY < 0 ? 15 : -15);
-    }, { passive: false });
-    opsTbody.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter' || !e.target.classList || !e.target.classList.contains('duty-time')) return;
-      e.preventDefault();
-      snapTimeInput(e.target);
-    });
+    // Поля времени: округление по уходу фокуса и по Enter, шаг 10 минут
+    // скроллом колеса (десктоп) — общее поведение из dc.timeFields.
+    dc.timeFields(opsTbody, { selector: '.duty-time' });
 
     loadReport();
   }

@@ -14,14 +14,7 @@
   var busy = false;
   var conversationId = localStorage.getItem(CONV_KEY) || '';
 
-  function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
+  var esc = dc.esc;
 
   function renderText(s) {
     return esc(s)

@@ -15,16 +15,12 @@
 }
 
 /* Баннер сообщений: успех / предупреждение / ошибка */
-.needs-banner {
   border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 14px;
   font-size: 0.95rem;
   line-height: 1.45;
 }
-.needs-banner.ok { background: #e8f5e9; border: 1px solid #a5d6a7; color: #1b5e20; }
-.needs-banner.warn { background: #fff3cd; border: 1px solid #ffe082; color: #6d4c00; }
-.needs-banner.error { background: #fdecea; border: 1px solid #f5c6cb; color: #8b0000; }
 
 /* Таблица выбранных позиций и отчётов: компактная, с границами-линиями */
 .table-wrap { overflow-x: auto; }

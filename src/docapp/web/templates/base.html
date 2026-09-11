@@ -8,6 +8,10 @@
   <link rel="apple-touch-icon" href="/static/icon-192.png">
   <link rel="icon" href="/static/icon-192.png" type="image/png">
   <link rel="stylesheet" href="/static/style.css?v={{ git_revision }}">
+  <!-- Общая библиотека фронтенда (dc): esc, apiFetch, баннер, поле времени.
+       В <head> без defer: модульные скрипты идут в конце страницы и берут dc
+       сразу при запуске. -->
+  <script src="/static/lib/core.js?v={{ git_revision }}"></script>
   <title>{% block title %}docapp{% endblock %}</title>
 </head>
 <body>

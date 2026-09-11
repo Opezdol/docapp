@@ -12,44 +12,11 @@
   /* ── утилиты ────────────────────────────────────────────────────── */
 
   // Экранирование текста для вставки в HTML.
-  function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
+  var esc = dc.esc;
+  var apiFetch = dc.apiFetch;
+  var iso = dc.iso;
+  var mondayOfWeek = dc.mondayOf;
 
-  // 'YYYY-MM-DD' для даты d.
-  function iso(d) {
-    var p = function (n) { return (n < 10 ? '0' : '') + n; };
-    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
-  }
-
-  // Понедельник недели даты d (недели пн–вс, как в service.monday_of_week).
-  function mondayOfWeek(d) {
-    var shift = (d.getDay() + 6) % 7; // вс=6 → отступить 6, пн=0 → 0
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate() - shift);
-  }
-
-  // JSON-запрос с единой обработкой ошибок: 401 → на логин,
-  // остальные → Error с текстом из тела (поле error) и кодом статуса.
-  function apiFetch(url, opts) {
-    return fetch(url, opts).then(function (r) {
-      if (r.status === 401) { location.href = '/login'; return null; }
-      if (!r.ok) {
-        return r.json().catch(function () { return {}; }).then(function (body) {
-          var err = new Error(body.error || ('HTTP ' + r.status));
-          err.status = r.status;
-          throw err;
-        });
-      }
-      return r.json();
-    });
-  }
-
-  // Разбор числового количества из строки: пусто/мусор → 0, минус → 0.
   function parseQty(s) {
     var n = parseInt(s, 10);
     return isNaN(n) || n < 0 ? 0 : n;
@@ -135,15 +102,7 @@
   updateFormCardState(); // исходно точка не выбрана — форма приглушена
 
   // Баннер: сообщение + вид (ok/warn/error); прячем по таймеру.
-  var bannerTimer = null;
-  function showBanner(msg, kind) {
-    if (!bannerEl) return;
-    bannerEl.textContent = msg;
-    bannerEl.className = 'needs-banner ' + (kind || 'ok');
-    bannerEl.hidden = false;
-    if (bannerTimer) clearTimeout(bannerTimer);
-    bannerTimer = setTimeout(function () { bannerEl.hidden = true; }, 6000);
-  }
+  function showBanner(msg, kind) { dc.banner(bannerEl, msg, kind); }
 
   /* ── каталог и выбор точки ───────────────────────────────────────── */
 
@@ -842,12 +801,7 @@
     var resultEl = document.getElementById('analytics-result');
     var bannerElA = document.getElementById('analytics-banner');
 
-    function showBannerA(msg, kind) {
-      if (!bannerElA) return;
-      bannerElA.textContent = msg;
-      bannerElA.className = 'needs-banner ' + (kind || 'ok');
-      bannerElA.hidden = false;
-    }
+    function showBannerA(msg, kind) { dc.banner(bannerElA, msg, kind); }
 
     // Недели по умолчанию — текущая (понедельник).
     var today = new Date();

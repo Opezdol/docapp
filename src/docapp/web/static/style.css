@@ -178,3 +178,10 @@ button.linklike {
 .btn.danger { color: #b71c1c; border-color: #ef9a9a; }
 
 .empty { color: #888; font-size: 0.95rem; }
+
+/* Сообщение об ошибке или успехе — общее для всех разделов (lib/core.js).
+   Модульное правило было скопировано в двух стилях с разными префиксами. */
+.dc-banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 0.9rem; }
+.dc-banner.ok { background: #e8f5e9; border: 1px solid #a5d6a7; color: #1b5e20; }
+.dc-banner.warn { background: #fff3cd; border: 1px solid #ffe082; color: #6d4c00; }
+.dc-banner.error { background: #fdecea; border: 1px solid #f5c6cb; color: #8b0000; }

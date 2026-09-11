@@ -2,10 +2,6 @@
    Дополняет общие стили style.css (card, .btn, .primary, input/select,
    .empty) классовыми для этого подприложения. */
 
-.duty-banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 0.9rem; }
-.duty-banner.ok { background: #e8f5e9; color: #1b5e20; border: 1px solid #c8e6c9; }
-.duty-banner.warn { background: #fff8e1; color: #6d4c00; border: 1px solid #ffe082; }
-.duty-banner.error { background: #fdecea; color: #8b0000; border: 1px solid #f5c6cb; }
 
 .hint { color: #666; font-size: 0.9rem; }
 
