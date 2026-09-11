@@ -65,6 +65,20 @@ def label(week_start_: str) -> str:
     return f"{start.strftime(_DATE_FORMAT)} – {end.strftime(_DATE_FORMAT)}"
 
 
+def month_bounds(month: str) -> tuple[date, date]:
+    """Границы месяца «ГГГГ-ММ»: (первое число, последнее число).
+
+    Месяц «Распределения»: заведующий выбирает его вручную, и поиск поданных
+    анестезий идёт строго внутри этих границ (ADR-0024).
+    """
+    try:
+        first = date.fromisoformat(f"{str(month).strip()}-01")
+    except ValueError:
+        raise ValueError(f"Неверный месяц {month!r}: нужно ГГГГ-ММ") from None
+    next_month = (first + timedelta(days=31)).replace(day=1)
+    return first, next_month - timedelta(days=1)
+
+
 def range_label(first_week: str, last_week: str) -> str:
     """Подпись периода по неделям: «10.08.2026 – 24.08.2026» (их понедельники).
 

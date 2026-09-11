@@ -14,6 +14,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from docapp.core import period
+from docapp.distribution.spread import Spread
+from docapp.distribution.spread import spread as spread_vedomost
+from docapp.distribution.vedomost import parse
 from docapp.people.store import SqliteEmployeeStore
 
 #: Разрезы счёта. Модуль тут не при чём: это группировка одного набора данных.
@@ -38,8 +42,9 @@ class RecordsInterface(Protocol):
     """То, что «Распределению» нужно от модуля `records` (ADR-0017).
 
     Именно интерфейс, а не класс: распределению важно, что записи можно посчитать
-    за период, а как это устроено внутри — дело владельца данных. По той же
-    причине модуль проверяется подстановкой чужого объекта с методом `aggregate`.
+    за период и что у каждой есть имя пациента и пара «врач + сестра», а как это
+    устроено внутри — дело владельца данных. По той же причине модуль проверяется
+    подстановкой чужого объекта с нужными методами.
     """
 
     def aggregate(
@@ -49,6 +54,11 @@ class RecordsInterface(Protocol):
         by: str = BY_DOCTOR,
     ) -> dict:
         """Считать записи за период в выбранном разрезе."""
+        ...
+
+    def list_range(self, from_date: str, to_date: str) -> list:
+        """Все записи за период: имя пациента, врач, сестра."""
+        ...
 
 
 class DistributionService:
@@ -78,6 +88,18 @@ class DistributionService:
             return row
         employee = self._employees.get_by_id(int(row["key"]))
         return {**row, "name": employee.full_name if employee else f"#{row['key']}"}
+
+    # ── разноска ведомости (ADR-0024) ─────────────────────────────────
+
+    def spread(self, month: str, source: bytes) -> Spread:
+        """Разнести ведомость за месяц по поданным анестезиям.
+
+        Ничего не сохраняет: ведомость не хранится, файл пришёл — файл и ушёл
+        (ADR-0024). Поиск идёт строго внутри месяца по дате подачи записи.
+        """
+        first, last = period.month_bounds(month)
+        records = self._records.list_range(first.isoformat(), last.isoformat())
+        return spread_vedomost(month, parse(source), records, self._employees)
 
     def sources(self) -> dict:
         """Чем живёт модуль: для страницы и для проверки, что своих таблиц нет."""

@@ -10,14 +10,22 @@
 
 from __future__ import annotations
 
+from datetime import date
+from io import BytesIO
+from urllib.parse import unquote
+
 import pytest
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 
 from docapp.auth.passwords import hash_password
 from docapp.domain.employee import DOCTOR, HEAD, HEAD_NURSE, NURSE, Employee
 from docapp.people.store import SqliteEmployeeStore
 from docapp.web.app import create_app
-from factories import make_db
+from factories import make_db, vedomost_xlsx
+
+#: Тип файла .xlsx — как его присылает браузер.
+XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 PASSWORDS = {
     "head": "headpass",
@@ -70,11 +78,19 @@ class TestPage:
         assert client.get("/distribution").status_code == 303
         assert client.get("/distribution").headers["location"] == "/login"
 
-    def test_renders_for_head(self, client):
+    def test_vedomost_page_for_head(self, client):
+        """Главная страница раздела — загрузка ведомости."""
         login(client, "head")
         response = client.get("/distribution")
         assert response.status_code == 200
         assert "Распределение" in response.text
+        assert 'enctype="multipart/form-data"' in response.text
+        assert 'action="/distribution/spread"' in response.text
+
+    def test_counts_page_for_head(self, client):
+        login(client, "head")
+        response = client.get("/distribution/counts")
+        assert response.status_code == 200
         assert "Всего записей" in response.text
 
     def test_menu_has_distribution(self, client):
@@ -84,7 +100,7 @@ class TestPage:
     def test_bad_split_is_a_message_not_a_crash(self, client):
         """Неизвестный разрез — страница с ошибкой 400, а не 500."""
         login(client, "head")
-        response = client.get("/distribution?by=base")
+        response = client.get("/distribution/counts?by=base")
         assert response.status_code == 400
         assert "разрез" in response.text
 
@@ -96,11 +112,22 @@ class TestAccess:
     def test_page_is_forbidden(self, client, who):
         login(client, who)
         assert client.get("/distribution").status_code == 403
+        assert client.get("/distribution/counts").status_code == 403
 
     @pytest.mark.parametrize("who", ["doc", "nurse", "headnurse"])
     def test_api_is_forbidden(self, client, who):
         login(client, who)
         assert client.get("/distribution/api/aggregate").status_code == 403
+
+    @pytest.mark.parametrize("who", ["doc", "nurse", "headnurse"])
+    def test_upload_is_forbidden(self, client, who):
+        login(client, who)
+        response = client.post(
+            "/distribution/spread",
+            data={"month": "2026-06"},
+            files={"file": ("ведомость.xlsx", "не файл".encode("utf-8"), "application/octet-stream")},
+        )
+        assert response.status_code == 403
 
     @pytest.mark.parametrize("who", ["doc", "nurse", "headnurse"])
     def test_menu_item_is_hidden(self, client, who):
@@ -148,3 +175,59 @@ class TestSeesRecordsFromNeighbourModule:
         assert payload["rows"] == [
             {"key": str(client.ids["doctor"].id), "count": 1, "name": "Петров Пётр"}
         ]
+
+
+class TestVedomostUpload:
+    """Загрузка ведомости: разнести и получить тот же файл с двумя листами."""
+
+    def _post(self, client, month: str, payload: bytes):
+        return client.post(
+            "/distribution/spread",
+            data={"month": month},
+            files={"file": ("ведомость.xlsx", payload, XLSX_TYPE)},
+        )
+
+    def test_anonymous_is_401(self, client):
+        assert self._post(client, "2026-06", b"x").status_code == 401
+
+    def test_head_gets_the_file_with_pairs(self, client):
+        """Врач подал анестезию — она находится в ведомости и подписывается парой."""
+        login(client, "doc")
+        client.post(
+            "/anesthesia",
+            data={"patient_name": "Петров Пётр Сергеевич",
+                  "nurse_id": str(client.ids["nurse"].id)},
+        )
+        client.post("/logout")
+
+        month = date.today().strftime("%Y-%m")
+        source = vedomost_xlsx([
+            {"date": date.today(), "patient": "ПЕТРОВ П.С.",
+             "doctor": 1206.8, "smp": 431, "mmp": 86.2},
+        ])
+        login(client, "head")
+        response = self._post(client, month, source)
+
+        assert response.status_code == 200
+        assert "spreadsheet" in response.headers["content-type"]
+        disposition = unquote(response.headers["content-disposition"])
+        assert "распределение" in disposition
+        workbook = load_workbook(BytesIO(response.content))
+        assert workbook.sheetnames == ["Sheet Name Here", "Распределение", "Суммы по лицам"]
+        row = workbook["Распределение"][2]
+        assert row[4].value == "Петров Пётр"           # врач из поданной записи
+        assert row[5].value == "Сидорова Анна"         # сестра из неё же
+        assert float(row[7].value) == pytest.approx(517.2)
+
+    def test_foreign_file_is_a_message_not_a_crash(self, client):
+        login(client, "head")
+        response = self._post(client, "2026-06", "не таблица".encode("utf-8"))
+        assert response.status_code == 400
+        assert "прочитать" in response.text
+
+    def test_bad_month_is_a_message(self, client):
+        login(client, "head")
+        source = vedomost_xlsx([{"date": date(2026, 6, 2), "patient": "ПЕТРОВ П.С."}])
+        response = self._post(client, "июнь", source)
+        assert response.status_code == 400
+        assert "месяц" in response.text.lower()

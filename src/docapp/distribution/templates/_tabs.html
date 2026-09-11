@@ -1,0 +1,7 @@
+{# Вкладки раздела «Распределение»: ведомость и количество.
+   Вкладки — ссылки, а не JS: страницы разные, запоминать состояние нечего.
+   Активная — по переменной tab. #}
+<nav class="distribution-tabs">
+  <a href="/distribution" class="distribution-tab{% if tab == 'vedomost' %} active{% endif %}">Ведомость</a>
+  <a href="/distribution/counts" class="distribution-tab{% if tab == 'counts' %} active{% endif %}">Количество</a>
+</nav>

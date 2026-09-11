@@ -94,6 +94,17 @@ class AnesthesiaService:
 
     # ── сводка по поданным анестезиям (интерфейс для других модулей) ───
 
+    def list_range(self, from_date: str, to_date: str) -> list[Anesthesia]:
+        """Все поданные анестезии за период, границы включительно.
+
+        Интерфейс для модуля «Распределение»: ему нужны сами записи — имя
+        пациента и пара «врач + сестра», чтобы разнести ведомость. Прав сервис
+        не проверяет: это дело вызывающего (у распределения — `distribution.manage`).
+        """
+        return self._anesthesia.list_range(
+            date.fromisoformat(from_date), date.fromisoformat(to_date)
+        )
+
     def aggregate(
         self,
         from_date: str,

@@ -1,0 +1,50 @@
+/* Раздел «Распределение»: вкладки и форма ведомости.
+   Остальное берётся из общего style.css — здесь только то, чего там нет. */
+
+.distribution-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 14px;
+  border-bottom: 1px solid #e3e8ef;
+}
+
+.distribution-tab {
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  color: #1565c0;
+  text-decoration: none;
+  font-size: 0.95rem;
+  margin-bottom: -1px;
+}
+
+.distribution-tab.active {
+  background: #fff;
+  border-color: #e3e8ef;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.distribution-error {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #fdecea;
+  border: 1px solid #f5c6cb;
+  color: #8b0000;
+  font-size: 0.9rem;
+}
+
+input[type="file"] {
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.distribution-table { width: 100%; border-collapse: collapse; }
+.distribution-table th, .distribution-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #eef1f5;
+  text-align: left;
+  font-size: 0.95rem;
+}
+.distribution-total { font-size: 0.95rem; }

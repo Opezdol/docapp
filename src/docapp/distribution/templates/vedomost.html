@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Распределение — docapp{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/distribution.css?v={{ git_revision }}">
+<div class="card">
+  <h1>Распределение</h1>
+  {% include "_tabs.html" %}
+
+  <p class="report-meta">
+    Загрузите ведомость больницы и выберите месяц: система найдёт врача и сестру
+    по поданным анестезиям, посчитает суммы и вернёт тот же файл с листами
+    «Распределение» и «Суммы по лицам».
+  </p>
+
+  {% if error %}
+    <p class="distribution-error">{{ error }}</p>
+  {% endif %}
+
+  <form method="post" action="/distribution/spread" enctype="multipart/form-data" class="stack">
+    <label>Месяц, за который прогоняем
+      <input type="month" name="month" value="{{ month }}" required>
+    </label>
+    <label>Файл ведомости (.xlsx)
+      <input type="file" name="file" accept=".xlsx" required>
+    </label>
+    <button class="primary" type="submit">Разнести и скачать</button>
+  </form>
+
+  <p class="report-meta">
+    Месяц — по дате подачи анестезий: ищем строго внутри него. Строки, которым
+    пары не нашлось, останутся пустыми; при однофамильцах в графе «Пометка»
+    появится «Внимание» — такие строки придётся развести руками.
+  </p>
+</div>
+{% endblock %}
