@@ -152,6 +152,69 @@ def _migrate(args: argparse.Namespace) -> int:
     return 0 if all_ok else 1
 
 
+def _import_legacy(args: argparse.Namespace) -> int:
+    """Перенести данные прежних баз в единую БД (шаг 4b, ADR-0016).
+
+    Запускать на копиях прежних баз; целевая БД — та же, что у приложения.
+    """
+    from pathlib import Path
+
+    from docapp.legacy import LegacyImportError, import_legacy
+
+    target = Path(args.target) if args.target else Path(db_path())
+    sources = {
+        "core": Path(args.core) if args.core else None,
+        "needs": Path(args.needs) if args.needs else None,
+        "wiki": Path(args.wiki) if args.wiki else None,
+        "duty": Path(args.duty) if args.duty else None,
+    }
+    if not any(sources.values()):
+        print(
+            "Ошибка: не указан ни один источник (--core, --needs, --wiki, --duty)",
+            file=sys.stderr,
+        )
+        return 2
+
+    print(f"Целевая БД: {target}")
+    for name, path in sources.items():
+        print(f"  источник {name}: {path if path else '—'}")
+    print()
+
+    try:
+        report = import_legacy(
+            target,
+            core_db=sources["core"],
+            needs_db=sources["needs"],
+            wiki_db=sources["wiki"],
+            duty_db=sources["duty"],
+            skip_orphans=args.skip_orphans,
+        )
+    except LegacyImportError as exc:
+        print(f"ОСТАНОВЛЕНО: {exc}", file=sys.stderr)
+        return 1
+
+    print(report.summary())
+    if report.orphans:
+        print()
+        print("Перенос выполнен, но в целевой БД остались сироты — см. выше.")
+        return 1
+    print()
+    print("Готово. Проверить результат: docapp check")
+    return 0
+
+
+def _check(args: argparse.Namespace) -> int:
+    """Счётчики, версии схем и целостность единой БД (шаг 4b)."""
+    from pathlib import Path
+
+    from docapp.legacy import check
+
+    target = Path(args.db) if args.db else Path(db_path())
+    report = check(target)
+    print(report.summary())
+    return 0 if report.ok else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="docapp", description="Команды docapp")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -183,9 +246,29 @@ def main() -> int:
 
     p_migrate = sub.add_parser(
         "migrate",
-        help="Применить миграции схемы ко всем БД (docapp, wiki, needs, duty)",
+        help="Применить миграции схемы к единой БД (docapp, wiki, needs, duty)",
     )
     p_migrate.set_defaults(func=_migrate)
+
+    p_import = sub.add_parser(
+        "import-legacy",
+        help="Перенести данные прежних баз в единую БД (одноразово, на копиях)",
+    )
+    p_import.add_argument("--core", help="прежняя основная БД (data/docapp.db)")
+    p_import.add_argument("--needs", help="прежняя БД «Потребностей» (data/needs/needs.db)")
+    p_import.add_argument("--wiki", help="прежняя БД «Компендиума» (data/wiki/wiki.db)")
+    p_import.add_argument("--duty", help="прежняя БД «Дежурств» (data/duty/duty.db)")
+    p_import.add_argument("--target", help="целевая единая БД (по умолчанию DOCAPP_DB)")
+    p_import.add_argument(
+        "--skip-orphans",
+        action="store_true",
+        help="перенести всё, кроме строк со ссылкой на несуществующего сотрудника",
+    )
+    p_import.set_defaults(func=_import_legacy)
+
+    p_check = sub.add_parser("check", help="Счётчики и целостность единой БД")
+    p_check.add_argument("--db", help="файл БД (по умолчанию DOCAPP_DB)")
+    p_check.set_defaults(func=_check)
 
     args = parser.parse_args()
     return args.func(args)
