@@ -32,9 +32,12 @@ from docapp.domain.employee import DOCTOR, EDITOR, HEAD, HEAD_NURSE, NURSE, Empl
 
 #: Анестезии: свои записи (просмотр) и ввод/правка своих записей.
 RECORDS_VIEW_OWN = "records.view_own"
-#: Анестезии: обзор всех записей (нужен «Сводке» и «Отчёту», не странице врача).
-RECORDS_VIEW_ALL = "records.view_all"
 RECORDS_EDIT = "records.edit"
+
+#: «Распределение»: раздел заведующего — счёт по всем записям отделения и,
+#: далее, разноска ведомости (ADR-0024). Раздел целиком закрыт для остальных
+#: ролей, поэтому разрешение одно.
+DISTRIBUTION_MANAGE = "distribution.manage"
 
 #: «Компендиум»: чтение статей и ответы консультанта.
 WIKI_READ = "wiki.read"
@@ -101,8 +104,8 @@ ALLOWED: dict[str, frozenset[str]] = {
     HEAD: frozenset(
         {
             RECORDS_VIEW_OWN,
-            RECORDS_VIEW_ALL,
             RECORDS_EDIT,
+            DISTRIBUTION_MANAGE,
             WIKI_READ,
             WIKI_CURATE,
             WIKI_SETTINGS,
@@ -147,9 +150,9 @@ MENU: tuple[MenuItem, ...] = (
     MenuItem("/compendium", "Компендиум", "wiki"),
     MenuItem("/needs", "Потребности", "needs"),
     MenuItem("/duty", "Дежурства", "duty"),
-    # «Сводка» — вид на данные записей, поэтому её видимость определяется правами
-    # на записи (records.*), а не отдельным набором разрешений (ADR-0023).
-    MenuItem("/summary", "Сводка", "records"),
+    # «Распределение» — раздел заведующего: у него своё разрешение
+    # (`distribution.manage`, ADR-0024), права на записи тут ни при чём.
+    MenuItem("/distribution", "Распределение", "distribution"),
 )
 
 

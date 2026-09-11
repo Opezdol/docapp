@@ -10,7 +10,7 @@
 
 Абстрактных портов здесь нет: адаптер один, а порт без второй реализации —
 гипотетический шов (ADR-0017). Интерфейс для соседей объявляет потребитель
-(`summary/service.RecordsInterface`), а не владелец данных.
+(`distribution/service.RecordsInterface`), а не владелец данных.
 """
 
 from __future__ import annotations

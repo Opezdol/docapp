@@ -108,7 +108,7 @@ class TestNewDatabase:
             conn.close()
 
     def test_schema_without_sql(self, tmp_path):
-        """Модуль без своих таблиц (например «Сводка») тоже учитывается."""
+        """Модуль без своих таблиц (например «Распределение») тоже учитывается."""
         conn = open_db(tmp_path / "new.db", Schema(module="empty", sql="", version=1))
         try:
             assert applied_version(conn, "empty") == 1

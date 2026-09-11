@@ -10,7 +10,7 @@
 
 Абстрактных портов (`EmployeeStore` и соседей) здесь нет: адаптер один, а порт
 без второй реализации — гипотетический шов (ADR-0017). Интерфейс, который нужен
-соседям, объявляет сам потребитель — см. `summary/service.RecordsInterface`.
+соседям, объявляет сам потребитель — см. `distribution/service.RecordsInterface`.
 """
 
 from __future__ import annotations

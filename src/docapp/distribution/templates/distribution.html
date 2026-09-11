@@ -1,14 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Сводка по анестезиям — docapp{% endblock %}
+{% block title %}Распределение — docapp{% endblock %}
 {% block content %}
 <div class="card">
-  <h1>Сводка по анестезиям</h1>
+  <h1>Распределение</h1>
   <p class="report-meta">
-    Период по дате подачи: {{ from }} — {{ to }} ·
-    {% if summary and summary.scope == 'own' %}только мои записи{% else %}все записи отделения{% endif %}
+    Период по дате подачи: {{ from }} — {{ to }} · все записи отделения
   </p>
 
-  <form method="get" action="/summary" class="summary-form">
+  <form method="get" action="/distribution" class="distribution-form">
     <label>С
       <input type="date" name="from" value="{{ from }}">
     </label>
@@ -27,16 +26,16 @@
   </form>
 
   {% if error %}
-    <p class="summary-error">{{ error }}</p>
-  {% elif summary %}
-    <p class="summary-total">Всего записей: <b>{{ summary.total }}</b></p>
-    {% if summary.rows %}
-      <table class="summary-table">
+    <p class="distribution-error">{{ error }}</p>
+  {% elif result %}
+    <p class="distribution-total">Всего записей: <b>{{ result.total }}</b></p>
+    {% if result.rows %}
+      <table class="distribution-table">
         <thead>
           <tr><th>{{ by_label }}</th><th>Записей</th></tr>
         </thead>
         <tbody>
-          {% for row in summary.rows %}
+          {% for row in result.rows %}
             <tr>
               <td>{{ row.name or row.key }}</td>
               <td>{{ row.count }}</td>

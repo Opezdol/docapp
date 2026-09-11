@@ -47,7 +47,7 @@ class TestModuleContract:
     def test_app_modules_are_declared(self):
         """Порядок значим: модуль берёт интерфейс соседа, объявленного раньше."""
         names = [module.name for module in MODULES]
-        assert names == ["people", "records", "wiki", "needs", "duty", "summary"]
+        assert names == ["people", "records", "wiki", "needs", "duty", "distribution"]
 
     def test_every_module_with_schema_has_version(self):
         """Схема модуля — объект Schema с версией (файл у всех один, ADR-0016)."""
@@ -61,11 +61,11 @@ class TestModuleContract:
         for module in MODULES:
             assert module.build is not None, module.name
 
-    def test_summary_has_no_schema(self):
-        """«Сводка» своей таблицы не имеет — она и есть проверка каркаса."""
-        summary = next(module for module in MODULES if module.name == "summary")
-        assert summary.schema is None
-        assert summary.router is not None
+    def test_distribution_has_no_schema(self):
+        """«Распределение» своей таблицы не имеет — оно и есть проверка каркаса."""
+        distribution = next(module for module in MODULES if module.name == "distribution")
+        assert distribution.schema is None
+        assert distribution.router is not None
 
     def test_app_modules_have_container_and_router(self):
         """У модуля есть сборка; HTTP-адаптер — у всех, кроме справочника."""

@@ -26,7 +26,7 @@ class TestPermissionsTable:
 
     def test_permissions_are_namespaced(self):
         """Разрешение всегда «модуль.действие» — от этого зависит меню."""
-        modules = {"records", "wiki", "needs", "duty", "accrual"}
+        modules = {"records", "wiki", "needs", "duty", "accrual", "distribution"}
         for role, granted in access.ALLOWED.items():
             for permission in granted:
                 module, _, action = permission.partition(".")
@@ -56,9 +56,11 @@ class TestPermissionsTable:
             # заведующий: всё, включая настройки и выгрузку
             (HEAD, access.WIKI_SETTINGS, True),
             (HEAD, access.DUTY_MANAGE, True),
-            (HEAD, access.RECORDS_VIEW_ALL, True),
+            (HEAD, access.DISTRIBUTION_MANAGE, True),
             (HEAD, access.NEEDS_CATALOG, True),
             (HEAD, access.ACCRUAL_VIEW_ALL, True),
+            (DOCTOR, access.DISTRIBUTION_MANAGE, False),
+            (HEAD_NURSE, access.DISTRIBUTION_MANAGE, False),
             # редактор — врач с правом курирования документов
             (EDITOR, access.RECORDS_EDIT, True),
             (EDITOR, access.WIKI_CURATE, True),
@@ -98,7 +100,7 @@ class TestMenu:
 
     def test_covers_all_menu_modules(self):
         modules = {item.module for item in access.MENU}
-        assert modules == {"records", "wiki", "needs", "duty"}
+        assert modules == {"records", "wiki", "needs", "duty", "distribution"}
 
     def test_paths_are_unique(self):
         paths = [item.path for item in access.MENU]
@@ -107,17 +109,23 @@ class TestMenu:
     @pytest.mark.parametrize(
         "role,expected",
         [
-            # «Сводка» — вид на данные записей: её видит всякий, кому доступны
-            # записи (свои или все), поэтому она идёт к правам records.*
-            (DOCTOR, ["Анестезии", "Компендиум", "Дежурства", "Сводка"]),
-            (NURSE, ["Анестезии", "Потребности", "Сводка"]),
-            (HEAD_NURSE, ["Анестезии", "Компендиум", "Потребности", "Сводка"]),
-            (HEAD, ["Анестезии", "Компендиум", "Потребности", "Дежурства", "Сводка"]),
-            (EDITOR, ["Анестезии", "Компендиум", "Дежурства", "Сводка"]),
+            # «Распределение» — раздел заведующего (ADR-0024): у остальных ролей
+            # его в меню нет вовсе.
+            (DOCTOR, ["Анестезии", "Компендиум", "Дежурства"]),
+            (NURSE, ["Анестезии", "Потребности"]),
+            (HEAD_NURSE, ["Анестезии", "Компендиум", "Потребности"]),
+            (HEAD, ["Анестезии", "Компендиум", "Потребности", "Дежурства", "Распределение"]),
+            (EDITOR, ["Анестезии", "Компендиум", "Дежурства"]),
         ],
     )
     def test_menu_for_role(self, role, expected):
         assert [item.label for item in access.menu_for(role)] == expected
+
+    def test_only_head_sees_distribution(self):
+        """Раздел распределения есть только у заведующего."""
+        for role in (DOCTOR, NURSE, HEAD_NURSE, EDITOR):
+            assert access.has_module(role, "distribution") is False
+        assert access.has_module(HEAD, "distribution") is True
 
     def test_unknown_role_gets_empty_menu(self):
         assert access.menu_for("boss") == []
