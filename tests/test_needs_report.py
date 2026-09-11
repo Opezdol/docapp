@@ -17,6 +17,7 @@ from docapp.needs.catalog import CATEGORY_MEDICAMENTS, CATEGORY_SOLUTIONS, Catal
 from docapp.needs.report import aggregate_requests, build_xlsx, html_table, week_label
 from docapp.needs.service import NeedsService
 from docapp.needs.store import SqliteNeedsStore
+from factories import test_db
 
 CATALOG_YAML = """\
 bases:
@@ -47,7 +48,7 @@ def env(tmp_path):
     catalog_path = tmp_path / "catalog.yaml"
     catalog_path.write_text(CATALOG_YAML, encoding="utf-8")
     catalog = Catalog(catalog_path)
-    store = SqliteNeedsStore(tmp_path / "needs.db")
+    store = SqliteNeedsStore(test_db(tmp_path))
     service = NeedsService(store, catalog)
     yield service, store, catalog
     store.close_conn()

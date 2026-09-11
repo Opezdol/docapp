@@ -15,33 +15,34 @@ from pathlib import Path
 from docapp.core.db import Schema, open_db
 
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS requests (
+CREATE TABLE IF NOT EXISTS needs_requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     base TEXT NOT NULL,
     point TEXT NOT NULL,
     week_start TEXT NOT NULL,
     category TEXT NOT NULL,
-    author_id INTEGER NOT NULL,
+    author_id INTEGER NOT NULL REFERENCES employees(id),
     status TEXT NOT NULL DEFAULT 'draft',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE (base, point, week_start, category)
 );
-CREATE TABLE IF NOT EXISTS request_lines (
+CREATE TABLE IF NOT EXISTS needs_request_lines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    request_id INTEGER NOT NULL REFERENCES requests(id) ON DELETE CASCADE,
+    request_id INTEGER NOT NULL REFERENCES needs_requests(id) ON DELETE CASCADE,
     item TEXT NOT NULL,
     unit TEXT NOT NULL DEFAULT '',
     grp TEXT NOT NULL DEFAULT '',
-    qty INTEGER NOT NULL DEFAULT 0
+    qty INTEGER NOT NULL DEFAULT 0,
+    position INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_lines_req ON request_lines(request_id);
-CREATE TABLE IF NOT EXISTS closures (
+CREATE INDEX IF NOT EXISTS idx_lines_req ON needs_request_lines(request_id);
+CREATE TABLE IF NOT EXISTS needs_closures (
     base TEXT NOT NULL,
     week_start TEXT NOT NULL,
     category TEXT NOT NULL,
     closed_at TEXT NOT NULL,
-    closed_by INTEGER NOT NULL,
+    closed_by INTEGER NOT NULL REFERENCES employees(id),
     PRIMARY KEY (base, week_start, category)
 );
 """
@@ -57,65 +58,17 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
     return open_db(db_path, SCHEMA)
 
 
-# Версия схемы БД потребностей. Увеличивайте при изменении схемы
-# и добавляйте миграцию в _MIGRATIONS.
-SCHEMA_VERSION = 2
+# Версия схемы «Потребностей» в единой БД (ADR-0016). Увеличивайте при изменении
+# схемы и добавляйте миграцию в _MIGRATIONS.
+#
+# История: до переезда на единую БД таблицы назывались requests / request_lines /
+# closures, а колонка `category` появлялась миграцией v2. В новой схеме они
+# создаются сразу с префиксом модуля и колонкой `category`, поэтому миграций нет:
+# данные прежних баз переносит `docapp import-legacy` (docs/ТЗ-каркас.md §9).
+SCHEMA_VERSION = 1
 
-# Миграции: (версия_после_применения, название, [SQL...])
-_MIGRATIONS: list[tuple[int, str, list[str]]] = [
-    # (1, "initial schema", [])
-    # v2: колонка `category` в requests и closures (разделы растворы/медикаменты).
-    # SQLite не меняет UNIQUE/PK через ALTER — пересборка таблиц
-    # (прецедент: пересборка таблицы anesthesia в sqlite_store.py).
-    # Пересборка идёт через RENAME/создание/копирование, чтобы сохранить
-    # строки request_lines (их FK на requests переключается без потери данных,
-    # foreign_keys остаётся ON — DROP родителя не каскадит строки).
-    # Категория заявки выводится по её строкам: есть строка grp='Растворы' —
-    # solutions, иначе medicaments. Старые закрытия дублируются на оба раздела.
-    (
-        2,
-        "add category column to requests and closures",
-        [
-            "ALTER TABLE requests RENAME TO requests_v1",
-            "CREATE TABLE requests ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "base TEXT NOT NULL, point TEXT NOT NULL, week_start TEXT NOT NULL, "
-            "category TEXT NOT NULL, author_id INTEGER NOT NULL, "
-            "status TEXT NOT NULL DEFAULT 'draft', created_at TEXT NOT NULL, "
-            "updated_at TEXT NOT NULL, "
-            "UNIQUE (base, point, week_start, category))",
-            "INSERT INTO requests "
-            "(id, base, point, week_start, category, author_id, status, created_at, updated_at) "
-            "SELECT id, base, point, week_start, "
-            "CASE WHEN EXISTS (SELECT 1 FROM request_lines l "
-            "WHERE l.request_id = requests_v1.id AND l.grp = 'Растворы') "
-            "THEN 'solutions' ELSE 'medicaments' END, "
-            "author_id, status, created_at, updated_at FROM requests_v1",
-            "ALTER TABLE request_lines RENAME TO request_lines_v1",
-            "DROP INDEX idx_lines_req",
-            "CREATE TABLE request_lines ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "request_id INTEGER NOT NULL REFERENCES requests(id) ON DELETE CASCADE, "
-            "item TEXT NOT NULL, unit TEXT NOT NULL DEFAULT '', "
-            "grp TEXT NOT NULL DEFAULT '', qty INTEGER NOT NULL DEFAULT 0)",
-            "CREATE INDEX idx_lines_req ON request_lines(request_id)",
-            "INSERT INTO request_lines (id, request_id, item, unit, grp, qty) "
-            "SELECT id, request_id, item, unit, grp, qty FROM request_lines_v1",
-            "DROP TABLE request_lines_v1",
-            "DROP TABLE requests_v1",
-            "CREATE TABLE closures_new ("
-            "base TEXT NOT NULL, week_start TEXT NOT NULL, category TEXT NOT NULL, "
-            "closed_at TEXT NOT NULL, closed_by INTEGER NOT NULL, "
-            "PRIMARY KEY (base, week_start, category))",
-            "INSERT INTO closures_new (base, week_start, category, closed_at, closed_by) "
-            "SELECT base, week_start, 'solutions', closed_at, closed_by FROM closures",
-            "INSERT INTO closures_new (base, week_start, category, closed_at, closed_by) "
-            "SELECT base, week_start, 'medicaments', closed_at, closed_by FROM closures",
-            "DROP TABLE closures",
-            "ALTER TABLE closures_new RENAME TO closures",
-        ],
-    ),
-]
+#: Миграций нет: схема создаётся сразу в целевом виде (см. комментарий выше).
+_MIGRATIONS: list[tuple[int, str, list[str]]] = []
 
 
 #: Схема модуля «Потребности» для общего механизма БД (core.db).
@@ -160,10 +113,10 @@ class SqliteNeedsStore:
                 )
 
     def _load_lines(self, request_id: int) -> list[dict]:
-        """Строки заявки как list[dict(item, unit, grp, qty)]."""
+        """Строки заявки как list[dict(item, unit, grp, qty)] в порядке формы."""
         rows = self._conn.execute(
-            "SELECT item, unit, grp, qty FROM request_lines "
-            "WHERE request_id = ? ORDER BY id",
+            "SELECT item, unit, grp, qty FROM needs_request_lines "
+            "WHERE request_id = ? ORDER BY position, id",
             (request_id,),
         ).fetchall()
         return [
@@ -172,7 +125,7 @@ class SqliteNeedsStore:
         ]
 
     def _row_to_request(self, row: sqlite3.Row) -> dict:
-        """Строка requests + её lines -> dict с ключами из ТЗ."""
+        """Строка needs_requests + её lines -> dict с ключами из ТЗ."""
         return {
             "id": row["id"],
             "base": row["base"],
@@ -191,7 +144,7 @@ class SqliteNeedsStore:
     def get_request(self, base: str, point: str, category: str, week_start: str) -> dict | None:
         """Заявка по (base, point, week_start, category) или None."""
         row = self._conn.execute(
-            "SELECT * FROM requests "
+            "SELECT * FROM needs_requests "
             "WHERE base = ? AND point = ? AND week_start = ? AND category = ?",
             (base, point, week_start, category),
         ).fetchone()
@@ -215,23 +168,23 @@ class SqliteNeedsStore:
         self._validate_lines(lines)
         now = _now()
         existing = self._conn.execute(
-            "SELECT id FROM requests "
+            "SELECT id FROM needs_requests "
             "WHERE base = ? AND point = ? AND week_start = ? AND category = ?",
             (base, point, week_start, category),
         ).fetchone()
         if existing:
             request_id = existing["id"]
             self._conn.execute(
-                "UPDATE requests SET author_id = ?, status = ?, updated_at = ? "
+                "UPDATE needs_requests SET author_id = ?, status = ?, updated_at = ? "
                 "WHERE id = ?",
                 (author_id, status, now, request_id),
             )
             self._conn.execute(
-                "DELETE FROM request_lines WHERE request_id = ?", (request_id,)
+                "DELETE FROM needs_request_lines WHERE request_id = ?", (request_id,)
             )
         else:
             cur = self._conn.execute(
-                "INSERT INTO requests "
+                "INSERT INTO needs_requests "
                 "(base, point, week_start, category, author_id, status, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (base, point, week_start, category, author_id, status, now, now),
@@ -239,8 +192,8 @@ class SqliteNeedsStore:
             request_id = cur.lastrowid
             assert request_id is not None  # INSERT только что прошёл
         self._conn.executemany(
-            "INSERT INTO request_lines (request_id, item, unit, grp, qty) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO needs_request_lines (request_id, item, unit, grp, qty, position) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             [
                 (
                     request_id,
@@ -248,8 +201,9 @@ class SqliteNeedsStore:
                     line.get("unit", ""),
                     line.get("grp", ""),
                     line.get("qty", 0),
+                    position,
                 )
-                for line in lines
+                for position, line in enumerate(lines)
             ],
         )
         self._conn.commit()
@@ -258,7 +212,7 @@ class SqliteNeedsStore:
     def set_status(self, request_id: int, status: str) -> None:
         """Сменить статус заявки (обновляет updated_at)."""
         self._conn.execute(
-            "UPDATE requests SET status = ?, updated_at = ? WHERE id = ?",
+            "UPDATE needs_requests SET status = ?, updated_at = ? WHERE id = ?",
             (status, _now(), request_id),
         )
         self._conn.commit()
@@ -266,7 +220,7 @@ class SqliteNeedsStore:
     def list_requests(self, base: str, category: str, week_start: str) -> list[dict]:
         """Все заявки базы и раздела за неделю (с lines)."""
         rows = self._conn.execute(
-            "SELECT * FROM requests WHERE base = ? AND week_start = ? AND category = ? "
+            "SELECT * FROM needs_requests WHERE base = ? AND week_start = ? AND category = ? "
             "ORDER BY point, id",
             (base, week_start, category),
         ).fetchall()
@@ -275,7 +229,7 @@ class SqliteNeedsStore:
     def list_week(self, week_start: str) -> list[dict]:
         """Все заявки всех баз за неделю (с lines) — для доски старшей."""
         rows = self._conn.execute(
-            "SELECT * FROM requests WHERE week_start = ? ORDER BY base, point",
+            "SELECT * FROM needs_requests WHERE week_start = ? ORDER BY base, point",
             (week_start,),
         ).fetchall()
         return [self._row_to_request(r) for r in rows]
@@ -291,7 +245,7 @@ class SqliteNeedsStore:
 
         week_start сравнивается лексикографически: формат ISO 'YYYY-MM-DD'.
         """
-        sql = "SELECT * FROM requests WHERE week_start >= ? AND week_start <= ?"
+        sql = "SELECT * FROM needs_requests WHERE week_start >= ? AND week_start <= ?"
         params: list = [from_week, to_week]
         if base is not None:
             sql += " AND base = ?"
@@ -308,7 +262,7 @@ class SqliteNeedsStore:
     def close(self, base: str, category: str, week_start: str, closed_by: int) -> None:
         """Закрыть неделю для базы и раздела (INSERT OR REPLACE, актуальное время)."""
         self._conn.execute(
-            "INSERT OR REPLACE INTO closures "
+            "INSERT OR REPLACE INTO needs_closures "
             "(base, week_start, category, closed_at, closed_by) "
             "VALUES (?, ?, ?, ?, ?)",
             (base, week_start, category, _now(), closed_by),
@@ -318,7 +272,7 @@ class SqliteNeedsStore:
     def is_closed(self, base: str, category: str, week_start: str) -> bool:
         """Закрыта ли неделя для базы и раздела."""
         row = self._conn.execute(
-            "SELECT 1 FROM closures WHERE base = ? AND week_start = ? AND category = ?",
+            "SELECT 1 FROM needs_closures WHERE base = ? AND week_start = ? AND category = ?",
             (base, week_start, category),
         ).fetchone()
         return row is not None
@@ -326,7 +280,7 @@ class SqliteNeedsStore:
     def reopen(self, base: str, category: str, week_start: str) -> None:
         """Открыть неделю заново для базы и раздела (удалить закрытие)."""
         self._conn.execute(
-            "DELETE FROM closures WHERE base = ? AND week_start = ? AND category = ?",
+            "DELETE FROM needs_closures WHERE base = ? AND week_start = ? AND category = ?",
             (base, week_start, category),
         )
         self._conn.commit()
@@ -334,7 +288,7 @@ class SqliteNeedsStore:
     def list_closures(self) -> list[dict]:
         """Все закрытия недель (база, неделя, раздел, кто/когда)."""
         rows = self._conn.execute(
-            "SELECT base, week_start, category, closed_at, closed_by FROM closures "
+            "SELECT base, week_start, category, closed_at, closed_by FROM needs_closures "
             "ORDER BY base, week_start, category"
         ).fetchall()
         return [dict(r) for r in rows]
@@ -342,7 +296,7 @@ class SqliteNeedsStore:
     def closed_sections(self, week_start: str) -> list[dict]:
         """Закрытые разделы (base, category) за неделю — для отображения сёстрам."""
         rows = self._conn.execute(
-            "SELECT base, category FROM closures WHERE week_start = ? "
+            "SELECT base, category FROM needs_closures WHERE week_start = ? "
             "ORDER BY base, category",
             (week_start,),
         ).fetchall()

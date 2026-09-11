@@ -2,8 +2,7 @@
 
 Сотрудники сидятся как в tests/test_web.py (SqliteEmployeeStore + хеши
 паролей), вход — POST /login. Каталог и БД «Потребностей» — временные
-(monkeypatch NEEDS_DB/NEEDS_CATALOG), чтобы не зависеть от seed-файла;
-«Компендиум» тоже уводится во временный каталог, чтобы не трогать data/wiki.
+временная БД и каталог (NEEDS_CATALOG), чтобы не зависеть от seed-файла.
 Неделя во всех запросах фиксированная (WEEK), чтобы тесты не зависели
 от даты запуска. Заявки раздельные по разделу (category).
 """
@@ -77,12 +76,10 @@ def _seed(db_path) -> dict:
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     """Приложение с временными БД: свои needs.db/catalog.yaml, консультант в tmp."""
-    monkeypatch.setenv("NEEDS_DB", str(tmp_path / "needs.db"))
     catalog = tmp_path / "catalog.yaml"
     catalog.write_text(CATALOG_YAML, encoding="utf-8")
     monkeypatch.setenv("NEEDS_CATALOG", str(catalog))
     # «Компендиум» — тоже во временный каталог, чтобы не трогать data/wiki
-    monkeypatch.setenv("WIKI_DB", str(tmp_path / "wiki" / "wiki.db"))
     db_path = tmp_path / "web.db"
     _seed(db_path)
     app = create_app(db_path=db_path, secret="test-secret")

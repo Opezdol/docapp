@@ -39,11 +39,9 @@ def _seed(db_path):
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("NEEDS_DB", str(tmp_path / "needs.db"))
     catalog = tmp_path / "catalog.yaml"
     catalog.write_text(CATALOG_YAML, encoding="utf-8")
     monkeypatch.setenv("NEEDS_CATALOG", str(catalog))
-    monkeypatch.setenv("WIKI_DB", str(tmp_path / "wiki" / "wiki.db"))
     db_path = tmp_path / "web.db"
     _seed(db_path)
     app = create_app(db_path=db_path, secret="test-secret")

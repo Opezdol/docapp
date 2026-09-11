@@ -230,8 +230,10 @@ def create_app(
 
     # Модули разделов: из реестра (docapp.modules) — контейнеры и роутеры.
     # Ядро приложения (сотрудники, анестезии) остаётся здесь; вынести его в
-    # отдельный модуль `records` — работа шагов 4–6 (docs/ТЗ-каркас.md).
-    registry.build_containers(app, modules)
+    # отдельный модуль `records` — работа шагов 5–6 (docs/ТЗ-каркас.md).
+    db_file = Path(db_path)
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+    registry.build_containers(app, modules, registry.AppContext(db_path=db_file))
     registry.include_routers(app, modules)
 
     return app

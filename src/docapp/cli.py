@@ -125,12 +125,14 @@ def _migrate(args: argparse.Namespace) -> int:
     Механизм один на всё приложение (core.db, ADR-0016), список баз — из реестра
     модулей (docapp.modules, ADR-0017): отдельных списков больше нет.
     """
+    from pathlib import Path
+
     from docapp.core.db import migrate
     from docapp.core.registry import databases
     from docapp.modules import MODULES
 
     all_ok = True
-    for name, path, schema in databases(MODULES):
+    for name, path, schema in databases(MODULES, Path(db_path())):
         path.parent.mkdir(parents=True, exist_ok=True)
         created = not path.exists()
         try:

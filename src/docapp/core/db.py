@@ -124,13 +124,20 @@ def applied_version(conn: sqlite3.Connection, module: str) -> int:
 
 
 def _record(conn: sqlite3.Connection, module: str, version: int, note: str) -> None:
-    """Записать применённую версию и продублировать её в PRAGMA user_version."""
+    """Записать применённую версию и продублировать её в PRAGMA user_version.
+
+    В таблице версия у каждого модуля своя, а `user_version` — один на файл,
+    поэтому дублируется максимум по файлу: он справочный (его читают старые
+    скрипты), источник правды — таблица.
+    """
     conn.execute(
         f"INSERT OR REPLACE INTO {SCHEMA_TABLE} (module, version, applied_at, note) "
         f"VALUES (?, ?, ?, ?)",
         (module, version, _now(), note),
     )
-    conn.execute(f"PRAGMA user_version = {int(version)}")
+    row = conn.execute(f"SELECT MAX(version) AS v FROM {SCHEMA_TABLE}").fetchone()
+    mirrored = int(row["v"] or version) if row is not None else version
+    conn.execute(f"PRAGMA user_version = {mirrored}")
     conn.commit()
 
 

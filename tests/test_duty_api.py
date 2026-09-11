@@ -61,13 +61,10 @@ def _seed(db_path) -> dict:
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("DUTY_DB", str(tmp_path / "duty.db"))
     monkeypatch.setenv("DUTY_TZ", "UTC")
-    monkeypatch.setenv("NEEDS_DB", str(tmp_path / "needs.db"))
     catalog = tmp_path / "catalog.yaml"
     catalog.write_text(CATALOG_YAML, encoding="utf-8")
     monkeypatch.setenv("NEEDS_CATALOG", str(catalog))
-    monkeypatch.setenv("WIKI_DB", str(tmp_path / "wiki" / "wiki.db"))
     # Фиксируем «сейчас» для всего сервиса дежурств.
     monkeypatch.setattr(DutyService, "now", lambda self: FIXED_NOW)
 

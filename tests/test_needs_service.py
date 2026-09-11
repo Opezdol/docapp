@@ -27,6 +27,7 @@ from docapp.needs.service import (
     monday_of_week,
 )
 from docapp.needs.store import SqliteNeedsStore
+from factories import test_db
 
 CATALOG_YAML = """\
 bases:
@@ -58,7 +59,7 @@ def service(tmp_path):
     """Сервис на временных БД и YAML-каталоге (2 базы × 2 точки)."""
     catalog_path = tmp_path / "catalog.yaml"
     catalog_path.write_text(CATALOG_YAML, encoding="utf-8")
-    store = SqliteNeedsStore(tmp_path / "needs.db")
+    store = SqliteNeedsStore(test_db(tmp_path))
     yield NeedsService(store, Catalog(catalog_path))
     store.close_conn()
 

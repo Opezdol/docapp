@@ -1,8 +1,9 @@
-"""Настройки подприложения «Компендиум»: env-переменные WIKI_*.
+"""Настройки модуля «Компендиум»: env WIKI_SOURCES_DIR.
 
-В духе docapp.config и docapp.needs.config: os.environ + dataclass, без pydantic.
-ИИ-клиенты (LLM/vision) берут свои параметры из общего слоя docapp.ai.config
-(AI_*); здесь — только пути к БД и папке PDF-источников.
+Путь к БД сюда не входит: база одна на всё приложение (ADR-0016), её передаёт
+AppContext. Здесь остаётся папка PDF-источников — по ADR-0020 источники хранятся
+файлами, а не BLOB-ом в БД. ИИ-клиенты берут параметры из общего слоя
+`docapp.ai.config` (AI_*).
 """
 
 from __future__ import annotations
@@ -13,26 +14,22 @@ from pathlib import Path
 
 from docapp.config import DATA_DIR
 
-DEFAULT_DB_PATH = DATA_DIR / "wiki" / "wiki.db"
 DEFAULT_SOURCES_DIR = DATA_DIR / "wiki" / "sources"
 
 
 @dataclass(frozen=True)
 class WikiConfig:
-    """Конфигурация «Компендиума»: путь к БД и папке PDF-источников."""
+    """Конфигурация «Компендиума»: папка PDF-источников."""
 
-    db_path: Path
     sources_dir: Path
 
 
 def load_wiki_config() -> WikiConfig:
-    """Прочитать WIKI_DB и WIKI_SOURCES_DIR из окружения, собрать WikiConfig.
+    """Прочитать WIKI_SOURCES_DIR из окружения и собрать WikiConfig.
 
-    Каталоги не создаются — это забота слоя хранения/загрузки.
+    Каталог не создаётся — это забота слоя загрузки источников.
     """
-    db_override = os.environ.get("WIKI_DB")
-    sources_override = os.environ.get("WIKI_SOURCES_DIR")
+    override = os.environ.get("WIKI_SOURCES_DIR")
     return WikiConfig(
-        db_path=Path(db_override) if db_override else DEFAULT_DB_PATH,
-        sources_dir=Path(sources_override) if sources_override else DEFAULT_SOURCES_DIR,
+        sources_dir=Path(override) if override else DEFAULT_SOURCES_DIR,
     )

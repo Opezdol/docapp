@@ -3,7 +3,7 @@
 Полная цепочка через TestClient (follow_redirects=False) и без сети:
 сотрудники всех четырёх ролей сидятся в SqliteEmployeeStore, вход — через
 POST /login, каталог и БД «Потребностей» — временные (monkeypatch
-NEEDS_DB/NEEDS_CATALOG, «Компендиум» — тоже в tmp), приложение собирается
+NEEDS_CATALOG), приложение собирается
 create_app(db_path, secret). Никаких внешних вызовов: всё внутри процесса.
 
 Неделя во всех запросах фиксированная (WEEK = понедельник '2026-08-10'),
@@ -108,12 +108,10 @@ def _seed(db_path) -> dict:
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     """Приложение с временными БД: свои needs.db/catalog.yaml, консультант в tmp."""
-    monkeypatch.setenv("NEEDS_DB", str(tmp_path / "needs.db"))
     catalog = tmp_path / "catalog.yaml"
     catalog.write_text(CATALOG_YAML, encoding="utf-8")
     monkeypatch.setenv("NEEDS_CATALOG", str(catalog))
     # «Компендиум» — тоже во временный каталог, чтобы не трогать data/wiki
-    monkeypatch.setenv("WIKI_DB", str(tmp_path / "wiki" / "wiki.db"))
     db_path = tmp_path / "web.db"
     _seed(db_path)
     app = create_app(db_path=db_path, secret="test-secret")

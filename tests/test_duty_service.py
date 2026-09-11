@@ -7,6 +7,7 @@ import pytest
 from docapp.duty.config import DutyConfig
 from docapp.duty.service import DutyClosed, DutyService, _offset_minutes
 from docapp.duty.store import SqliteDutyStore
+from factories import test_db
 
 UTC = timezone.utc
 
@@ -17,8 +18,8 @@ def aware(y, m, d, hour, minute=0):
 
 @pytest.fixture
 def svc(tmp_path):
-    store = SqliteDutyStore(tmp_path / "duty.db")
-    config = DutyConfig(db_path=tmp_path / "duty.db", tz=UTC)
+    store = SqliteDutyStore(test_db(tmp_path))
+    config = DutyConfig(tz=UTC)
     service = DutyService(store, config)
     yield service
     store.close_conn()

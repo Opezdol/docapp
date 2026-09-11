@@ -14,25 +14,25 @@ from pathlib import Path
 from docapp.core.db import Schema, open_db
 
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS duty_report (
+CREATE TABLE IF NOT EXISTS duty_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     base TEXT NOT NULL,
     shift_date TEXT NOT NULL,
-    doctor_id INTEGER NOT NULL,
+    doctor_id INTEGER NOT NULL REFERENCES employees(id),
     status TEXT NOT NULL DEFAULT 'draft',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE (base, shift_date, doctor_id)
 );
-CREATE TABLE IF NOT EXISTS duty_operation (
+CREATE TABLE IF NOT EXISTS duty_operations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    report_id INTEGER NOT NULL REFERENCES duty_report(id) ON DELETE CASCADE,
+    report_id INTEGER NOT NULL REFERENCES duty_reports(id) ON DELETE CASCADE,
     operation TEXT NOT NULL,
     start_time TEXT NOT NULL,
     end_time TEXT NOT NULL,
     position INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_duty_op_report ON duty_operation(report_id);
+CREATE INDEX IF NOT EXISTS idx_duty_op_report ON duty_operations(report_id);
 """
 
 SCHEMA_VERSION = 1
@@ -81,7 +81,7 @@ class SqliteDutyStore:
 
     def _load_operations(self, report_id: int) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT operation, start_time, end_time FROM duty_operation "
+            "SELECT operation, start_time, end_time FROM duty_operations "
             "WHERE report_id = ? ORDER BY position, id",
             (report_id,),
         ).fetchall()
@@ -104,7 +104,7 @@ class SqliteDutyStore:
     def get_report(self, base: str, shift_date: str, doctor_id: int) -> dict | None:
         """Отчёт по (base, shift_date, doctor_id) или None."""
         row = self._conn.execute(
-            "SELECT * FROM duty_report WHERE base = ? AND shift_date = ? AND doctor_id = ?",
+            "SELECT * FROM duty_reports WHERE base = ? AND shift_date = ? AND doctor_id = ?",
             (base, shift_date, doctor_id),
         ).fetchone()
         return self._row_to_report(row) if row else None
@@ -124,21 +124,21 @@ class SqliteDutyStore:
         """
         now = _now()
         existing = self._conn.execute(
-            "SELECT id FROM duty_report WHERE base = ? AND shift_date = ? AND doctor_id = ?",
+            "SELECT id FROM duty_reports WHERE base = ? AND shift_date = ? AND doctor_id = ?",
             (base, shift_date, doctor_id),
         ).fetchone()
         if existing:
             report_id = existing["id"]
             self._conn.execute(
-                "UPDATE duty_report SET status = ?, updated_at = ? WHERE id = ?",
+                "UPDATE duty_reports SET status = ?, updated_at = ? WHERE id = ?",
                 (status, now, report_id),
             )
             self._conn.execute(
-                "DELETE FROM duty_operation WHERE report_id = ?", (report_id,)
+                "DELETE FROM duty_operations WHERE report_id = ?", (report_id,)
             )
         else:
             cur = self._conn.execute(
-                "INSERT INTO duty_report "
+                "INSERT INTO duty_reports "
                 "(base, shift_date, doctor_id, status, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (base, shift_date, doctor_id, status, now, now),
@@ -146,7 +146,7 @@ class SqliteDutyStore:
             report_id = cur.lastrowid
             assert report_id is not None  # INSERT только что прошёл
         self._conn.executemany(
-            "INSERT INTO duty_operation (report_id, operation, start_time, end_time, position) "
+            "INSERT INTO duty_operations (report_id, operation, start_time, end_time, position) "
             "VALUES (?, ?, ?, ?, ?)",
             [
                 (
@@ -165,7 +165,7 @@ class SqliteDutyStore:
     def set_status(self, report_id: int, status: str) -> None:
         """Сменить статус отчёта (обновляет updated_at)."""
         self._conn.execute(
-            "UPDATE duty_report SET status = ?, updated_at = ? WHERE id = ?",
+            "UPDATE duty_reports SET status = ?, updated_at = ? WHERE id = ?",
             (status, _now(), report_id),
         )
         self._conn.commit()
@@ -175,7 +175,7 @@ class SqliteDutyStore:
 
         shift_date сравнивается лексикографически: формат ISO 'YYYY-MM-DD'.
         """
-        sql = "SELECT * FROM duty_report WHERE shift_date >= ? AND shift_date <= ?"
+        sql = "SELECT * FROM duty_reports WHERE shift_date >= ? AND shift_date <= ?"
         params: list = [from_date, to_date]
         if base is not None:
             sql += " AND base = ?"
@@ -187,7 +187,7 @@ class SqliteDutyStore:
     def list_open(self) -> list[dict]:
         """Все незакрытые отчёты (draft/sent) — для ленивого авто-закрытия."""
         rows = self._conn.execute(
-            "SELECT * FROM duty_report WHERE status IN ('draft', 'sent') "
+            "SELECT * FROM duty_reports WHERE status IN ('draft', 'sent') "
             "ORDER BY shift_date, base"
         ).fetchall()
         return [self._row_to_report(r) for r in rows]
@@ -195,7 +195,7 @@ class SqliteDutyStore:
     def close_shift(self, shift_date: str) -> None:
         """Закрыть все отчёты за смену (status → 'closed')."""
         self._conn.execute(
-            "UPDATE duty_report SET status = 'closed', updated_at = ? WHERE shift_date = ?",
+            "UPDATE duty_reports SET status = 'closed', updated_at = ? WHERE shift_date = ?",
             (_now(), shift_date),
         )
         self._conn.commit()

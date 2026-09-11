@@ -403,7 +403,6 @@ class TestSessionConfig:
 
     def _make_app(self, tmp_path, monkeypatch):
         # «Компендиум» в tmp, чтобы не трогать реальные data/wiki
-        monkeypatch.setenv("WIKI_DB", str(tmp_path / "wiki" / "wiki.db"))
         return create_app(tmp_path / "w.db", "s")
 
     def _session_middleware(self, app):

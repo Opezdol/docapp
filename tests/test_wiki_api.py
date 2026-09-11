@@ -56,7 +56,6 @@ def _seed(db_path) -> dict:
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("WIKI_DB", str(tmp_path / "wiki" / "wiki.db"))
     db_path = tmp_path / "web.db"
     _seed(db_path)
     app = create_app(db_path=db_path, secret="test-secret")

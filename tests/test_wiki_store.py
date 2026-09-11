@@ -3,14 +3,17 @@
 import pytest
 
 from docapp.wiki.store import SqliteWikiStore
+from factories import test_db
 
 
 @pytest.fixture
 def store_factory(tmp_path):
     stores = []
 
+    db = test_db(tmp_path)
+
     def factory():
-        s = SqliteWikiStore(tmp_path / "wiki.db")
+        s = SqliteWikiStore(db)
         stores.append(s)
         return s
 

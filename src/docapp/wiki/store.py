@@ -6,12 +6,12 @@ row_factory = sqlite3.Row, check_same_thread=False, PRAGMA foreign_keys=ON,
 journal_mode=WAL. Таймстемпы — ISO-строки datetime.now().isoformat().
 
 Модель данных:
-- sources      — источник правды (загруженный PDF), неизменяем после OCR;
-- articles     — курируемая статья (.md-тезисы), статус draft/published/archived;
-- revisions    — версии статьи (версионирование + откат + публикация);
-- article_links — связь статья -> источник (многие-ко-многим, с якорем);
-- messages     — история QA + учёт токенов;
-- settings     — настройки (системный промпт, top_k, температура, история).
+- wiki_sources      — источник правды (загруженный PDF), неизменяем после OCR;
+- wiki_articles     — курируемая статья (.md-тезисы), статус draft/published/archived;
+- wiki_revisions    — версии статьи (версионирование + откат + публикация);
+- wiki_article_links — связь статья -> источник (многие-ко-многим, с якорем);
+- wiki_messages     — история QA + учёт токенов;
+- wiki_settings     — настройки (системный промпт, top_k, температура, история).
 """
 
 from __future__ import annotations
@@ -23,13 +23,13 @@ from pathlib import Path
 from docapp.core.db import Schema, open_db
 
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS sources (
+CREATE TABLE IF NOT EXISTS wiki_sources (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     filename    TEXT NOT NULL,
     doc_number  TEXT NOT NULL DEFAULT '',
     title       TEXT NOT NULL DEFAULT '',
     added_at    TEXT NOT NULL,
-    uploaded_by INTEGER NOT NULL,
+    uploaded_by INTEGER NOT NULL REFERENCES employees(id),
     page_count  INTEGER NOT NULL DEFAULT 0,
     ocr_status  TEXT NOT NULL DEFAULT 'pending',  -- pending/processing/done/error
     ocr_error   TEXT NOT NULL DEFAULT '',
@@ -38,39 +38,39 @@ CREATE TABLE IF NOT EXISTS sources (
     source      BLOB,                              -- оригинальный PDF
     source_name TEXT NOT NULL DEFAULT ''
 );
-CREATE TABLE IF NOT EXISTS articles (
+CREATE TABLE IF NOT EXISTS wiki_articles (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     title         TEXT NOT NULL DEFAULT '',
     status        TEXT NOT NULL DEFAULT 'draft',   -- draft/published/archived
     published_revision_id INTEGER,                 -- «живая» ревизия для ответов
-    created_by    INTEGER NOT NULL,
+    created_by    INTEGER NOT NULL REFERENCES employees(id),
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS revisions (
+CREATE TABLE IF NOT EXISTS wiki_revisions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    article_id  INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+    article_id  INTEGER NOT NULL REFERENCES wiki_articles(id) ON DELETE CASCADE,
     version     INTEGER NOT NULL,
     body_md     TEXT NOT NULL DEFAULT '',          -- .md-текст статьи
     rendered    TEXT NOT NULL DEFAULT '',          -- обычный текст (для поиска)
-    edited_by   INTEGER NOT NULL,
+    edited_by   INTEGER NOT NULL REFERENCES employees(id),
     created_at  TEXT NOT NULL,
     change_note TEXT NOT NULL DEFAULT '',
     is_current  INTEGER NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_rev_article_ver ON revisions(article_id, version);
-CREATE INDEX IF NOT EXISTS idx_rev_article ON revisions(article_id);
-CREATE TABLE IF NOT EXISTS article_links (
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rev_article_ver ON wiki_revisions(article_id, version);
+CREATE INDEX IF NOT EXISTS idx_rev_article ON wiki_revisions(article_id);
+CREATE TABLE IF NOT EXISTS wiki_article_links (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
-    source_id  INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    article_id INTEGER NOT NULL REFERENCES wiki_articles(id) ON DELETE CASCADE,
+    source_id  INTEGER NOT NULL REFERENCES wiki_sources(id) ON DELETE CASCADE,
     anchor     TEXT NOT NULL DEFAULT ''            -- «стр. 3, п. 2.1»
 );
-CREATE INDEX IF NOT EXISTS idx_links_article ON article_links(article_id);
-CREATE INDEX IF NOT EXISTS idx_links_source ON article_links(source_id);
-CREATE TABLE IF NOT EXISTS messages (
+CREATE INDEX IF NOT EXISTS idx_links_article ON wiki_article_links(article_id);
+CREATE INDEX IF NOT EXISTS idx_links_source ON wiki_article_links(source_id);
+CREATE TABLE IF NOT EXISTS wiki_messages (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    employee_id       INTEGER NOT NULL,
+    employee_id       INTEGER NOT NULL REFERENCES employees(id),
     conversation_id   TEXT NOT NULL,
     role              TEXT NOT NULL,               -- 'user' | 'assistant'
     content           TEXT NOT NULL,
@@ -79,9 +79,9 @@ CREATE TABLE IF NOT EXISTS messages (
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     created_at        TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_msg_emp  ON messages(employee_id, created_at);
-CREATE TABLE IF NOT EXISTS settings (
+CREATE INDEX IF NOT EXISTS idx_msg_conv ON wiki_messages(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_msg_emp  ON wiki_messages(employee_id, created_at);
+CREATE TABLE IF NOT EXISTS wiki_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
 );
@@ -145,7 +145,7 @@ class SqliteWikiStore:
         source_name: str = "",
     ) -> int:
         cur = self._conn.execute(
-            "INSERT INTO sources (filename, doc_number, title, added_at, "
+            "INSERT INTO wiki_sources (filename, doc_number, title, added_at, "
             "uploaded_by, source, source_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (filename, doc_number, title, added_at, uploaded_by, source, source_name),
         )
@@ -155,19 +155,19 @@ class SqliteWikiStore:
 
     def get_source(self, source_id: int) -> sqlite3.Row | None:
         return self._conn.execute(
-            "SELECT * FROM sources WHERE id = ?", (source_id,)
+            "SELECT * FROM wiki_sources WHERE id = ?", (source_id,)
         ).fetchone()
 
     def list_sources(self) -> list[sqlite3.Row]:
         return self._conn.execute(
-            "SELECT * FROM sources ORDER BY added_at DESC, id DESC"
+            "SELECT * FROM wiki_sources ORDER BY added_at DESC, id DESC"
         ).fetchall()
 
     def set_ocr_result(
         self, source_id: int, ocr_text: str, tables_json: str, page_count: int
     ) -> None:
         self._conn.execute(
-            "UPDATE sources SET ocr_text = ?, tables_json = ?, page_count = ?, "
+            "UPDATE wiki_sources SET ocr_text = ?, tables_json = ?, page_count = ?, "
             "ocr_status = 'done', ocr_error = '' WHERE id = ?",
             (ocr_text, tables_json, page_count, source_id),
         )
@@ -175,20 +175,20 @@ class SqliteWikiStore:
 
     def set_ocr_status(self, source_id: int, status: str, error: str = "") -> None:
         self._conn.execute(
-            "UPDATE sources SET ocr_status = ?, ocr_error = ? WHERE id = ?",
+            "UPDATE wiki_sources SET ocr_status = ?, ocr_error = ? WHERE id = ?",
             (status, error, source_id),
         )
         self._conn.commit()
 
     def delete_source(self, source_id: int) -> None:
-        self._conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+        self._conn.execute("DELETE FROM wiki_sources WHERE id = ?", (source_id,))
         self._conn.commit()
 
     # ── статьи ────────────────────────────────────────────────────────
 
     def add_article(self, title: str, created_by: int, created_at: str) -> int:
         cur = self._conn.execute(
-            "INSERT INTO articles (title, created_by, created_at, updated_at) "
+            "INSERT INTO wiki_articles (title, created_by, created_at, updated_at) "
             "VALUES (?, ?, ?, ?)",
             (title, created_by, created_at, created_at),
         )
@@ -198,11 +198,11 @@ class SqliteWikiStore:
 
     def get_article(self, article_id: int) -> sqlite3.Row | None:
         return self._conn.execute(
-            "SELECT * FROM articles WHERE id = ?", (article_id,)
+            "SELECT * FROM wiki_articles WHERE id = ?", (article_id,)
         ).fetchone()
 
     def list_articles(self, include_archived: bool = False) -> list[sqlite3.Row]:
-        sql = "SELECT * FROM articles"
+        sql = "SELECT * FROM wiki_articles"
         if not include_archived:
             sql += " WHERE status != 'archived'"
         sql += " ORDER BY updated_at DESC, id DESC"
@@ -210,34 +210,34 @@ class SqliteWikiStore:
 
     def list_published_articles(self) -> list[sqlite3.Row]:
         return self._conn.execute(
-            "SELECT * FROM articles WHERE status = 'published' "
+            "SELECT * FROM wiki_articles WHERE status = 'published' "
             "AND published_revision_id IS NOT NULL ORDER BY updated_at DESC, id DESC"
         ).fetchall()
 
     def set_title(self, article_id: int, title: str, updated_at: str) -> None:
         self._conn.execute(
-            "UPDATE articles SET title = ?, updated_at = ? WHERE id = ?",
+            "UPDATE wiki_articles SET title = ?, updated_at = ? WHERE id = ?",
             (title, updated_at, article_id),
         )
         self._conn.commit()
 
     def set_article_status(self, article_id: int, status: str, updated_at: str) -> None:
         self._conn.execute(
-            "UPDATE articles SET status = ?, updated_at = ? WHERE id = ?",
+            "UPDATE wiki_articles SET status = ?, updated_at = ? WHERE id = ?",
             (status, updated_at, article_id),
         )
         self._conn.commit()
 
     def set_published_revision(self, article_id: int, revision_id: int, updated_at: str) -> None:
         self._conn.execute(
-            "UPDATE articles SET published_revision_id = ?, status = 'published', "
+            "UPDATE wiki_articles SET published_revision_id = ?, status = 'published', "
             "updated_at = ? WHERE id = ?",
             (revision_id, updated_at, article_id),
         )
         self._conn.commit()
 
     def delete_article(self, article_id: int) -> None:
-        self._conn.execute("DELETE FROM articles WHERE id = ?", (article_id,))
+        self._conn.execute("DELETE FROM wiki_articles WHERE id = ?", (article_id,))
         self._conn.commit()
 
     # ── ревизии ───────────────────────────────────────────────────────
@@ -254,10 +254,10 @@ class SqliteWikiStore:
     ) -> int:
         # Новая ревизия становится текущей (is_current=1), прочие сбрасываются.
         self._conn.execute(
-            "UPDATE revisions SET is_current = 0 WHERE article_id = ?", (article_id,)
+            "UPDATE wiki_revisions SET is_current = 0 WHERE article_id = ?", (article_id,)
         )
         cur = self._conn.execute(
-            "INSERT INTO revisions (article_id, version, body_md, rendered, "
+            "INSERT INTO wiki_revisions (article_id, version, body_md, rendered, "
             "edited_by, created_at, change_note, is_current) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
             (article_id, version, body_md, rendered, edited_by, created_at, change_note),
@@ -268,18 +268,18 @@ class SqliteWikiStore:
 
     def get_revision(self, revision_id: int) -> sqlite3.Row | None:
         return self._conn.execute(
-            "SELECT * FROM revisions WHERE id = ?", (revision_id,)
+            "SELECT * FROM wiki_revisions WHERE id = ?", (revision_id,)
         ).fetchone()
 
     def current_revision(self, article_id: int) -> sqlite3.Row | None:
         return self._conn.execute(
-            "SELECT * FROM revisions WHERE article_id = ? AND is_current = 1",
+            "SELECT * FROM wiki_revisions WHERE article_id = ? AND is_current = 1",
             (article_id,),
         ).fetchone()
 
     def published_revision(self, article_id: int) -> sqlite3.Row | None:
         row = self._conn.execute(
-            "SELECT published_revision_id FROM articles WHERE id = ?", (article_id,)
+            "SELECT published_revision_id FROM wiki_articles WHERE id = ?", (article_id,)
         ).fetchone()
         if row is None or row["published_revision_id"] is None:
             return None
@@ -287,13 +287,13 @@ class SqliteWikiStore:
 
     def list_revisions(self, article_id: int) -> list[sqlite3.Row]:
         return self._conn.execute(
-            "SELECT * FROM revisions WHERE article_id = ? ORDER BY version DESC",
+            "SELECT * FROM wiki_revisions WHERE article_id = ? ORDER BY version DESC",
             (article_id,),
         ).fetchall()
 
     def next_version(self, article_id: int) -> int:
         row = self._conn.execute(
-            "SELECT COALESCE(MAX(version), 0) AS m FROM revisions WHERE article_id = ?",
+            "SELECT COALESCE(MAX(version), 0) AS m FROM wiki_revisions WHERE article_id = ?",
             (article_id,),
         ).fetchone()
         return row["m"] + 1
@@ -302,28 +302,28 @@ class SqliteWikiStore:
 
     def add_link(self, article_id: int, source_id: int, anchor: str = "") -> None:
         self._conn.execute(
-            "INSERT INTO article_links (article_id, source_id, anchor) VALUES (?, ?, ?)",
+            "INSERT INTO wiki_article_links (article_id, source_id, anchor) VALUES (?, ?, ?)",
             (article_id, source_id, anchor),
         )
         self._conn.commit()
 
     def clear_links(self, article_id: int) -> None:
         self._conn.execute(
-            "DELETE FROM article_links WHERE article_id = ?", (article_id,)
+            "DELETE FROM wiki_article_links WHERE article_id = ?", (article_id,)
         )
         self._conn.commit()
 
     def list_links(self, article_id: int) -> list[sqlite3.Row]:
         return self._conn.execute(
             "SELECT l.*, s.filename, s.doc_number, s.title AS source_title "
-            "FROM article_links l JOIN sources s ON s.id = l.source_id "
+            "FROM wiki_article_links l JOIN wiki_sources s ON s.id = l.source_id "
             "WHERE l.article_id = ? ORDER BY l.id",
             (article_id,),
         ).fetchall()
 
     def articles_for_source(self, source_id: int) -> list[sqlite3.Row]:
         return self._conn.execute(
-            "SELECT a.* FROM article_links l JOIN articles a ON a.id = l.article_id "
+            "SELECT a.* FROM wiki_article_links l JOIN wiki_articles a ON a.id = l.article_id "
             "WHERE l.source_id = ? ORDER BY a.updated_at DESC",
             (source_id,),
         ).fetchall()
@@ -342,7 +342,7 @@ class SqliteWikiStore:
         created_at: str,
     ) -> int:
         cur = self._conn.execute(
-            "INSERT INTO messages (employee_id, conversation_id, role, content, "
+            "INSERT INTO wiki_messages (employee_id, conversation_id, role, content, "
             "citations, prompt_tokens, completion_tokens, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
@@ -362,15 +362,15 @@ class SqliteWikiStore:
 
     def list_messages(self, conversation_id: str) -> list[sqlite3.Row]:
         return self._conn.execute(
-            "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at, id",
+            "SELECT * FROM wiki_messages WHERE conversation_id = ? ORDER BY created_at, id",
             (conversation_id,),
         ).fetchall()
 
     def list_conversations(self, employee_id: int) -> list[sqlite3.Row]:
         return self._conn.execute(
             "SELECT m.conversation_id, m.content, m.created_at "
-            "FROM messages m "
-            "JOIN (SELECT conversation_id, MAX(id) AS max_id FROM messages "
+            "FROM wiki_messages m "
+            "JOIN (SELECT conversation_id, MAX(id) AS max_id FROM wiki_messages "
             "      WHERE employee_id = ? GROUP BY conversation_id) last "
             "  ON m.id = last.max_id "
             "ORDER BY m.created_at DESC, m.id DESC",
@@ -383,7 +383,7 @@ class SqliteWikiStore:
         sql = (
             "SELECT employee_id, SUM(prompt_tokens) AS total_prompt, "
             "SUM(completion_tokens) AS total_completion, COUNT(*) AS count "
-            "FROM messages"
+            "FROM wiki_messages"
         )
         params: list[str] = []
         conditions: list[str] = []
@@ -405,7 +405,7 @@ class SqliteWikiStore:
             "SELECT substr(created_at, 1, 10) AS day, "
             "SUM(prompt_tokens) AS total_prompt, "
             "SUM(completion_tokens) AS total_completion, COUNT(*) AS count "
-            "FROM messages"
+            "FROM wiki_messages"
         )
         params: list[str] = []
         conditions: list[str] = []
@@ -424,13 +424,13 @@ class SqliteWikiStore:
 
     def get_setting(self, key: str) -> str | None:
         row = self._conn.execute(
-            "SELECT value FROM settings WHERE key = ?", (key,)
+            "SELECT value FROM wiki_settings WHERE key = ?", (key,)
         ).fetchone()
         return row["value"] if row else None
 
     def set_setting(self, key: str, value: str) -> None:
         self._conn.execute(
-            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "INSERT INTO wiki_settings (key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, value),
         )

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from docapp.core.registry import Module
+from docapp.core.registry import AppContext, Module
 from docapp.duty.config import load_duty_config
 from docapp.duty.container import DutyContainer
 from docapp.duty.router import router
@@ -14,14 +14,13 @@ from docapp.duty.service import DutyService
 from docapp.duty.store import SCHEMA, SqliteDutyStore
 
 
-def build() -> DutyContainer:
-    """Собрать контейнер: конфиг, БД отчётов, сервис.
+def build(context: AppContext) -> DutyContainer:
+    """Собрать контейнер: конфиг смены и сервис отчётов.
 
-    Инициализация дешёвая и без сети: создаётся SQLite-файл отчётов.
+    БД — общая для приложения (ADR-0016), путь приходит из AppContext.
     """
     config = load_duty_config()
-    config.db_path.parent.mkdir(parents=True, exist_ok=True)
-    store = SqliteDutyStore(config.db_path)
+    store = SqliteDutyStore(context.db_path)
     return DutyContainer(
         config=config,
         store=store,
@@ -32,7 +31,6 @@ def build() -> DutyContainer:
 MODULE = Module(
     name="duty",
     schema=SCHEMA,
-    db_path=lambda: load_duty_config().db_path,
     build=build,
     router=router,
 )

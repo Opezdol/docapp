@@ -5,13 +5,21 @@
 """
 
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
 
 from docapp.core.db import Schema
-from docapp.core.registry import Module, build_containers, container_of, databases, include_routers
+from docapp.core.registry import (
+    AppContext,
+    Module,
+    build_containers,
+    container_of,
+    databases,
+    include_routers,
+)
 from docapp.duty.module import MODULE as DUTY
 from docapp.modules import MODULES
 from docapp.needs.module import MODULE as NEEDS
@@ -40,12 +48,12 @@ class TestModuleContract:
         names = [module.name for module in MODULES]
         assert names == ["docapp", "wiki", "needs", "duty"]
 
-    def test_every_module_with_schema_has_db_path(self):
-        """Схема без файла (или наоборот) — недособранный модуль."""
+    def test_every_module_with_schema_has_version(self):
+        """Схема модуля — объект Schema с версией (файл у всех один, ADR-0016)."""
         for module in MODULES:
             if module.schema is not None:
-                assert module.db_path is not None, module.name
                 assert isinstance(module.schema, Schema)
+                assert module.schema.version >= 1
 
     def test_core_has_no_build_and_no_router(self):
         """Ядро владеет только схемой: HTTP-часть живёт в web/app.py."""
@@ -62,15 +70,17 @@ class TestModuleContract:
             assert module.router is not None, module.name
 
     def test_module_schema_versions(self):
-        """Версии схем совпадают с тем, что объявляет хранилище модуля."""
+        """Версии схем модулей в единой БД (ADR-0016)."""
         versions = {module.name: module.schema.version for module in MODULES if module.schema}
-        assert versions == {"docapp": 2, "wiki": 1, "needs": 2, "duty": 1}
+        assert versions == {"docapp": 3, "wiki": 1, "needs": 1, "duty": 1}
 
     def test_databases_covers_all_schemas(self):
-        rows = databases(MODULES)
+        """Все схемы объявлены в одном файле — путь у записей одинаковый."""
+        path = Path("/tmp/app.db")
+        rows = databases(MODULES, path)
         assert [name for name, _, _ in rows] == ["docapp", "wiki", "needs", "duty"]
-        for _, path, schema in rows:
-            assert path.name.endswith(".db")
+        for _, row_path, schema in rows:
+            assert row_path == path
             assert isinstance(schema, Schema)
 
 
@@ -82,8 +92,9 @@ class TestBuildContainers:
 
         app = FastAPI()
         skipped = Module(name="only-schema", schema=Schema(module="x", sql="", version=1))
-        built = Module(name="with-build", build=lambda: _Container())
-        containers = build_containers(app, (skipped, built))
+        built = Module(name="with-build", build=lambda context: _Container())
+        context = AppContext(db_path=Path("/tmp/app.db"))
+        containers = build_containers(app, (skipped, built), context)
         assert set(containers) == {"with-build"}
         assert app.state.containers == containers
 
@@ -146,7 +157,6 @@ class TestSubsetOfModules:
     def test_app_with_only_needs(self, tmp_path, monkeypatch):
         from docapp.web.app import create_app
 
-        monkeypatch.setenv("NEEDS_DB", str(tmp_path / "needs.db"))
         monkeypatch.setenv("NEEDS_CATALOG", str(tmp_path / "catalog.yaml"))
         (tmp_path / "catalog.yaml").write_text(
             "bases:\n  Ленская: [травма]\ngroups:\n  Растворы:\n    Рингер: фл\n",
@@ -166,13 +176,11 @@ class TestSubsetOfModules:
     def test_app_with_two_modules(self, tmp_path, monkeypatch):
         from docapp.web.app import create_app
 
-        monkeypatch.setenv("NEEDS_DB", str(tmp_path / "needs.db"))
         monkeypatch.setenv("NEEDS_CATALOG", str(tmp_path / "catalog.yaml"))
         (tmp_path / "catalog.yaml").write_text(
             "bases:\n  Ленская: [травма]\ngroups:\n  Растворы:\n    Рингер: фл\n",
             encoding="utf-8",
         )
-        monkeypatch.setenv("DUTY_DB", str(tmp_path / "duty.db"))
 
         app = create_app(
             db_path=tmp_path / "web.db", secret="test", modules=(NEEDS, DUTY)

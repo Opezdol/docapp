@@ -6,11 +6,12 @@ import pytest
 
 from docapp.needs.catalog import CATEGORY_MEDICAMENTS, CATEGORY_SOLUTIONS
 from docapp.needs.store import SCHEMA_VERSION, SqliteNeedsStore
+from factories import test_db
 
 
 @pytest.fixture
 def store(tmp_path):
-    s = SqliteNeedsStore(tmp_path / "needs.db")
+    s = SqliteNeedsStore(test_db(tmp_path))
     yield s
     s.close_conn()
 
@@ -74,7 +75,7 @@ class TestUpsert:
         )
         assert rid2 == rid1
 
-        rows = store._conn.execute("SELECT COUNT(*) AS c FROM requests").fetchone()
+        rows = store._conn.execute("SELECT COUNT(*) AS c FROM needs_requests").fetchone()
         assert rows["c"] == 1
 
         req = store.get_request("База-1", "Точка-1", CATEGORY_MEDICAMENTS, "2026-08-10")
@@ -94,7 +95,7 @@ class TestUpsert:
             lines=[make_line("Б", 2)],
         )
         assert rid2 != rid1
-        rows = store._conn.execute("SELECT COUNT(*) AS c FROM requests").fetchone()
+        rows = store._conn.execute("SELECT COUNT(*) AS c FROM needs_requests").fetchone()
         assert rows["c"] == 2
 
     def test_same_point_different_category_is_separate(self, store):
@@ -108,7 +109,7 @@ class TestUpsert:
             lines=[make_line("Б", 2)],
         )
         assert rid2 != rid1
-        rows = store._conn.execute("SELECT COUNT(*) AS c FROM requests").fetchone()
+        rows = store._conn.execute("SELECT COUNT(*) AS c FROM needs_requests").fetchone()
         assert rows["c"] == 2
         assert store.get_request("База-1", "Точка-1", CATEGORY_SOLUTIONS, "2026-08-10")["lines"] == [
             make_line("А", 1)
@@ -145,12 +146,12 @@ class TestClosures:
     def test_list_closures(self, store):
         store.close("База-1", CATEGORY_SOLUTIONS, "2026-08-10", closed_by=7)
         store.close("База-2", CATEGORY_MEDICAMENTS, "2026-08-17", closed_by=9)
-        closures = store.list_closures()
-        assert len(closures) == 2
-        assert {c["base"] for c in closures} == {"База-1", "База-2"}
-        assert {c["closed_by"] for c in closures} == {7, 9}
-        assert all(c["closed_at"] for c in closures)
-        assert {c["category"] for c in closures} == {CATEGORY_SOLUTIONS, CATEGORY_MEDICAMENTS}
+        needs_closures = store.list_closures()
+        assert len(needs_closures) == 2
+        assert {c["base"] for c in needs_closures} == {"База-1", "База-2"}
+        assert {c["closed_by"] for c in needs_closures} == {7, 9}
+        assert all(c["closed_at"] for c in needs_closures)
+        assert {c["category"] for c in needs_closures} == {CATEGORY_SOLUTIONS, CATEGORY_MEDICAMENTS}
 
     def test_closed_sections_by_week(self, store):
         """closed_sections: только заданная неделя, только (base, category)."""
@@ -285,132 +286,25 @@ class TestValidationAndCascade:
             "База-1", "Точка-1", CATEGORY_MEDICAMENTS, "2026-08-10", 7,
             lines=[make_line("А", 1), make_line("Б", 2)],
         )
-        store._conn.execute("DELETE FROM requests WHERE id = ?", (rid,))
+        store._conn.execute("DELETE FROM needs_requests WHERE id = ?", (rid,))
         store._conn.commit()
         rows = store._conn.execute(
-            "SELECT COUNT(*) AS c FROM request_lines"
+            "SELECT COUNT(*) AS c FROM needs_request_lines"
         ).fetchone()
         assert rows["c"] == 0
 
 
-def _create_v1_db(db):
-    """Создать БД схемы v1 (без category) с данными — для теста миграции 1→2."""
-    conn = sqlite3.connect(str(db))
-    conn.executescript(
-        """
-        CREATE TABLE requests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            base TEXT NOT NULL,
-            point TEXT NOT NULL,
-            week_start TEXT NOT NULL,
-            author_id INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT 'draft',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            UNIQUE (base, point, week_start)
-        );
-        CREATE TABLE request_lines (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            request_id INTEGER NOT NULL REFERENCES requests(id) ON DELETE CASCADE,
-            item TEXT NOT NULL,
-            unit TEXT NOT NULL DEFAULT '',
-            grp TEXT NOT NULL DEFAULT '',
-            qty INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE INDEX idx_lines_req ON request_lines(request_id);
-        CREATE TABLE closures (
-            base TEXT NOT NULL,
-            week_start TEXT NOT NULL,
-            closed_at TEXT NOT NULL,
-            closed_by INTEGER NOT NULL,
-            PRIMARY KEY (base, week_start)
-        );
-        """
-    )
-    conn.execute("PRAGMA user_version = 1")
-    # Заявка с раствор-строкой (смешанная) → solutions.
-    conn.execute(
-        "INSERT INTO requests (base, point, week_start, author_id, status, created_at, updated_at) "
-        "VALUES ('База-1', 'Точка-1', '2026-08-10', 7, 'sent', 't', 't')"
-    )
-    rid = conn.execute("SELECT id FROM requests WHERE point = 'Точка-1'").fetchone()[0]
-    conn.execute(
-        "INSERT INTO request_lines (request_id, item, unit, grp, qty) VALUES (?, 'Физ 200/250', 'фл', 'Растворы', 5)",
-        (rid,),
-    )
-    conn.execute(
-        "INSERT INTO request_lines (request_id, item, unit, grp, qty) VALUES (?, 'Атропин', 'амп', 'Неспецифика', 3)",
-        (rid,),
-    )
-    # Заявка без раствор-строк → medicaments.
-    conn.execute(
-        "INSERT INTO requests (base, point, week_start, author_id, status, created_at, updated_at) "
-        "VALUES ('База-1', 'Точка-2', '2026-08-10', 8, 'draft', 't', 't')"
-    )
-    rid2 = conn.execute("SELECT id FROM requests WHERE point = 'Точка-2'").fetchone()[0]
-    conn.execute(
-        "INSERT INTO request_lines (request_id, item, unit, grp, qty) VALUES (?, 'Атропин', 'амп', 'Неспецифика', 7)",
-        (rid2,),
-    )
-    # Закрытие базы — должно продублироваться на оба раздела.
-    conn.execute(
-        "INSERT INTO closures (base, week_start, closed_at, closed_by) VALUES ('База-1', '2026-08-10', 't', 9)"
-    )
-    conn.commit()
-    conn.close()
-
-
-class TestMigration:
-    def test_migration_v1_to_v2_preserves_data(self, tmp_path):
-        """Миграция 1→2: категория выводится по строкам, закрытия дублируются."""
-        db = tmp_path / "needs.db"
-        _create_v1_db(db)
-
-        s = SqliteNeedsStore(db)
-        try:
-            assert s._conn.execute("PRAGMA user_version").fetchone()[0] == 2
-
-            # раствор-заявка → solutions, строки сохранены
-            req = s.get_request("База-1", "Точка-1", CATEGORY_SOLUTIONS, "2026-08-10")
-            assert req is not None
-            assert req["category"] == CATEGORY_SOLUTIONS
-            assert [line["item"] for line in req["lines"]] == ["Физ 200/250", "Атропин"]
-            # в раздел medicaments эта заявка не попала
-            assert s.get_request("База-1", "Точка-1", CATEGORY_MEDICAMENTS, "2026-08-10") is None
-
-            # медикамент-заявка → medicaments
-            med = s.get_request("База-1", "Точка-2", CATEGORY_MEDICAMENTS, "2026-08-10")
-            assert med is not None
-            assert med["category"] == CATEGORY_MEDICAMENTS
-            assert [line["item"] for line in med["lines"]] == ["Атропин"]
-
-            # закрытие продублировано на оба раздела
-            assert s.is_closed("База-1", CATEGORY_SOLUTIONS, "2026-08-10") is True
-            assert s.is_closed("База-1", CATEGORY_MEDICAMENTS, "2026-08-10") is True
-
-            # после миграции CRUD работает с новой схемой
-            new_id = s.save_request(
-                "База-1", "Точка-1", CATEGORY_MEDICAMENTS, "2026-08-10", 7,
-                lines=[make_line("Новое", 1)],
-            )
-            assert new_id is not None
-            new_req = s.get_request("База-1", "Точка-1", CATEGORY_MEDICAMENTS, "2026-08-10")
-            assert new_req is not None
-            assert new_req["lines"] == [make_line("Новое", 1)]
-        finally:
-            s.close_conn()
-
-
 class TestSchema:
-    def test_schema_version_is_2(self):
-        assert SCHEMA_VERSION == 2
+    def test_schema_version_is_1(self):
+        """В единой БД схема создаётся сразу в целевом виде (ADR-0016)."""
+        assert SCHEMA_VERSION == 1
 
     def test_requests_have_category_column(self, store):
         store.save_request(
             "База-1", "Точка-1", CATEGORY_SOLUTIONS, "2026-08-10", 7,
             lines=[make_line("А", 1)],
         )
-        cols = {r["name"] for r in store._conn.execute("PRAGMA table_info(requests)").fetchall()}
+        cols = {r["name"] for r in store._conn.execute("PRAGMA table_info(needs_requests)").fetchall()}
         assert "category" in cols
-        ccols = {r["name"] for r in store._conn.execute("PRAGMA table_info(closures)").fetchall()}
+        ccols = {r["name"] for r in store._conn.execute("PRAGMA table_info(needs_closures)").fetchall()}
         assert "category" in ccols

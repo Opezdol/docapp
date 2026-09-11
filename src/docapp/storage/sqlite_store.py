@@ -32,17 +32,25 @@ CREATE TABLE IF NOT EXISTS anesthesia (
     patient_name   TEXT NOT NULL,
     doctor_id      INTEGER NOT NULL REFERENCES employees(id),
     nurse_id       INTEGER NOT NULL REFERENCES employees(id),
-    created_at     TEXT NOT NULL
+    created_at     TEXT NOT NULL,
+    accrued_at     TEXT
 );
 CREATE TABLE IF NOT EXISTS active_nurse (
     doctor_id INTEGER PRIMARY KEY REFERENCES employees(id),
     nurse_id  INTEGER NOT NULL REFERENCES employees(id)
 );
+-- Итоги начислений за месяц (задел под ТЗ docs/ТЗ-отчёт.md, ADR-0024).
+CREATE TABLE IF NOT EXISTS accrual (
+    employee_id INTEGER NOT NULL REFERENCES employees(id),
+    month       TEXT NOT NULL,
+    amount      TEXT NOT NULL,
+    PRIMARY KEY (employee_id, month)
+);
 """
 
 # Версия схемы основной БД (PRAGMA user_version). Увеличивайте на 1 при
 # каждом изменении схемы и добавляйте миграцию в _MIGRATIONS ниже.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Миграции: каждая — (версия_после_применения, название, список SQL).
 # Применяются по порядку, только если user_version < версии миграции.
@@ -72,6 +80,21 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "FROM anesthesia",
             "DROP TABLE anesthesia",
             "ALTER TABLE anesthesia_new RENAME TO anesthesia",
+        ],
+    ),
+    # v3: задел под «Отчёт» (начисления) — флаг на записи и итоги за месяц
+    # (docs/ТЗ-отчёт.md, ADR-0024). Суммы живут только в accrual, на записях —
+    # один флаг «начислено» (деньги отдельно от записей).
+    (
+        3,
+        "add accrual table and accrued_at column",
+        [
+            "ALTER TABLE anesthesia ADD COLUMN accrued_at TEXT",
+            "CREATE TABLE IF NOT EXISTS accrual ("
+            "employee_id INTEGER NOT NULL REFERENCES employees(id), "
+            "month TEXT NOT NULL, "
+            "amount TEXT NOT NULL, "
+            "PRIMARY KEY (employee_id, month))",
         ],
     ),
 ]

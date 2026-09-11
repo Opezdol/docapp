@@ -34,6 +34,17 @@ T = TypeVar("T")
 
 
 @dataclass(frozen=True)
+class AppContext:
+    """Что приложение передаёт модулям при сборке.
+
+    Сейчас это путь к единой БД (ADR-0016): модули больше не знают, где лежит
+    «их» файл, — файл один на всех.
+    """
+
+    db_path: Path
+
+
+@dataclass(frozen=True)
 class Module:
     """Контракт модуля: имя, владение схемой, сборка контейнера, HTTP-адаптер.
 
@@ -43,18 +54,19 @@ class Module:
 
     name: str
     schema: Schema | None = None
-    db_path: Callable[[], Path] | None = None
-    build: Callable[[], object] | None = None
+    build: Callable[[AppContext], object] | None = None
     router: APIRouter | None = None
 
 
-def build_containers(app: FastAPI, modules: Sequence[Module]) -> dict[str, object]:
+def build_containers(
+    app: FastAPI, modules: Sequence[Module], context: AppContext
+) -> dict[str, object]:
     """Собрать контейнеры модулей и положить их в состояние приложения."""
     containers: dict[str, object] = {}
     for module in modules:
         if module.build is None:
             continue
-        containers[module.name] = module.build()
+        containers[module.name] = module.build(context)
     app.state.containers = containers
     return containers
 
@@ -84,11 +96,15 @@ def container_of(request: Request, name: str, expected: type[T]) -> T:
     return value
 
 
-def databases(modules: Sequence[Module]) -> list[tuple[str, Path, Schema]]:
-    """Реестр баз: (имя модуля, файл, схема) — для `docapp migrate` и бэкапа."""
+def databases(modules: Sequence[Module], db_path: Path) -> list[tuple[str, Path, Schema]]:
+    """Реестр баз: (имя модуля, файл, схема) — для `docapp migrate` и бэкапа.
+
+    База одна на все модули (ADR-0016), поэтому путь у всех записей один:
+    реестр нужен, чтобы пройти по схемам каждого модуля.
+    """
     result: list[tuple[str, Path, Schema]] = []
     for module in modules:
-        if module.schema is None or module.db_path is None:
+        if module.schema is None:
             continue
-        result.append((module.name, Path(module.db_path()), module.schema))
+        result.append((module.name, Path(db_path), module.schema))
     return result
