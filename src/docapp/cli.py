@@ -187,6 +187,7 @@ def _import_legacy(args: argparse.Namespace) -> int:
             needs_db=sources["needs"],
             wiki_db=sources["wiki"],
             duty_db=sources["duty"],
+            sources_dir=args.sources_dir,
             skip_orphans=args.skip_orphans,
         )
     except LegacyImportError as exc:
@@ -259,6 +260,10 @@ def main() -> int:
     p_import.add_argument("--wiki", help="прежняя БД «Компендиума» (data/wiki/wiki.db)")
     p_import.add_argument("--duty", help="прежняя БД «Дежурств» (data/duty/duty.db)")
     p_import.add_argument("--target", help="целевая единая БД (по умолчанию DOCAPP_DB)")
+    p_import.add_argument(
+        "--sources-dir",
+        help="папка PDF-источников «Компендиума» (по умолчанию WIKI_SOURCES_DIR)",
+    )
     p_import.add_argument(
         "--skip-orphans",
         action="store_true",

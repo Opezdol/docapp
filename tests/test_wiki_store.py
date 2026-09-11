@@ -25,12 +25,14 @@ def store_factory(tmp_path):
 def test_add_and_get_source(store_factory):
     store = store_factory()
     sid = store.add_source(
-        "prikaz.pdf", "123", "Приказ 123", "2026-08-01T10:00:00", 1, b"%PDF", "prikaz.pdf"
+        "prikaz.pdf", "123", "Приказ 123", "2026-08-01T10:00:00", 1, stored_name="ab12.pdf"
     )
     row = store.get_source(sid)
     assert row["doc_number"] == "123"
     assert row["ocr_status"] == "pending"
-    assert row["source"] == b"%PDF"
+    # PDF в БД не лежит: хранится имя файла в хранилище (ADR-0020)
+    assert row["stored_name"] == "ab12.pdf"
+    assert "source" not in row.keys()
     assert store.list_sources()[0]["id"] == sid
 
 

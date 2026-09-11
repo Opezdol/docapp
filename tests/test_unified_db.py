@@ -73,7 +73,7 @@ class TestOneFile:
             ("docapp", 3),
             ("duty", 1),
             ("needs", 1),
-            ("wiki", 1),
+            ("wiki", 2),
         ]
 
     def test_schema_of_one_module_does_not_touch_another(self, tmp_path):

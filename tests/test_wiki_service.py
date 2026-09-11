@@ -29,8 +29,9 @@ def store(tmp_path):
     s.close()
 
 
-def make_service(store):
-    return WikiService(store, FakeLLM())
+def make_service(store, sources_dir=None):
+    """Сервис с папкой источников в tmp: PDF кладутся туда (ADR-0020)."""
+    return WikiService(store, FakeLLM(), sources_dir=sources_dir or store.db_dir / "sources")
 
 
 def add_published_article(service, title="Атропин", body=None):
@@ -125,14 +126,72 @@ def test_editor_can_curate_doctor_cannot(store):
         service.save_article(1, NURSE, None, "# C\nТекст")
 
 
-def test_source_flow(store, monkeypatch):
-    service = make_service(store)
+def test_source_flow_writes_file_not_blob(store, monkeypatch):
+    """PDF уходит файлом в хранилище, в БД — только имя файла (ADR-0020)."""
     # подменяем page_count, чтобы не создавать реальный PDF
     monkeypatch.setattr("docapp.wiki.parser.page_count", lambda path: 2)
+    service = make_service(store)
     source = service.add_source(1, HEAD, "prikaz.pdf", b"%PDF-1.4")
+
     assert source["page_count"] == 2
     assert source["ocr_status"] == "pending"
-    assert service.source_file(source["id"])["name"] == "prikaz.pdf"
+
+    row = store.get_source(source["id"])
+    assert "source" not in row.keys()          # BLOB в БД больше нет
+    assert row["page_count"] == 2              # число страниц видно сразу, до OCR
+    stored = service.sources_dir / row["stored_name"]
+    assert stored.is_file()
+    assert stored.read_bytes() == b"%PDF-1.4"
+
+    downloaded = service.source_file(source["id"])
+    assert downloaded["data"] == b"%PDF-1.4"
+    assert downloaded["name"] == "prikaz.pdf"  # человеку — имя, как загрузили
+
+    service.delete_source(source["id"], HEAD)
+    assert not stored.exists()                 # удаление уносит и файл
+    assert service.source_file(source["id"]) is None
+
+
+def test_source_without_file_is_reported(store):
+    """Запись есть, файла нет (старая база) — «нет файла», а не падение."""
+    service = make_service(store)
+    sid = store.add_source("старый.pdf", "", "Старый", "2026-03-01T09:00:00", 1)
+
+    assert service.source_file(sid) is None
+    service.run_ocr(sid)
+    assert store.get_source(sid)["ocr_status"] == "error"
+    assert "не сохранён" in store.get_source(sid)["ocr_error"]
+
+
+def test_shared_file_survives_until_last_record(store, monkeypatch):
+    """Одинаковые PDF делят файл: он уходит только с последней записью."""
+    monkeypatch.setattr("docapp.wiki.parser.page_count", lambda path: 1)
+    service = make_service(store)
+
+    first = service.add_source(1, HEAD, "приказ.pdf", "%PDF-1.4 один".encode("utf-8"))
+    second = service.add_source(1, HEAD, "копия приказа.pdf", "%PDF-1.4 один".encode("utf-8"))
+    stored = service.sources_dir / store.get_source(first["id"])["stored_name"]
+    assert stored.is_file()
+    assert store.get_source(second["id"])["stored_name"] == store.get_source(first["id"])["stored_name"]
+
+    service.delete_source(first["id"], HEAD)
+    assert stored.is_file()                    # на файл ещё ссылается вторая запись
+
+    service.delete_source(second["id"], HEAD)
+    assert not stored.exists()
+
+
+def test_broken_pdf_leaves_no_file(store, monkeypatch):
+    """Битый PDF не оставляет мусор в хранилище."""
+    def boom(path):
+        raise ValueError("не PDF")
+
+    monkeypatch.setattr("docapp.wiki.parser.page_count", boom)
+    service = make_service(store)
+    with pytest.raises(ValueError):
+        service.add_source(1, HEAD, "битый.pdf", "не pdf".encode("utf-8"))
+
+    assert not list(service.sources_dir.glob("*.pdf"))
 
 
 def test_settings_default_and_update(store):

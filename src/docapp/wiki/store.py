@@ -25,7 +25,7 @@ from docapp.core.db import Schema, open_db
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS wiki_sources (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    filename    TEXT NOT NULL,
+    filename    TEXT NOT NULL,                     -- имя, как загрузили (человеку)
     doc_number  TEXT NOT NULL DEFAULT '',
     title       TEXT NOT NULL DEFAULT '',
     added_at    TEXT NOT NULL,
@@ -35,8 +35,7 @@ CREATE TABLE IF NOT EXISTS wiki_sources (
     ocr_error   TEXT NOT NULL DEFAULT '',
     ocr_text    TEXT NOT NULL DEFAULT '',          -- распознанный текст
     tables_json TEXT NOT NULL DEFAULT '[]',        -- таблицы (JSON: list[list[list[str]]])
-    source      BLOB,                              -- оригинальный PDF
-    source_name TEXT NOT NULL DEFAULT ''
+    stored_name TEXT NOT NULL DEFAULT ''           -- имя файла в хранилище (ADR-0020)
 );
 CREATE TABLE IF NOT EXISTS wiki_articles (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,10 +87,55 @@ CREATE TABLE IF NOT EXISTS wiki_settings (
 """
 
 # Версия схемы БД «Компендиума».
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     # (1, "initial schema", [])
+    # v2 (ADR-0020): PDF-источник переехал из BLOB в файл на диске. Убрать
+    # колонку `source` и добавить имя файла в хранилище. Пересборка через копию:
+    # ALTER TABLE … DROP COLUMN требует SQLite ≥ 3.35, а на хостинге он старше.
+    #
+    # Внешние ключи выключаются на время пересборки: `wiki_article_links`
+    # ссылается на `wiki_sources` с ON DELETE CASCADE, и обычный DROP TABLE
+    # снёс бы ссылки на статьи. Обратно ключи включает core.db после миграций.
+    (
+        2,
+        "PDF источников файлами на диске",
+        [
+            "PRAGMA foreign_keys = OFF",
+            "CREATE TABLE wiki_sources_new ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "filename TEXT NOT NULL, "
+            "doc_number TEXT NOT NULL DEFAULT '', "
+            "title TEXT NOT NULL DEFAULT '', "
+            "added_at TEXT NOT NULL, "
+            "uploaded_by INTEGER NOT NULL REFERENCES employees(id), "
+            "page_count INTEGER NOT NULL DEFAULT 0, "
+            "ocr_status TEXT NOT NULL DEFAULT 'pending', "
+            "ocr_error TEXT NOT NULL DEFAULT '', "
+            "ocr_text TEXT NOT NULL DEFAULT '', "
+            "tables_json TEXT NOT NULL DEFAULT '[]', "
+            "stored_name TEXT NOT NULL DEFAULT '')",
+            "INSERT INTO wiki_sources_new (id, filename, doc_number, title, added_at, "
+            "uploaded_by, page_count, ocr_status, ocr_error, ocr_text, tables_json, "
+            "stored_name) "
+            "SELECT id, filename, doc_number, title, added_at, uploaded_by, page_count, "
+            "ocr_status, ocr_error, ocr_text, tables_json, '' FROM wiki_sources",
+            "CREATE TABLE wiki_article_links_new ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "article_id INTEGER NOT NULL REFERENCES wiki_articles(id) ON DELETE CASCADE, "
+            "source_id INTEGER NOT NULL REFERENCES wiki_sources(id) ON DELETE CASCADE, "
+            "anchor TEXT NOT NULL DEFAULT '')",
+            "INSERT INTO wiki_article_links_new (id, article_id, source_id, anchor) "
+            "SELECT id, article_id, source_id, anchor FROM wiki_article_links",
+            "DROP TABLE wiki_article_links",
+            "DROP TABLE wiki_sources",
+            "ALTER TABLE wiki_sources_new RENAME TO wiki_sources",
+            "ALTER TABLE wiki_article_links_new RENAME TO wiki_article_links",
+            "CREATE INDEX IF NOT EXISTS idx_links_article ON wiki_article_links(article_id)",
+            "CREATE INDEX IF NOT EXISTS idx_links_source ON wiki_article_links(source_id)",
+        ],
+    ),
 ]
 
 
@@ -118,6 +162,9 @@ class SqliteWikiStore:
     """Источники, статьи, ревизии, связи, история QA и настройки в SQLite."""
 
     def __init__(self, db_path: str | Path) -> None:
+        #: Папка с БД: рядом модуль держит свои файлы — например PDF-источники,
+        #: которые по ADR-0020 лежат на диске, а не в базе.
+        self.db_dir = Path(db_path).parent
         self._conn = _connect(db_path)
 
     def close(self) -> None:
@@ -141,13 +188,14 @@ class SqliteWikiStore:
         title: str,
         added_at: str,
         uploaded_by: int,
-        source: bytes | None = None,
-        source_name: str = "",
+        stored_name: str = "",
+        page_count: int = 0,
     ) -> int:
+        """Записать источник. `filename` — имя для человека, `stored_name` — на диске."""
         cur = self._conn.execute(
             "INSERT INTO wiki_sources (filename, doc_number, title, added_at, "
-            "uploaded_by, source, source_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (filename, doc_number, title, added_at, uploaded_by, source, source_name),
+            "uploaded_by, stored_name, page_count) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (filename, doc_number, title, added_at, uploaded_by, stored_name, page_count),
         )
         self._conn.commit()
         assert cur.lastrowid is not None
@@ -183,6 +231,20 @@ class SqliteWikiStore:
     def delete_source(self, source_id: int) -> None:
         self._conn.execute("DELETE FROM wiki_sources WHERE id = ?", (source_id,))
         self._conn.commit()
+
+    def stored_name_in_use(self, stored_name: str) -> bool:
+        """Ссылается ли на файл хранилища хоть один источник.
+
+        Один и тот же PDF (одинаковый хеш) может быть привязан к нескольким
+        записям: файл удаляется только вместе с последней из них.
+        """
+        if not stored_name:
+            return False
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS c FROM wiki_sources WHERE stored_name = ?",
+            (stored_name,),
+        ).fetchone()
+        return bool(row["c"])
 
     # ── статьи ────────────────────────────────────────────────────────
 

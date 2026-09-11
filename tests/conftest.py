@@ -1,7 +1,27 @@
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
+import os
+
 import pytest
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_module_dirs(tmp_path_factory):
+    """Тесты не пишут в `data/` репозитория.
+
+    При сборке приложения модуль «Компендиум» создаёт папку PDF-источников
+    (ADR-0020) — по умолчанию это `data/wiki/sources` внутри проекта. В тестах
+    уводим её во временную папку: репозиторий остаётся чистым.
+    """
+    base = tmp_path_factory.mktemp("module-dirs")
+    previous = os.environ.get("WIKI_SOURCES_DIR")
+    os.environ["WIKI_SOURCES_DIR"] = str(base / "wiki-sources")
+    yield
+    if previous is None:
+        os.environ.pop("WIKI_SOURCES_DIR", None)
+    else:
+        os.environ["WIKI_SOURCES_DIR"] = previous
 
 
 @pytest.fixture(scope="session")

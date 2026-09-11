@@ -35,6 +35,9 @@ def build(context: AppContext) -> WikiContainer:
             "до его настройки в .env"
         )
     config = load_wiki_config()
+    # Папка источников нужна до первого запроса: PDF кладутся туда файлами
+    # (ADR-0020), а не в БД.
+    config.sources_dir.mkdir(parents=True, exist_ok=True)
     llm = LLMClient(ai_config)
     vision = VisionClient(ai_config)
     return WikiContainer(
@@ -42,7 +45,9 @@ def build(context: AppContext) -> WikiContainer:
         ai_config=ai_config,
         llm=llm,
         vision=vision,
-        service=WikiService(SqliteWikiStore(context.db_path), llm, vision),
+        service=WikiService(
+            SqliteWikiStore(context.db_path), llm, vision, sources_dir=config.sources_dir
+        ),
     )
 
 

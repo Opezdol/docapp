@@ -164,6 +164,9 @@ def ensure_schema(conn: sqlite3.Connection, schema: Schema) -> int:
         _record(conn, schema.module, target, note)
         version = target
 
+    # Миграция могла выключить внешние ключи (пересборка таблиц с каскадами) —
+    # возвращаем их: подключение обязано уходить с включёнными ключами.
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(schema.sql)
     return version
 

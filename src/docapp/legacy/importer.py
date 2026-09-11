@@ -261,6 +261,7 @@ def import_legacy(
     needs_db: str | Path | None = None,
     wiki_db: str | Path | None = None,
     duty_db: str | Path | None = None,
+    sources_dir: str | Path | None = None,
     skip_orphans: bool = False,
 ) -> ImportReport:
     """Перенести данные прежних баз в единую БД.
@@ -269,8 +270,16 @@ def import_legacy(
     не обязательно). Ссылки на несуществующих сотрудников — ошибка: с ними
     внешние ключи не дадут вставить строки, а молча терять данные нельзя.
     `skip_orphans=True` переносит всё остальное, потерянное попадает в отчёт.
+
+    `sources_dir` — папка, куда переезжают PDF-источники «Компендиума» (ADR-0020);
+    без неё берётся папка из настроек модуля.
     """
+    from docapp.wiki.config import load_wiki_config
+
     target = Path(target_db)
+    wiki_sources_dir = (
+        Path(sources_dir) if sources_dir is not None else load_wiki_config().sources_dir
+    )
     report = ImportReport()
 
     # целевая схема: как у приложения — по схеме каждого модуля
@@ -286,7 +295,7 @@ def import_legacy(
         if needs_db is not None:
             _import_needs(Path(needs_db), dst, report, skip_orphans=skip_orphans)
         if wiki_db is not None:
-            _import_wiki(Path(wiki_db), dst, report)
+            _import_wiki(Path(wiki_db), dst, report, sources_dir=wiki_sources_dir)
         if duty_db is not None:
             _import_duty(Path(duty_db), dst, report)
 
@@ -500,7 +509,13 @@ def _import_closures(
     report.add("needs_closures", len(rows), len(payload), note)
 
 
-def _import_wiki(source: Path, dst: sqlite3.Connection, report: ImportReport) -> None:
+def _import_wiki(
+    source: Path,
+    dst: sqlite3.Connection,
+    report: ImportReport,
+    *,
+    sources_dir: Path,
+) -> None:
     if not source.exists():
         report.skipped.append(f"нет файла {source}")
         return
@@ -521,10 +536,7 @@ def _import_wiki(source: Path, dst: sqlite3.Connection, report: ImportReport) ->
                 ]
                 _guard_employees(dst, ids, f"«Компендиум»: {table}.{column}")
 
-        # Колонка source (PDF) пока переносится как есть: файлами на диске она
-        # станет на шаге 4c (ADR-0020).
-        _copy_simple(src, dst, "sources", "wiki_sources", report, key=("id",),
-                     note="PDF пока BLOB-ом (шаг 4c)")
+        _import_wiki_sources(src, dst, report, sources_dir=sources_dir)
         _copy_simple(src, dst, "articles", "wiki_articles", report, key=("id",))
         _copy_simple(src, dst, "revisions", "wiki_revisions", report, key=("id",))
         _copy_simple(src, dst, "article_links", "wiki_article_links", report, key=("id",))
@@ -532,6 +544,73 @@ def _import_wiki(source: Path, dst: sqlite3.Connection, report: ImportReport) ->
         _copy_simple(src, dst, "settings", "wiki_settings", report, key=("key",))
     finally:
         src.close()
+
+
+def _import_wiki_sources(
+    src: sqlite3.Connection,
+    dst: sqlite3.Connection,
+    report: ImportReport,
+    *,
+    sources_dir: Path,
+) -> None:
+    """Источники: PDF из BLOB переезжает в файлы на диске (ADR-0020).
+
+    BLOB в прежней БД — единственная копия приказа, поэтому перенос без папки
+    хранилища останавливается: положить его будет некуда.
+    """
+    from docapp.wiki import files
+
+    if not _table_exists(src, "sources"):
+        report.add("wiki_sources", 0, 0, "нет таблицы в источнике")
+        return
+
+    source_columns = _columns(src, "sources")
+    has_blob = "source" in source_columns
+    columns = [
+        c
+        for c in ("id", "filename", "doc_number", "title", "added_at", "uploaded_by",
+                  "page_count", "ocr_status", "ocr_error", "ocr_text", "tables_json")
+        if c in source_columns
+    ]
+    selected = ", ".join(columns + (["source"] if has_blob else []))
+
+    required = _required_columns(dst, "wiki_sources") - set(columns) - {"stored_name"}
+    if required:
+        raise LegacyImportError(
+            f"sources → wiki_sources: в источнике нет обязательных колонок "
+            f"{sorted(required)}. Перенос без них положил бы пустые значения."
+        )
+
+    rows = src.execute(f"SELECT {selected} FROM sources ORDER BY id").fetchall()
+    payload = []
+    moved = 0
+    for row in rows:
+        blob = row["source"] if has_blob else None
+        stored_name = ""
+        if blob:
+            stored_name = files.store(bytes(blob), sources_dir)
+            moved += 1
+        payload.append(
+            (*(row[column] for column in columns), stored_name)
+        )
+
+    _upsert(
+        dst,
+        "wiki_sources",
+        columns + ["stored_name"],
+        payload,
+        ("id",),
+    )
+    dst.commit()
+
+    notes = []
+    if moved:
+        notes.append(f"PDF в файлах хранилища: {moved}")
+    if has_blob:
+        notes.append("колонка source (BLOB) не переносится")
+    if not moved and has_blob and any(row["source"] for row in rows):
+        notes.append("часть источников осталась без файла")
+    report.add("wiki_sources", len(rows), len(payload), "; ".join(notes))
 
 
 def _import_duty(source: Path, dst: sqlite3.Connection, report: ImportReport) -> None:

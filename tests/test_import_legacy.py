@@ -286,10 +286,14 @@ def _build_legacy(tmp_path, *, needs_sql: str = NEEDS_V1_SQL) -> dict:
         "needs_db": tmp_path / "needs.db",
         "wiki_db": tmp_path / "wiki.db",
         "duty_db": tmp_path / "duty.db",
+        # Папка хранилища PDF: по умолчанию — временная, иначе перенос писал бы
+        # файлы в data/wiki/sources репозитория.
+        "sources_dir": tmp_path / "sources",
     }
 
 
 def _import(paths: dict, **kwargs):
+    kwargs.setdefault("sources_dir", paths["sources_dir"])
     return import_legacy(
         paths["target"],
         core_db=paths["core_db"],
@@ -312,6 +316,14 @@ def _scalar(db: str, sql: str, *params):
     conn = sqlite3.connect(db)
     try:
         return conn.execute(sql, params).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _one(db: str, sql: str) -> tuple:
+    conn = sqlite3.connect(db)
+    try:
+        return conn.execute(sql).fetchone()
     finally:
         conn.close()
 
@@ -437,6 +449,29 @@ class TestImport:
         assert _scalar(target, "SELECT COUNT(*) FROM needs_requests WHERE id = 9") == 0
         note = next(t.note for t in report.tables if t.table == "needs_requests")
         assert "пропущено заявок без сотрудника: 1" in note
+
+    def test_wiki_sources_move_to_files(self, tmp_path):
+        """PDF из BLOB прежней базы становится файлом в хранилище (ADR-0020)."""
+        paths = _build_legacy(tmp_path)
+        sources_dir = tmp_path / "sources"
+        report = _import(paths, sources_dir=sources_dir)
+
+        target = str(paths["target"])
+        row = _one(target, "SELECT filename, stored_name FROM wiki_sources WHERE id = 1")
+        assert row[0] == "prikaz-1.pdf"
+
+        stored = sources_dir / row[1]
+        assert stored.is_file()
+        assert stored.read_bytes() == b"%PDF-1.4 fake"
+        assert "приказ" not in row[1]          # имя файла — хеш, без названия приказа
+
+        note = next(t.note for t in report.tables if t.table == "wiki_sources")
+        assert "PDF в файлах хранилища: 1" in note
+
+        conn = sqlite3.connect(target)
+        columns = {r[1] for r in conn.execute("PRAGMA table_info(wiki_sources)")}
+        conn.close()
+        assert "source" not in columns         # BLOB в целевой схеме больше нет
 
     def test_missing_source_is_reported_not_silent(self, tmp_path):
         """Базы может не быть (сервер её не вёл) — об этом сообщается."""

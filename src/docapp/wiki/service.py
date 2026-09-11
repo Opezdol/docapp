@@ -1,4 +1,4 @@
-"""Сервис подприложения «Компендиум»: QA с цитатами, CRUD статей, версии, публикация.
+"""Сервис модуля «Компендиум»: ответы с цитатами, статьи, версии, публикация.
 
 Связывает хранилище (SqliteWikiStore), поиск по секциям (WikiSearch),
 LLM-клиент и vision-клиент (OCR) в один сервис. В ответах участвуют ТОЛЬКО
@@ -16,6 +16,7 @@ import json
 import threading
 from collections.abc import AsyncIterator
 from datetime import datetime
+from pathlib import Path
 
 from docapp.ai.llm import LLMClient
 from docapp.ai.vision import VisionClient
@@ -63,10 +64,24 @@ class WikiForbidden(ValueError):
 class WikiService:
     """Бизнес-логика «Компендиума»: ответы, статьи, источники, публикация."""
 
-    def __init__(self, store: SqliteWikiStore, llm: LLMClient, vision: VisionClient | None = None) -> None:
+    def __init__(
+        self,
+        store: SqliteWikiStore,
+        llm: LLMClient,
+        vision: VisionClient | None = None,
+        sources_dir: str | Path | None = None,
+    ) -> None:
+        """Собрать сервис «Компендиума».
+
+        sources_dir — папка PDF-источников на диске (ADR-0020). Без неё сервис
+        берёт путь из настроек модуля; тесты и перенос указывают свою папку.
+        """
+        from docapp.wiki.config import load_wiki_config
+
         self.store = store
         self.llm = llm
         self.vision = vision
+        self.sources_dir = Path(sources_dir) if sources_dir else load_wiki_config().sources_dir
         self._reload_index()
 
     # ── индекс опубликованных секций ──────────────────────────────────
@@ -296,33 +311,32 @@ class WikiService:
             raise WikiForbidden("Доступно заведующему или редактору")
 
     def add_source(self, uploaded_by: int, role: str, filename: str, data: bytes) -> dict:
+        """Принять PDF: файл — в хранилище, метаданные — в БД (ADR-0020)."""
         self._require_curator(role)
+        from pathlib import Path
+
+        from docapp.wiki import files
         from docapp.wiki.parser import page_count as _page_count
 
-        from pathlib import Path
-        from tempfile import NamedTemporaryFile
-
-        # Сохраняем во временный файл, чтобы pymupdf мог читать и считать страницы.
-        with NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp.write(data)
-            tmp_path = Path(tmp.name)
-
+        stored_name = files.store(data, self.sources_dir)
         try:
-            pages = _page_count(tmp_path)
-        finally:
-            tmp_path.unlink(missing_ok=True)
+            pages = _page_count(files.path_of(self.sources_dir, stored_name))
+        except Exception:
+            # Битый PDF: файл в хранилище не оставляем — иначе он останется
+            # мусором без записи в БД.
+            files.remove(self.sources_dir, stored_name)
+            raise
 
-        doc_number = ""
         title = Path(filename).stem
         now = datetime.now().isoformat(timespec="seconds")
         source_id = self.store.add_source(
             filename=filename,
-            doc_number=doc_number,
+            doc_number="",
             title=title,
             added_at=now,
             uploaded_by=uploaded_by,
-            source=data,
-            source_name=filename,
+            stored_name=stored_name,
+            page_count=pages,
         )
         return {"id": source_id, "filename": filename, "page_count": pages, "ocr_status": "pending"}
 
@@ -349,44 +363,60 @@ class WikiService:
         return row["ocr_text"] if row is not None else None
 
     def source_file(self, source_id: int) -> dict | None:
+        """Байты PDF из хранилища. None — если файла нет (или запись без файла)."""
+        from docapp.wiki import files
+
         row = self.store.get_source(source_id)
-        if row is None or row["source"] is None:
+        if row is None or not row["stored_name"]:
             return None
-        return {"data": row["source"], "name": row["source_name"] or row["filename"]}
+        try:
+            data = files.read(self.sources_dir, row["stored_name"])
+        except files.SourceFileError:
+            return None
+        return {"data": data, "name": row["filename"]}
 
     def run_ocr(self, source_id: int) -> None:
         """Фоновая обработка источника: OCR (текст/таблицы), статус в БД.
 
         Вызывается в отдельном потоке (см. router). Ошибки пишутся в ocr_error,
-        статус — 'error'; старый файл остаётся доступен для скачивания.
+        статус — 'error'; файл в хранилище остаётся доступен для скачивания.
         """
-        from tempfile import NamedTemporaryFile
-        from pathlib import Path
+        from docapp.wiki import files
 
         row = self.store.get_source(source_id)
-        if row is None or row["source"] is None:
+        if row is None:
+            return
+        if not row["stored_name"]:
+            self.store.set_ocr_status(
+                source_id, "error", "файл источника не сохранён в хранилище"
+            )
             return
         self.store.set_ocr_status(source_id, "processing")
-        tmp_path = None
         try:
-            with NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                tmp.write(row["source"])
-                tmp_path = Path(tmp.name)
-            text, tables, pages = ocr.process_pdf(tmp_path, self.vision)
+            path = files.path_of(self.sources_dir, row["stored_name"])
+            text, tables, pages = ocr.process_pdf(path, self.vision)
             self.store.set_ocr_result(
                 source_id, text, ocr.tables_to_json(tables), pages
             )
         except Exception as exc:  # noqa: BLE001 — статус сохраняется для UI
             self.store.set_ocr_status(source_id, "error", str(exc))
-        finally:
-            if tmp_path is not None:
-                tmp_path.unlink(missing_ok=True)
 
     def delete_source(self, source_id: int, role: str) -> None:
+        """Удалить источник: запись и файл в хранилище.
+
+        Файл убирается только тогда, когда на него больше не ссылается ни одна
+        запись: одинаковые PDF хранятся один раз (хеш содержимого).
+        """
+        from docapp.wiki import files
+
         self._require_curator(role)
-        if self.store.get_source(source_id) is None:
+        row = self.store.get_source(source_id)
+        if row is None:
             raise ValueError("Источник не найден")
         self.store.delete_source(source_id)
+        stored_name = row["stored_name"]
+        if stored_name and not self.store.stored_name_in_use(stored_name):
+            files.remove(self.sources_dir, stored_name)
 
     # ── статьи и ревизии ──────────────────────────────────────────────
 
