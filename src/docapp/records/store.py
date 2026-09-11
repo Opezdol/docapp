@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS active_nurse (
     doctor_id INTEGER PRIMARY KEY REFERENCES employees(id),
     nurse_id  INTEGER NOT NULL REFERENCES employees(id)
 );
--- Итоги начислений за месяц (задел под ТЗ docs/ТЗ-отчёт.md, ADR-0024).
+-- Итоги начислений за месяц — задел прежнего плана «Отчёт» (docs/ТЗ-отчёт.md,
+-- файла больше нет). По ADR-0024 план отменён: таблица удаляется шагом 5
+-- ТЗ `docs/ТЗ-распределение.md`.
 CREATE TABLE IF NOT EXISTS accrual (
     employee_id INTEGER NOT NULL REFERENCES employees(id),
     month       TEXT NOT NULL,
@@ -76,9 +78,11 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "ALTER TABLE anesthesia_new RENAME TO anesthesia",
         ],
     ),
-    # v3: задел под «Отчёт» (начисления) — флаг на записи и итоги за месяц
-    # (docs/ТЗ-отчёт.md, ADR-0024). Суммы живут только в accrual, на записях —
-    # один флаг «начислено» (деньги отдельно от записей).
+    # v3: задел под прежний план «Отчёт» (начисления): флаг на записи и итоги за
+    # месяц. План отменён ADR-0024 — флаг `accrued_at` меняет смысл на «учтена в
+    # распределении», таблица `accrual` удаляется отдельной миграцией
+    # (`docs/ТЗ-распределение.md`, шаг 5). Миграция оставлена как есть: она уже
+    # применена на живой базе, переписывать применённые миграции нельзя.
     (
         3,
         "add accrual table and accrued_at column",
