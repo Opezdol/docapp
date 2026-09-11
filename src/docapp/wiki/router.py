@@ -13,32 +13,32 @@ import json
 import threading
 import uuid
 from pathlib import Path
-from urllib.parse import quote
 
 from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
-from fastapi.templating import Jinja2Templates
 
-from docapp.config import git_revision
-from docapp.core import access
+from docapp.core import access, web
+from docapp.core.registry import container_of
+from docapp.wiki.container import WikiContainer
 from docapp.wiki.markdown import render_html
 from docapp.wiki.service import WikiForbidden, WikiService
 
-compendium_templates_dir = Path(__file__).parent / "templates"
-#: Общие шаблоны приложения (base.html) — рядом с модулем web, без импорта app.
-web_templates_dir = Path(__file__).resolve().parent.parent / "web" / "templates"
-TEMPLATES = Jinja2Templates(
-    directory=[compendium_templates_dir, web_templates_dir],
-    context_processors=[lambda request: {"git_revision": git_revision()}],
-)
+#: Шаблоны «Компендиума» поверх общих (base.html).
+TEMPLATES = web.templates(Path(__file__).parent / "templates")
 
 router = APIRouter(prefix="/compendium")
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 МБ
 
 
+def _container(request: Request) -> WikiContainer:
+    """Контейнер модуля «Компендиум» из состояния приложения."""
+    return container_of(request, "wiki", WikiContainer)
+
+
 def _service(request: Request) -> WikiService:
-    return request.app.state.compendium["service"]
+    """Сервис «Компендиума» из контейнера модуля."""
+    return _container(request).service
 
 
 def _api_user(request: Request):
@@ -61,15 +61,6 @@ def _require_head(user) -> None:
     access.ensure(user, access.WIKI_SETTINGS, message="Только заведующий")
 
 
-def _content_disposition(filename: str) -> str:
-    name = Path(filename).name
-    try:
-        name.encode("latin-1")
-    except UnicodeEncodeError:
-        return f"attachment; filename*=UTF-8''{quote(name)}"
-    return f'attachment; filename="{name}"'
-
-
 # ── страница ──────────────────────────────────────────────────────────
 
 @router.get("", response_class=HTMLResponse)
@@ -78,7 +69,6 @@ def compendium_page(request: Request):
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_not_nurse(user)
-    state = request.app.state.compendium
     return TEMPLATES.TemplateResponse(
         request,
         "compendium.html",
@@ -147,7 +137,7 @@ def source_download(request: Request, source_id: int):
     src = _service(request).source_file(source_id)
     if src is None:
         return HTMLResponse("Источник не найден", status_code=404)
-    headers = {"Content-Disposition": _content_disposition(src["name"])}
+    headers = {"Content-Disposition": web.content_disposition(src["name"])}
     return Response(content=src["data"], media_type="application/pdf", headers=headers)
 
 
@@ -185,7 +175,6 @@ async def upload_sources(request: Request, files: list[UploadFile] = File(...)):
         payloads.append((name, data))
 
     service = _service(request)
-    state = request.app.state.compendium
     saved = []
     for name, data in payloads:
         src = service.add_source(user.id, user.role, name, data)

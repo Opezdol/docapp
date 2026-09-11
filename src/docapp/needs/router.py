@@ -19,17 +19,16 @@ NeedsClosed → 409, прочие ValueError → 400. Полный UI стран
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from docapp.config import git_revision
-from docapp.core import access
+from docapp.core import access, web
+from docapp.core.registry import container_of
 from docapp.domain.employee import Employee
 from docapp.needs.analytics import summarize
 from docapp.needs.catalog import CATEGORY_LABELS, CATEGORY_MEDICAMENTS, CATEGORY_SOLUTIONS
+from docapp.needs.container import NeedsContainer
 from docapp.needs.report import aggregate_requests, build_xlsx, html_table
 from docapp.needs.service import (
     NeedsClosed,
@@ -38,35 +37,20 @@ from docapp.needs.service import (
     monday_of_week,
 )
 
-#: Media type .xlsx для отчётов (report.xlsx и analytics.xlsx).
-XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-#: Директории шаблонов: сначала «Потребностей», затем общие (чтобы needs.html
-#: мог наследовать base.html). Starlette принимает список директорий.
-needs_templates_dir = Path(__file__).parent / "templates"
-#: Общие шаблоны приложения (base.html) — рядом с модулем web, без импорта app.
-web_templates_dir = Path(__file__).resolve().parent.parent / "web" / "templates"
-TEMPLATES = Jinja2Templates(
-    directory=[needs_templates_dir, web_templates_dir],
-    context_processors=[lambda request: {"git_revision": git_revision()}],
-)
+#: Директории шаблонов: сначала «Потребностей», затем общие (base.html).
+TEMPLATES = web.templates(Path(__file__).parent / "templates")
 
 router = APIRouter(prefix="/needs")
 
 
+def _container(request: Request) -> NeedsContainer:
+    """Контейнер модуля «Потребности» из состояния приложения."""
+    return container_of(request, "needs", NeedsContainer)
+
+
 def _service(request: Request) -> NeedsService:
-    """Сервис «Потребностей» из state приложения."""
-    return request.app.state.needs["service"]
-
-
-def _content_disposition(filename: str) -> str:
-    """Content-Disposition: ASCII-имя в кавычках, кириллица — RFC 5987 (filename*)."""
-    name = Path(filename).name
-    try:
-        name.encode("latin-1")
-    except UnicodeEncodeError:
-        return f"attachment; filename*=UTF-8''{quote(name)}"
-    return f'attachment; filename="{name}"'
+    """Сервис «Потребностей» из контейнера модуля."""
+    return _container(request).service
 
 
 def _valid_category(value: str | None, *, param: str = "category") -> str:
@@ -126,7 +110,7 @@ def catalog(request: Request):
     """Каталог потребностей: базы с точками и группы с препаратами (nurse+)."""
     user = _api_user(request)
     _require_not_doctor(user)
-    catalog_obj = request.app.state.needs["catalog"]
+    catalog_obj = _container(request).catalog
     return {"bases": catalog_obj.bases(), "groups": catalog_obj.groups()}
 
 
@@ -314,9 +298,9 @@ def _report_agg(request: Request) -> tuple[dict, str]:
         raise HTTPException(status_code=400, detail="Параметр base обязателен")
     category = _valid_category(request.query_params.get("category"))
     week = request.query_params.get("week") or monday_of_week()
-    state = request.app.state.needs
-    requests = state["store"].list_requests(base, category, week)
-    return aggregate_requests(requests, base, category, week, state["catalog"]), category
+    container = _container(request)
+    requests = container.store.list_requests(base, category, week)
+    return aggregate_requests(requests, base, category, week, container.catalog), category
 
 
 @router.get("/report", response_class=HTMLResponse)
@@ -351,11 +335,7 @@ def report_xlsx(request: Request):
     agg, category = _report_agg(request)
     label = CATEGORY_LABELS[category]
     filename = f"потребности-{label}-{agg['base']}-{agg['week_start']}.xlsx"
-    return Response(
-        content=build_xlsx(agg),
-        media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": _content_disposition(filename)},
-    )
+    return web.xlsx_response(build_xlsx(agg), filename)
 
 
 # ── аналитика ───────────────────────────────────────────────────────
@@ -401,10 +381,10 @@ def analytics(request: Request):
     user = _api_user(request)
     _require_full(user)
     from_week, to_week, base, point, group, section = _analytics_params(request)
-    state = request.app.state.needs
-    requests = state["store"].list_range(from_week, to_week, base, point)
+    container = _container(request)
+    requests = container.store.list_range(from_week, to_week, base, point)
     return summarize(
-        requests, state["catalog"], from_week, to_week, base, group, section
+        requests, container.catalog, from_week, to_week, base, group, section
     )
 
 
@@ -416,14 +396,10 @@ def analytics_xlsx(request: Request):
         return RedirectResponse("/login", status_code=303)
     _require_full(user)
     from_week, to_week, base, point, group, section = _analytics_params(request)
-    state = request.app.state.needs
-    requests = state["store"].list_range(from_week, to_week, base, point)
+    container = _container(request)
+    requests = container.store.list_range(from_week, to_week, base, point)
     summary = summarize(
-        requests, state["catalog"], from_week, to_week, base, group, section
+        requests, container.catalog, from_week, to_week, base, group, section
     )
     filename = f"потребности-аналитика-{from_week}-{to_week}.xlsx"
-    return Response(
-        content=build_xlsx(summary),
-        media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": _content_disposition(filename)},
-    )
+    return web.xlsx_response(build_xlsx(summary), filename)

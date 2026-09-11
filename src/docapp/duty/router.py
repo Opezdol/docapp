@@ -13,45 +13,32 @@ include_router. Шаблон — свой (duty/templates) поверх обще
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from docapp.config import git_revision
-from docapp.core import access
+from docapp.core import access, web
+from docapp.core.registry import container_of
 from docapp.domain.employee import Employee
 from docapp.duty.config import BASES
+from docapp.duty.container import DutyContainer
 from docapp.duty.report import build_xlsx
 from docapp.duty.service import DutyClosed, DutyService
 
-#: Media type .xlsx для выгрузки разлиновки.
-XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-duty_templates_dir = Path(__file__).parent / "templates"
-#: Общие шаблоны приложения (base.html) — рядом с модулем web, без импорта app.
-web_templates_dir = Path(__file__).resolve().parent.parent / "web" / "templates"
-TEMPLATES = Jinja2Templates(
-    directory=[duty_templates_dir, web_templates_dir],
-    context_processors=[lambda request: {"git_revision": git_revision()}],
-)
+#: Шаблоны «Дежурств» поверх общих (base.html).
+TEMPLATES = web.templates(Path(__file__).parent / "templates")
 
 router = APIRouter(prefix="/duty")
 
 
+def _container(request: Request) -> DutyContainer:
+    """Контейнер модуля «Дежурства» из состояния приложения."""
+    return container_of(request, "duty", DutyContainer)
+
+
 def _service(request: Request) -> DutyService:
-    return request.app.state.duty["service"]
-
-
-def _content_disposition(filename: str) -> str:
-    """Content-Disposition: ASCII-имя в кавычках, кириллица — RFC 5987 (filename*)."""
-    name = Path(filename).name
-    try:
-        name.encode("latin-1")
-    except UnicodeEncodeError:
-        return f"attachment; filename*=UTF-8''{quote(name)}"
-    return f'attachment; filename="{name}"'
+    """Сервис «Дежурств» из контейнера модуля."""
+    return _container(request).service
 
 
 # ── проверка ролей ──────────────────────────────────────────────────
@@ -234,11 +221,7 @@ def report_xlsx(request: Request):
     reports = [r for r in reports if r["status"] == "closed"]
     days = _group_for_export(reports, request.app.state.employees)
     filename = f"разлиновка-{from_date}-{to_date}.xlsx"
-    return Response(
-        content=build_xlsx(days),
-        media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": _content_disposition(filename)},
-    )
+    return web.xlsx_response(build_xlsx(days), filename)
 
 
 # ── заведующий: закрытие/переоткрытие ────────────────────────────────

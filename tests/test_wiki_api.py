@@ -3,6 +3,8 @@
 Сервис подменяется фейком без сети; приложение — create_app с временными БД.
 """
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -58,7 +60,10 @@ def client(tmp_path, monkeypatch):
     db_path = tmp_path / "web.db"
     _seed(db_path)
     app = create_app(db_path=db_path, secret="test-secret")
-    app.state.compendium["service"] = FakeService()
+    # Контейнер модуля неизменяем: подменяем его целиком (dataclasses.replace).
+    app.state.containers["wiki"] = replace(
+        app.state.containers["wiki"], service=FakeService()
+    )
     with TestClient(app, follow_redirects=False) as c:
         yield c
 

@@ -1,20 +1,26 @@
-"""FastAPI-приложение docapp: маршруты, сессии, PWA-интерфейс."""
+"""FastAPI-приложение docapp: сборка модулей, вход, PWA-интерфейс.
 
-import logging
-import threading
+Ядро (сотрудники, анестезии) живёт здесь; модули разделов берутся из реестра
+(`docapp.modules.MODULES`) — их контейнеры и HTTP-адаптеры подключает
+`core.registry`.
+"""
+
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Sequence
 
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from docapp.auth.auth import Authenticator, InvalidCredentials
-from docapp.config import git_revision, https_only
+from docapp.config import db_path as default_db_path
+from docapp.config import https_only, session_secret
 from docapp.core import access
+from docapp.core import registry, web
+from docapp.core.registry import Module
 from docapp.domain.employee import Employee
+from docapp.modules import MODULES
 from docapp.records.service import AnesthesiaService
 from docapp.storage.sqlite_store import (
     SqliteActiveNurseStore,
@@ -22,28 +28,25 @@ from docapp.storage.sqlite_store import (
     SqliteEmployeeStore,
 )
 
-logger = logging.getLogger(__name__)
-
 BASE_DIR = Path(__file__).parent
 
-
-def _menu_context(request: Request) -> dict:
-    """Меню разделов для шаблона: из таблицы прав, второго списка не существует."""
-    user = access.current_user(request)
-    return {"menu": access.menu_for(user.role) if user else []}
+#: Шаблоны приложения: общие (base.html, login, index, me, edit, nurse).
+TEMPLATES = web.templates()
 
 
-TEMPLATES = Jinja2Templates(
-    directory=str(BASE_DIR / "templates"),
-    context_processors=[
-        lambda request: {"git_revision": git_revision()},
-        _menu_context,
-    ],
-)
+def create_app(
+    db_path: str | Path | None = None,
+    secret: str = "",
+    modules: Sequence[Module] | None = None,
+) -> FastAPI:
+    """Собрать приложение: ядро, модули из реестра, HTTP.
 
-
-def create_app(db_path: str | Path, secret: str) -> FastAPI:
-    """Собрать приложение с хранилищами на одном SQLite-файле."""
+    `modules` — подмножество реестра: тесты собирают приложение с одним модулем
+    вместо всех (не нужно патчить четыре переменные окружения).
+    """
+    db_path = default_db_path() if db_path is None else db_path
+    secret = secret or session_secret()
+    modules = MODULES if modules is None else modules
     app = FastAPI(title="docapp")
     app.add_middleware(
         SessionMiddleware,
@@ -225,76 +228,11 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
             request.session["flash"] = str(exc)
         return RedirectResponse("/", status_code=303)
 
-    # Модуль «Компендиум»: LLM-wiki по курируемым .md-статьям поверх
-    # PDF-источников. Инициализация дешёвая и без сети: LLMClient/
-    # VisionClient только создают HTTP-транспорт, WikiService строит индекс
-    # из пустой БД. Импорт модуля — по месту: список модулей станет реестром
-    # на шаге 3 (docs/ТЗ-каркас.md), до тех пор подключение живёт здесь.
-    from docapp.ai.config import load_ai_config
-    from docapp.ai.llm import LLMClient
-    from docapp.ai.vision import VisionClient
-    from docapp.wiki.config import load_wiki_config
-    from docapp.wiki.router import router as compendium_router
-    from docapp.wiki.service import WikiService
-    from docapp.wiki.store import SqliteWikiStore
-
-    ai_config = load_ai_config()
-    if not ai_config.api_key:
-        logger.warning(
-            "AI_API_KEY не задан: «Компендиум» будет возвращать ошибки "
-            "до его настройки в .env"
-        )
-    wiki_config = load_wiki_config()
-    wiki_config.db_path.parent.mkdir(parents=True, exist_ok=True)
-    wiki_llm = LLMClient(ai_config)
-    wiki_vision = VisionClient(ai_config)
-    app.state.compendium = {
-        "config": wiki_config,
-        "ai_config": ai_config,
-        "llm": wiki_llm,
-        "vision": wiki_vision,
-        "service": WikiService(SqliteWikiStore(wiki_config.db_path), wiki_llm, wiki_vision),
-    }
-    app.include_router(compendium_router)
-
-    # Модуль «Потребности» (ТЗ-потребности, T6). Инициализация дешёвая и без
-    # сети: чтение YAML-каталога и создание SQLite-файла заявок. Доступ — через
-    # core.access, поэтому импорт модуля больше не грозит круговым импортом.
-    from docapp.needs.catalog import Catalog
-    from docapp.needs.config import load_needs_config
-    from docapp.needs.router import router as needs_router
-    from docapp.needs.service import NeedsService
-    from docapp.needs.store import SqliteNeedsStore
-
-    needs_config = load_needs_config()
-    needs_config.db_path.parent.mkdir(parents=True, exist_ok=True)
-    needs_store = SqliteNeedsStore(needs_config.db_path)
-    needs_catalog = Catalog(needs_config.catalog_path)
-    app.state.needs = {
-        "config": needs_config,
-        "catalog": needs_catalog,
-        "store": needs_store,
-        "service": NeedsService(needs_store, needs_catalog),
-    }
-    app.include_router(needs_router)
-
-    # Модуль «Дежурства»: разлиновка дежурных бригад за ночные смены.
-    # Инициализация дешёвая и без сети: своя SQLite-БД отчётов. Доступ — через
-    # core.access, кругового импорта с web.app больше нет.
-    from docapp.duty.config import load_duty_config
-    from docapp.duty.router import router as duty_router
-    from docapp.duty.service import DutyService
-    from docapp.duty.store import SqliteDutyStore
-
-    duty_config = load_duty_config()
-    duty_config.db_path.parent.mkdir(parents=True, exist_ok=True)
-    duty_store = SqliteDutyStore(duty_config.db_path)
-    app.state.duty = {
-        "config": duty_config,
-        "store": duty_store,
-        "service": DutyService(duty_store, duty_config),
-    }
-    app.include_router(duty_router)
+    # Модули разделов: из реестра (docapp.modules) — контейнеры и роутеры.
+    # Ядро приложения (сотрудники, анестезии) остаётся здесь; вынести его в
+    # отдельный модуль `records` — работа шагов 4–6 (docs/ТЗ-каркас.md).
+    registry.build_containers(app, modules)
+    registry.include_routers(app, modules)
 
     return app
 
