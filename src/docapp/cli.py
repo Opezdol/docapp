@@ -206,6 +206,34 @@ def _import_legacy(args: argparse.Namespace) -> int:
     return 0
 
 
+def _repair_schema(args: argparse.Namespace) -> int:
+    """Привести форму таблиц к объявленным схемам (остатки прежних баз).
+
+    `CREATE TABLE IF NOT EXISTS` принимает таблицу другой формы как есть, и
+    такая таблица падает на первой записи. Команда пересобирает её по
+    объявлению, строки при этом сохраняются.
+    """
+    from pathlib import Path
+
+    from docapp.core.db import repair
+    from docapp.core.registry import databases
+    from docapp.modules import MODULES
+
+    target = Path(args.db) if args.db else Path(db_path())
+    if not target.exists():
+        print(f"файла нет: {target}")
+        return 1
+    actions = repair(target, [schema for _, _, schema in databases(MODULES, target)])
+    if not actions:
+        print(f"Форма таблиц совпадает с объявленной схемой: {target}")
+        return 0
+    print(f"Исправлено в {target}:")
+    for action in actions:
+        print("  - " + action)
+    print("Проверить: docapp check")
+    return 0
+
+
 def _check(args: argparse.Namespace) -> int:
     """Счётчики, версии схем и целостность единой БД (шаг 4b)."""
     from pathlib import Path
@@ -280,6 +308,13 @@ def main() -> int:
     p_check = sub.add_parser("check", help="Счётчики и целостность единой БД")
     p_check.add_argument("--db", help="файл БД (по умолчанию DOCAPP_DB)")
     p_check.set_defaults(func=_check)
+
+    p_repair = sub.add_parser(
+        "repair-schema",
+        help="Пересобрать таблицы, форма которых осталась от прежней схемы",
+    )
+    p_repair.add_argument("--db", help="файл БД (по умолчанию DOCAPP_DB)")
+    p_repair.set_defaults(func=_repair_schema)
 
     args = parser.parse_args()
     return args.func(args)

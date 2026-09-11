@@ -12,7 +12,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from docapp.core.db import SCHEMA_TABLE
+from docapp.core.db import SCHEMA_TABLE, shape_problems
 from docapp.legacy.importer import find_orphans
 
 #: Таблицы по модулям — для счётчиков (порядок как в реестре модулей).
@@ -73,6 +73,24 @@ class CheckReport:
         return "\n".join(lines)
 
 
+def shape_issues(conn: sqlite3.Connection) -> list[str]:
+    """Таблицы, форма которых осталась от прежней схемы.
+
+    `CREATE TABLE IF NOT EXISTS` такую таблицу не заменит, а запись в неё
+    упадёт (обычно на старой колонке NOT NULL, которую код уже не заполняет).
+    Проверка ловит это до того, как пользователь нажмёт «Сохранить».
+    """
+    from docapp.modules import MODULES
+
+    issues: list[str] = []
+    for module in MODULES:
+        if module.schema is None:
+            continue
+        for problem in shape_problems(conn, module.schema):
+            issues.append(f"[{module.name}] {problem}")
+    return issues
+
+
 def check(db_path: str | Path) -> CheckReport:
     """Собрать счётчики и проверить целостность единой БД."""
     path = Path(db_path)
@@ -104,6 +122,7 @@ def check(db_path: str | Path) -> CheckReport:
                 report.versions[row["module"]] = row["version"]
 
         report.orphans = find_orphans(conn)
+        report.issues.extend(shape_issues(conn))
 
         # строки без своей заявки (при включённых ключах это невозможно, но
         # перенос шёл в обход — проверка стоит копейки)

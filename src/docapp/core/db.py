@@ -32,11 +32,15 @@ PRAGMA user_version») и помечается применённой — ина
 
 from __future__ import annotations
 
+import logging
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Sequence
+
+logger = logging.getLogger(__name__)
 
 #: Таблица учёта применённых миграций (по строке на модуль и версию).
 SCHEMA_TABLE = "schema_migrations"
@@ -168,7 +172,166 @@ def ensure_schema(conn: sqlite3.Connection, schema: Schema) -> int:
     # возвращаем их: подключение обязано уходить с включёнными ключами.
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(schema.sql)
+
+    # `CREATE TABLE IF NOT EXISTS` молча принимает таблицу ДРУГОЙ формы: файл,
+    # оставшийся от прежней схемы, «подхватывается» как есть и падает не при
+    # открытии, а на первой записи (например, старая колонка NOT NULL, которой
+    # код уже не заполняет). Поэтому форму сверяем и говорим о расхождении
+    # громко, а лечит её `docapp repair-schema`.
+    for problem in shape_problems(conn, schema):
+        logger.warning("Схема %s: %s", schema.module, problem)
     return version
+
+
+#: Заголовок CREATE TABLE: тело разбирается сканером до парной скобки, потому
+#: что в описании таблиц есть и комментарии `--`, и скобки внутри типов/ссылок.
+_CREATE_TABLE_RE = re.compile(
+    r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([^\s(),;]+)\s*\(",
+    re.IGNORECASE,
+)
+
+#: Комментарии SQL — из DDL их надо убрать до разбора колонок.
+_SQL_COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
+
+#: Слова, начинающие не колонку, а ограничение таблицы.
+_CONSTRAINT_WORDS = {"PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "CONSTRAINT"}
+
+
+def _split_top_level(body: str) -> list[str]:
+    """Разделить список колонок по запятым верхнего уровня (скобки не считаем)."""
+    parts: list[str] = []
+    depth = 0
+    current = ""
+    for char in body:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append(current)
+            current = ""
+        else:
+            current += char
+    parts.append(current)
+    return parts
+
+
+def _table_body(text: str, open_paren: int) -> tuple[str, int]:
+    """Тело таблицы от открывающей скобки до парной закрывающей и её позицию."""
+    depth = 0
+    for index in range(open_paren, len(text)):
+        char = text[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return text[open_paren + 1 : index], index
+    return text[open_paren + 1 :], len(text) - 1
+
+
+def declared_tables(schema: Schema) -> dict[str, tuple[tuple[str, ...], str]]:
+    """Таблицы схемы: колонки по объявлению и сам оператор `CREATE TABLE`.
+
+    Объявление — источник правды (ADR-0016): код пишет только объявленные
+    колонки, поэтому всё, чего в объявлении нет, — остаток прежней схемы.
+    """
+    text = _SQL_COMMENT_RE.sub("", schema.sql)
+    result: dict[str, tuple[tuple[str, ...], str]] = {}
+    for match in _CREATE_TABLE_RE.finditer(text):
+        table = match.group(1).strip('"`[]')
+        body, close = _table_body(text, match.end() - 1)
+        statement = text[match.start() : close + 1].rstrip(";").strip() + ";"
+        columns: list[str] = []
+        for item in _split_top_level(body):
+            item = item.strip()
+            if not item:
+                continue
+            word = item.split()[0].strip('"`[]')
+            if word.upper() in _CONSTRAINT_WORDS:
+                continue
+            columns.append(word)
+        result[table] = (tuple(columns), statement)
+    return result
+
+
+def table_columns(conn: sqlite3.Connection, table: str) -> tuple[str, ...]:
+    """Колонки таблицы в файле (пусто, если таблицы нет)."""
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return tuple(row[1] for row in rows)
+
+
+def shape_problems(conn: sqlite3.Connection, schema: Schema) -> list[str]:
+    """Расхождения формы таблиц с объявленной схемой — строками для человека."""
+    problems: list[str] = []
+    for table, (declared, _) in declared_tables(schema).items():
+        actual = table_columns(conn, table)
+        if not actual:
+            continue  # таблицы ещё нет — её создаст DDL
+        extra = [column for column in actual if column not in declared]
+        missing = [column for column in declared if column not in actual]
+        if extra:
+            problems.append(
+                f"таблица {table} содержит лишние колонки ({', '.join(extra)}) — "
+                "она осталась от прежней схемы, запись в неё упадёт; "
+                "лечится командой docapp repair-schema"
+            )
+        if missing:
+            problems.append(
+                f"таблица {table}: нет объявленных колонок ({', '.join(missing)}) — "
+                "лечится командой docapp repair-schema"
+            )
+    return problems
+
+
+def repair_shape(conn: sqlite3.Connection, schema: Schema) -> list[str]:
+    """Привести таблицы к объявленной форме: пересобрать, убрав лишние колонки.
+
+    Лишние колонки — остаток прежней схемы; данные в них код не читает (часто
+    это как раз то, что решено не хранить, ADR-14). Строки таблицы сохраняются
+    целиком: пересборка копирует все объявленные колонки, которые есть в файле.
+    """
+    actions: list[str] = []
+    for table, (declared, statement) in declared_tables(schema).items():
+        actual = table_columns(conn, table)
+        if not actual:
+            continue
+        extra = [column for column in actual if column not in declared]
+        missing = [column for column in declared if column not in actual]
+        if not extra and not missing:
+            continue
+
+        common = [column for column in declared if column in actual]
+        temp = f"{table}__repair"
+        create = re.sub(
+            rf"(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?){re.escape(table)}\b",
+            rf"\1{temp}",
+            statement,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute(f"DROP TABLE IF EXISTS {temp}")
+        conn.execute(create)
+        if common:
+            columns = ", ".join(common)
+            conn.execute(
+                f"INSERT INTO {temp} ({columns}) SELECT {columns} FROM {table}"
+            )
+        conn.execute(f"DROP TABLE {table}")
+        conn.execute(f"ALTER TABLE {temp} RENAME TO {table}")
+        conn.commit()
+        actions.append(
+            f"{table}: пересобрана по объявленной схеме"
+            + (f", убраны колонки ({', '.join(extra)})" if extra else "")
+            + (f", добавлены колонки ({', '.join(missing)})" if missing else "")
+        )
+
+    # Индексы и всё остальное в DDL, что пересборка потеряла.
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.executescript(schema.sql)
+    conn.commit()
+    return actions
 
 
 def open_db(db_path: str | Path, schema: Schema) -> sqlite3.Connection:
@@ -189,5 +352,24 @@ def migrate(db_path: str | Path, schema: Schema) -> int:
     conn = open_db(db_path, schema)
     try:
         return applied_version(conn, schema.module)
+    finally:
+        conn.close()
+
+
+def repair(db_path: str | Path, schemas: Sequence[Schema]) -> list[str]:
+    """Привести форму таблиц к объявленным схемам; вернуть, что сделано.
+
+    Нужна там, где файл достался от прежней схемы: движок такую таблицу не
+    пересобирает сам (это правка данных, а не открытие), но и молчать о ней не
+    должен — `ensure_schema` пишет предупреждение, `docapp check` показывает
+    замечание, а эта функция лечит.
+    """
+    conn = connect(db_path)
+    try:
+        init_version_table(conn)
+        actions: list[str] = []
+        for schema in schemas:
+            actions.extend(repair_shape(conn, schema))
+        return actions
     finally:
         conn.close()
