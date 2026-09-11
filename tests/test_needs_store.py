@@ -6,12 +6,12 @@ import pytest
 
 from docapp.needs.catalog import CATEGORY_MEDICAMENTS, CATEGORY_SOLUTIONS
 from docapp.needs.store import SCHEMA_VERSION, SqliteNeedsStore
-from factories import test_db
+from factories import make_db
 
 
 @pytest.fixture
 def store(tmp_path):
-    s = SqliteNeedsStore(test_db(tmp_path))
+    s = SqliteNeedsStore(make_db(tmp_path))
     yield s
     s.close_conn()
 

@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from docapp.auth.passwords import hash_password
 from docapp.domain.employee import DOCTOR, HEAD, NURSE, Employee
 from docapp.duty.service import DutyService
-from docapp.storage.sqlite_store import SqliteEmployeeStore
+from docapp.people.store import SqliteEmployeeStore
 from docapp.web.app import create_app
 
 #: Фиксированное «сейчас»: 18:00 31.08.2026 (внутри окна смены 16:00–09:30).

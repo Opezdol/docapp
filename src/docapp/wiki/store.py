@@ -1,7 +1,7 @@
 """Хранилище подприложения «Компендиум» на SQLite.
 
 Собственная база (data/wiki/wiki.db), основную docapp.db не трогаем.
-Стиль — как в docapp/storage/sqlite_store.py и docapp/needs/store.py:
+Стиль — как в остальных хранилищах (docapp/needs/store.py, docapp/records/store.py):
 row_factory = sqlite3.Row, check_same_thread=False, PRAGMA foreign_keys=ON,
 journal_mode=WAL. Таймстемпы — ISO-строки datetime.now().isoformat().
 

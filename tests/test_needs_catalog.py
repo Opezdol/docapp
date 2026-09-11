@@ -35,7 +35,7 @@ from docapp.needs.catalog_store import (
 from docapp.needs.service import NeedsForbidden, NeedsService
 from docapp.needs.store import SqliteNeedsStore
 from factories import catalog as catalog_with_seed
-from factories import test_db
+from factories import make_db
 
 VALID_YAML = """\
 bases:
@@ -57,7 +57,7 @@ SEED_PATH = Path(__file__).resolve().parents[1] / "data" / "needs" / "catalog.ya
 @pytest.fixture
 def cat(tmp_path):
     """Каталог в БД, наполненный VALID_YAML (как после первого старта)."""
-    c = catalog_with_seed(test_db(tmp_path), VALID_YAML)
+    c = catalog_with_seed(make_db(tmp_path), VALID_YAML)
     yield c
     c.close()
 
@@ -65,7 +65,7 @@ def cat(tmp_path):
 @pytest.fixture
 def empty_cat(tmp_path):
     """Каталог в пустой БД — до seed-импорта."""
-    c = SqliteCatalog(test_db(tmp_path))
+    c = SqliteCatalog(make_db(tmp_path))
     yield c
     c.close()
 
@@ -284,7 +284,7 @@ class TestImport:
 class TestServiceCatalog:
     @pytest.fixture
     def service(self, tmp_path):
-        db = test_db(tmp_path)
+        db = make_db(tmp_path)
         store = SqliteNeedsStore(db)
         yield NeedsService(store, catalog_with_seed(db, VALID_YAML))
         store.close_conn()

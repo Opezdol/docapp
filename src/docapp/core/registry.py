@@ -3,11 +3,10 @@
 Модуль объявляет о себе ровно то, что нужно приложению:
 
     MODULE = Module(
-        name="needs",              # имя модуля и ключ в schema_migrations
-        schema=SCHEMA,             # свои таблицы (None — своих таблиц нет)
-        db_path=lambda: load_needs_config().db_path,
-        build=build,               # () -> NeedsContainer
-        router=needs_router,       # HTTP-адаптер (None — модуля нет в HTTP)
+        name="needs",          # имя модуля и ключ в schema_migrations
+        schema=SCHEMA,         # свои таблицы (None — своих таблиц нет)
+        build=build,           # AppContext -> NeedsContainer
+        router=needs_router,   # HTTP-адаптер (None — модуля нет в HTTP)
     )
 
 `create_app(..., modules=MODULES)` идёт по реестру: строит контейнеры, кладёт их в
@@ -21,7 +20,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Sequence, TypeVar
 
@@ -37,11 +36,17 @@ T = TypeVar("T")
 class AppContext:
     """Что приложение передаёт модулям при сборке.
 
-    Сейчас это путь к единой БД (ADR-0016): модули больше не знают, где лежит
+    `db_path` — путь к единой БД (ADR-0016): модули больше не знают, где лежит
     «их» файл, — файл один на всех.
+
+    `containers` — уже собранные контейнеры модулей. Через него модуль берёт
+    **интерфейс** соседа, объявленного в реестре раньше («Сводка» читает записи
+    анестезий у модуля `records`). Своя таблица соседа при этом недоступна —
+    именно этого требует ADR-0017.
     """
 
     db_path: Path
+    containers: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -61,13 +66,20 @@ class Module:
 def build_containers(
     app: FastAPI, modules: Sequence[Module], context: AppContext
 ) -> dict[str, object]:
-    """Собрать контейнеры модулей и положить их в состояние приложения."""
+    """Собрать контейнеры модулей и положить их в состояние приложения.
+
+    Контейнеры собираются в порядке реестра и складываются в общий словарь по
+    мере готовности: следующий модуль видит интерфейсы уже собранных соседей
+    (`context.containers`). Иначе «Сводке» пришлось бы читать чужую таблицу
+    напрямую — то, что ADR-0017 запрещает.
+    """
     containers: dict[str, object] = {}
+    app.state.containers = containers
+    context = replace(context, containers=containers)
     for module in modules:
         if module.build is None:
             continue
         containers[module.name] = module.build(context)
-    app.state.containers = containers
     return containers
 
 

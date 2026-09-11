@@ -1,31 +1,29 @@
-"""Реализация хранилища на SQLite: один файл БД, две таблицы.
+"""Анестезии и «активная сестра»: схема и хранилища на SQLite.
 
-Два класса (по одному на порт), а не один: в Python нельзя определить
-в одном классе два метода с одним именем (add/get_by_id для Employee
-и Anesthesia) — второе определение перезапишет первое.
+Модуль `records` владеет записями об анестезиях и выбором сестры на смену
+(ADR-4). Таблица сотрудников принадлежит модулю `people` — здесь на неё только
+ссылки внешним ключом.
+
+Схема появилась делением прежнего `storage/sqlite_store.py`. Номера версий и
+миграции прежней основной схемы (`docapp`) сохранены под именем этого модуля,
+чтобы история изменений не потерялась.
+
+Абстрактных портов здесь нет: адаптер один, а порт без второй реализации —
+гипотетический шов (ADR-0017). Интерфейс для соседей объявляет потребитель
+(`summary/service.RecordsInterface`), а не владелец данных.
 """
 
+from __future__ import annotations
+
 import sqlite3
-from datetime import date, datetime, timezone, timedelta
 from dataclasses import replace
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from docapp.core.db import Schema, open_db
 from docapp.domain.anesthesia import Anesthesia
-from docapp.domain.employee import Employee
-from docapp.storage.store import ActiveNurseStore, AnesthesiaStore, EmployeeStore
 
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS employees (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    last_name     TEXT NOT NULL,
-    first_name    TEXT NOT NULL,
-    middle_name   TEXT NOT NULL DEFAULT '',
-    role          TEXT NOT NULL,
-    login         TEXT UNIQUE,
-    password_hash TEXT,
-    buh_id        TEXT
-);
 CREATE TABLE IF NOT EXISTS anesthesia (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     date           TEXT NOT NULL,
@@ -48,13 +46,9 @@ CREATE TABLE IF NOT EXISTS accrual (
 );
 """
 
-# Версия схемы основной БД (PRAGMA user_version). Увеличивайте на 1 при
-# каждом изменении схемы и добавляйте миграцию в _MIGRATIONS ниже.
+#: Версия схемы записей: прежняя основная схема шла v1 → v2 → v3.
 SCHEMA_VERSION = 3
 
-# Миграции: каждая — (версия_после_применения, название, список SQL).
-# Применяются по порядку, только если user_version < версии миграции.
-# ВАЖНО: не редактируйте уже опубликованные миграции — добавляйте новые.
 _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     # (1, "initial schema", [])  # базовая схема создаётся _SCHEMA выше
     # v2: убрать номер истории болезни (минимизация данных, 152-ФЗ).
@@ -99,101 +93,15 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     ),
 ]
 
-
-#: Схема модуля ядра для общего механизма БД (core.db): одна БД на три
-#: хранилища этого файла — сотрудники, анестезии, «активная сестра».
-SCHEMA = Schema(
-    module="docapp",
-    sql=_SCHEMA,
-    version=SCHEMA_VERSION,
-    migrations=_MIGRATIONS,
-)
+SCHEMA = Schema(module="records", sql=_SCHEMA, version=SCHEMA_VERSION, migrations=_MIGRATIONS)
 
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
-    """Открыть БД ядра: подключение, PRAGMA, схема, миграции — внутри core.db."""
+    """Открыть БД: подключение, PRAGMA, схема модуля, миграции — внутри core.db."""
     return open_db(db_path, SCHEMA)
 
 
-class SqliteEmployeeStore(EmployeeStore):
-    """Сотрудники в SQLite-файле."""
-
-    def __init__(self, db_path: str | Path) -> None:
-        self._conn = _connect(db_path)
-
-    def close(self) -> None:
-        self._conn.close()
-
-    def __enter__(self) -> "SqliteEmployeeStore":
-        return self
-
-    def __exit__(self, *exc) -> None:
-        self.close()
-
-    def add(self, employee: Employee) -> Employee:
-        cur = self._conn.execute(
-            "INSERT INTO employees (last_name, first_name, middle_name, role, login, password_hash, buh_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                employee.last_name,
-                employee.first_name,
-                employee.middle_name,
-                employee.role,
-                employee.login,
-                employee.password_hash,
-                employee.buh_id,
-            ),
-        )
-        self._conn.commit()
-        return replace(employee, id=cur.lastrowid)
-
-    def get_by_id(self, employee_id: int) -> Employee | None:
-        row = self._conn.execute(
-            "SELECT * FROM employees WHERE id = ?", (employee_id,)
-        ).fetchone()
-        return self._row_to_employee(row) if row else None
-
-    def get_by_login(self, login: str) -> Employee | None:
-        row = self._conn.execute(
-            "SELECT * FROM employees WHERE login = ?", (login,)
-        ).fetchone()
-        return self._row_to_employee(row) if row else None
-
-    def list_all(self) -> list[Employee]:
-        rows = self._conn.execute(
-            "SELECT * FROM employees ORDER BY last_name, first_name"
-        ).fetchall()
-        return [self._row_to_employee(r) for r in rows]
-
-    def list_nurses(self) -> list[Employee]:
-        rows = self._conn.execute(
-            "SELECT * FROM employees WHERE role = 'nurse' ORDER BY last_name, first_name"
-        ).fetchall()
-        return [self._row_to_employee(r) for r in rows]
-
-    def update_buh_id(self, employee_id: int, buh_id: str) -> None:
-        cur = self._conn.execute(
-            "UPDATE employees SET buh_id = ? WHERE id = ?", (buh_id, employee_id)
-        )
-        self._conn.commit()
-        if cur.rowcount == 0:
-            raise KeyError(f"Сотрудник с id {employee_id} не найден")
-
-    @staticmethod
-    def _row_to_employee(row: sqlite3.Row) -> Employee:
-        return Employee(
-            id=row["id"],
-            last_name=row["last_name"],
-            first_name=row["first_name"],
-            middle_name=row["middle_name"],
-            role=row["role"],
-            login=row["login"],
-            password_hash=row["password_hash"],
-            buh_id=row["buh_id"],
-        )
-
-
-class SqliteAnesthesiaStore(AnesthesiaStore):
+class SqliteAnesthesiaStore:
     """Анестезии в SQLite-файле."""
 
     def __init__(self, db_path: str | Path) -> None:
@@ -243,6 +151,26 @@ class SqliteAnesthesiaStore(AnesthesiaStore):
         ).fetchall()
         return [self._row_to_anesthesia(r) for r in rows]
 
+    def list_range(
+        self,
+        from_date: date,
+        to_date: date,
+        *,
+        doctor_id: int | None = None,
+        nurse_id: int | None = None,
+    ) -> list[Anesthesia]:
+        sql = "SELECT * FROM anesthesia WHERE date >= ? AND date <= ?"
+        params: list = [from_date.isoformat(), to_date.isoformat()]
+        if doctor_id is not None:
+            sql += " AND doctor_id = ?"
+            params.append(doctor_id)
+        if nurse_id is not None:
+            sql += " AND nurse_id = ?"
+            params.append(nurse_id)
+        sql += " ORDER BY date DESC, id DESC"
+        rows = self._conn.execute(sql, params).fetchall()
+        return [self._row_to_anesthesia(r) for r in rows]
+
     def update(self, anesthesia: Anesthesia) -> None:
         cur = self._conn.execute(
             "UPDATE anesthesia SET date = ?, patient_name = ?, "
@@ -281,7 +209,7 @@ class SqliteAnesthesiaStore(AnesthesiaStore):
         )
 
 
-class SqliteActiveNurseStore(ActiveNurseStore):
+class SqliteActiveNurseStore:
     """«Активная сестра» врача в SQLite-файле (ADR-4)."""
 
     def __init__(self, db_path: str | Path) -> None:

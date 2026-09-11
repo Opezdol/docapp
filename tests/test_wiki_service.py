@@ -7,7 +7,7 @@ import pytest
 from docapp.domain.employee import DOCTOR, EDITOR, HEAD, NURSE
 from docapp.wiki.service import DEFAULT_SYSTEM_PROMPT, WikiForbidden, WikiService
 from docapp.wiki.store import SqliteWikiStore
-from factories import test_db
+from factories import make_db
 
 
 class FakeLLM:
@@ -24,7 +24,7 @@ class FakeLLM:
 
 @pytest.fixture
 def store(tmp_path):
-    s = SqliteWikiStore(test_db(tmp_path))
+    s = SqliteWikiStore(make_db(tmp_path))
     yield s
     s.close()
 

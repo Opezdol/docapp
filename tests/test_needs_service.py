@@ -19,7 +19,7 @@ from docapp.needs.catalog import (
 )
 from docapp.needs.service import NeedsClosed, NeedsForbidden, NeedsService
 from docapp.needs.store import SqliteNeedsStore
-from factories import catalog, test_db
+from factories import catalog, make_db
 
 CATALOG_YAML = """\
 bases:
@@ -49,7 +49,7 @@ def make_line(item, qty):
 @pytest.fixture
 def service(tmp_path):
     """Сервис на временной БД: каталог расходки залит в таблицы (2 базы × 2 точки)."""
-    db = test_db(tmp_path)
+    db = make_db(tmp_path)
     store = SqliteNeedsStore(db)
     yield NeedsService(store, catalog(db, CATALOG_YAML))
     store.close_conn()

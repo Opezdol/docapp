@@ -1,4 +1,4 @@
-"""Тесты хранилища SQLite: сотрудники и анестезии."""
+"""Тесты хранилищ SQLite: сотрудники (модуль people) и анестезии (records)."""
 
 import sqlite3
 from datetime import date, datetime, timezone
@@ -7,19 +7,22 @@ import pytest
 
 from docapp.domain.anesthesia import Anesthesia
 from docapp.domain.employee import DOCTOR, HEAD, NURSE, Employee
-from docapp.storage.sqlite_store import SqliteAnesthesiaStore, SqliteEmployeeStore
+from docapp.people.store import SqliteEmployeeStore
+from docapp.records.store import SqliteAnesthesiaStore
+from factories import make_db
 
 
 @pytest.fixture
 def emp_store(tmp_path):
-    s = SqliteEmployeeStore(tmp_path / "test.db")
+    """БД со всеми схемами, но без готовых сотрудников: их заводят сами тесты."""
+    s = SqliteEmployeeStore(make_db(tmp_path, seed=False))
     yield s
     s.close()
 
 
 @pytest.fixture
 def an_store(tmp_path):
-    s = SqliteAnesthesiaStore(tmp_path / "test.db")
+    s = SqliteAnesthesiaStore(make_db(tmp_path))
     yield s
     s.close()
 

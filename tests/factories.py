@@ -16,7 +16,7 @@ from typing import Iterable
 
 from docapp.core.db import open_db
 from docapp.modules import MODULES
-from docapp.storage.sqlite_store import SCHEMA as CORE_SCHEMA
+from docapp.people.store import SCHEMA as PEOPLE_SCHEMA
 
 #: id сотрудников, которые есть в тестовой БД после `seed_employees`.
 #: 1…10 — обычные участники (авторы заявок, дежурные врачи, кураторы статей);
@@ -42,7 +42,7 @@ def seed_employees(
 
     Роль значения не имеет: внешний ключ проверяет только существование строки.
     """
-    conn = open_db(db_path, CORE_SCHEMA)
+    conn = open_db(db_path, PEOPLE_SCHEMA)
     try:
         for employee_id in ids:
             conn.execute(
@@ -55,7 +55,7 @@ def seed_employees(
         conn.close()
 
 
-def test_db(tmp_path, *, seed: bool = True) -> Path:
+def make_db(tmp_path, *, seed: bool = True) -> Path:
     """Единая БД для модульных тестов: схемы всех модулей (+ сотрудники)."""
     db = init_db(tmp_path / "app.db")
     if seed:

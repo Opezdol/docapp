@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Сводка по анестезиям — docapp{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Сводка по анестезиям</h1>
+  <p class="report-meta">
+    Период по дате подачи: {{ from }} — {{ to }} ·
+    {% if summary and summary.scope == 'own' %}только мои записи{% else %}все записи отделения{% endif %}
+  </p>
+
+  <form method="get" action="/summary" class="summary-form">
+    <label>С
+      <input type="date" name="from" value="{{ from }}">
+    </label>
+    <label>По
+      <input type="date" name="to" value="{{ to }}">
+    </label>
+    <label>Разрез
+      <select name="by">
+        <option value="doctor" {% if by == 'doctor' %}selected{% endif %}>По врачам</option>
+        <option value="nurse" {% if by == 'nurse' %}selected{% endif %}>По медсёстрам</option>
+        <option value="month" {% if by == 'month' %}selected{% endif %}>По месяцам</option>
+        <option value="day" {% if by == 'day' %}selected{% endif %}>По дням</option>
+      </select>
+    </label>
+    <button class="btn" type="submit">Показать</button>
+  </form>
+
+  {% if error %}
+    <p class="summary-error">{{ error }}</p>
+  {% elif summary %}
+    <p class="summary-total">Всего записей: <b>{{ summary.total }}</b></p>
+    {% if summary.rows %}
+      <table class="summary-table">
+        <thead>
+          <tr><th>{{ by_label }}</th><th>Записей</th></tr>
+        </thead>
+        <tbody>
+          {% for row in summary.rows %}
+            <tr>
+              <td>{{ row.name or row.key }}</td>
+              <td>{{ row.count }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="report-meta">За этот период записей нет.</p>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

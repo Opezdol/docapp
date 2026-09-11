@@ -2,7 +2,7 @@
 
 Собственная база данных (data/needs/needs.db), основную docapp.db
 не трогаем (ADR-11). Соединение и стиль — как в
-docapp/storage/sqlite_store.py: row_factory = sqlite3.Row,
+ядре хранилищ (row_factory = sqlite3.Row,
 check_same_thread=False (FastAPI обрабатывает запросы в пуле потоков),
 PRAGMA foreign_keys = ON для каскадного удаления строк заявки.
 Таймстемпы — ISO-строки datetime.now().isoformat(), как в sqlite_store.py.

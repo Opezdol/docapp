@@ -6,7 +6,8 @@ import pytest
 
 from docapp.domain.employee import DOCTOR, NURSE, Employee
 from docapp.records.service import AnesthesiaService, NotFoundError, NotOwnedError
-from docapp.storage.sqlite_store import SqliteAnesthesiaStore, SqliteEmployeeStore
+from docapp.people.store import SqliteEmployeeStore
+from docapp.records.store import SqliteAnesthesiaStore
 
 
 def make_employee(**overrides):

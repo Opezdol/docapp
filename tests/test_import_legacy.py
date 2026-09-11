@@ -535,7 +535,8 @@ class TestCheck:
         assert report.ok
         assert report.counts["employees"] == 3
         assert report.counts["needs_requests"] == 2
-        assert report.versions["docapp"] == 3
+        assert report.versions["records"] == 3
+        assert report.versions["people"] == 1
         assert report.versions["needs"] == 2
         assert report.versions["duty"] == 1
         assert "всё сходится" in report.summary()

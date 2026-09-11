@@ -1,8 +1,9 @@
-"""FastAPI-приложение docapp: сборка модулей, вход, PWA-интерфейс.
+"""FastAPI-приложение docapp: сборка модулей, вход, общие страницы, PWA.
 
-Ядро (сотрудники, анестезии) живёт здесь; модули разделов берутся из реестра
-(`docapp.modules.MODULES`) — их контейнеры и HTTP-адаптеры подключает
-`core.registry`.
+Здесь осталось только то, что принадлежит приложению целиком: вход и выход,
+страница «Мои данные», обработчики ошибок шва доступа, статика и подключение
+модулей из реестра. Сами разделы (записи анестезий, «Компендиум», «Потребности»,
+«Дежурства», «Сводка») живут в своих модулях и приходят из `docapp.modules`.
 """
 
 from pathlib import Path
@@ -21,16 +22,11 @@ from docapp.core import registry, web
 from docapp.core.registry import Module
 from docapp.domain.employee import Employee
 from docapp.modules import MODULES
-from docapp.records.service import AnesthesiaService
-from docapp.storage.sqlite_store import (
-    SqliteActiveNurseStore,
-    SqliteAnesthesiaStore,
-    SqliteEmployeeStore,
-)
+from docapp.people.store import SqliteEmployeeStore
 
 BASE_DIR = Path(__file__).parent
 
-#: Шаблоны приложения: общие (base.html, login, index, me, edit, nurse).
+#: Шаблоны приложения: только общие (base.html, login, me, stub).
 TEMPLATES = web.templates()
 
 
@@ -42,11 +38,14 @@ def create_app(
     """Собрать приложение: ядро, модули из реестра, HTTP.
 
     `modules` — подмножество реестра: тесты собирают приложение с одним модулем
-    вместо всех (не нужно патчить четыре переменные окружения).
+    вместо всех (не нужно патчить переменные окружения всех модулей).
     """
     db_path = default_db_path() if db_path is None else db_path
     secret = secret or session_secret()
     modules = MODULES if modules is None else modules
+    db_file = Path(db_path)
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+
     app = FastAPI(title="docapp")
     app.add_middleware(
         SessionMiddleware,
@@ -54,17 +53,19 @@ def create_app(
         max_age=60 * 60 * 24 * 30,
         https_only=https_only(),
     )
-
-    employees = SqliteEmployeeStore(db_path)
-    anesthesia = SqliteAnesthesiaStore(db_path)
-    active_nurse = SqliteActiveNurseStore(db_path)
-    app.state.employees = employees
-    app.state.anesthesia = anesthesia
-    app.state.active_nurse = active_nurse
-    app.state.authenticator = Authenticator(employees)
-    app.state.service = AnesthesiaService(anesthesia)
-
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+    # Шов доступа и вход нужны приложению всегда — даже когда модуль сотрудников
+    # не подключён (тесты собирают подмножество модулей). Сам класс хранилища
+    # принадлежит владельцу данных — модулю `people`.
+    employees = SqliteEmployeeStore(db_file)
+    app.state.employees = employees
+    app.state.authenticator = Authenticator(employees)
+
+    # Модули: контейнеры собираются в порядке реестра, поэтому модуль может взять
+    # интерфейс соседа, объявленного раньше (ADR-0017).
+    registry.build_containers(app, modules, registry.AppContext(db_path=db_file))
+    registry.include_routers(app, modules)
 
     @app.exception_handler(access.AccessDenied)
     def access_denied_handler(request: Request, exc: access.AccessDenied):
@@ -83,7 +84,11 @@ def create_app(
         return TEMPLATES.TemplateResponse(request, "login.html", {"error": None})
 
     @app.post("/login")
-    def login_submit(request: Request, login: Annotated[str, Form()], password: Annotated[str, Form()]):
+    def login_submit(
+        request: Request,
+        login: Annotated[str, Form()],
+        password: Annotated[str, Form()],
+    ):
         try:
             employee = request.app.state.authenticator.authenticate(login, password)
         except InvalidCredentials:
@@ -110,139 +115,13 @@ def create_app(
             request, "me.html", {"user": user, "flash": None}
         )
 
-    @app.get("/", response_class=HTMLResponse)
-    def index(request: Request, user: Annotated[Employee, Depends(current_user)]):
-        if user is None:
-            return RedirectResponse("/login", status_code=303)
-        state = request.app.state
-        flash = request.session.pop("flash", None)
-
-        # Медсестра и старшая сестра видят только свои анестезии (просмотр,
-        # ADR-5); право ввода — разрешение records.edit (ADR-0023).
-        if not access.has(user.role, access.RECORDS_EDIT):
-            records = state.service.list_for_nurse(user.id)
-            doctor_by_id = {d.id: d for d in state.employees.list_all()}
-            records_with_doctors = [(r, doctor_by_id.get(r.doctor_id)) for r in records]
-            return TEMPLATES.TemplateResponse(
-                request,
-                "nurse.html",
-                {
-                    "user": user,
-                    "records": records_with_doctors,
-                    "flash": flash,
-                },
-            )
-
-        nurses = state.employees.list_nurses()
-        nurse_by_id = {n.id: n for n in nurses}
-        active_nurse_id = state.active_nurse.get_active_nurse(user.id)
-        records = state.service.list_mine(user.id)
-        records_with_nurses = [
-            (r, nurse_by_id.get(r.nurse_id)) for r in records
-        ]
-        return TEMPLATES.TemplateResponse(
-            request,
-            "index.html",
-            {
-                "user": user,
-                "nurses": nurses,
-                "active_nurse_id": active_nurse_id,
-                "records": records_with_nurses,
-                "flash": flash,
-            },
-        )
-
-    @app.post("/nurse")
-    def choose_nurse(request: Request, user: Annotated[Employee, Depends(current_user)], nurse_id: Annotated[int, Form()]):
-        if user is None:
-            return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
-        if not access.has(user.role, access.RECORDS_EDIT):
-            return JSONResponse({"error": "Выбор сестры доступен только врачам"}, status_code=403)
-        request.app.state.active_nurse.set_active_nurse(user.id, nurse_id)
-        return {"ok": True, "nurse_id": nurse_id}
-
-    @app.post("/anesthesia")
-    def add_anesthesia(
-        request: Request,
-        user: Annotated[Employee, Depends(current_user)],
-        patient_name: Annotated[str, Form()],
-        nurse_id: Annotated[int, Form()] = 0,
-    ):
-        if user is None:
-            return RedirectResponse("/login", status_code=303)
-        try:
-            if not access.has(user.role, access.RECORDS_EDIT):
-                # Формы у медсестры нет, но адрес открыт: отвечаем как раньше —
-                # сообщением, а не страницей ошибки (поведение в тестах).
-                request.session["flash"] = "Ввод анестезий доступен врачу"
-                return RedirectResponse("/", status_code=303)
-            request.app.state.service.create(user.id, nurse_id, patient_name.strip())
-        except ValueError as exc:
-            request.session["flash"] = str(exc)
-        return RedirectResponse("/", status_code=303)
-
-    @app.get("/anesthesia/{anesthesia_id}/edit", response_class=HTMLResponse)
-    def edit_page(request: Request, anesthesia_id: int, user: Annotated[Employee, Depends(current_user)]):
-        if user is None:
-            return RedirectResponse("/login", status_code=303)
-        state = request.app.state
-        record = state.anesthesia.get_by_id(anesthesia_id)
-        if record is None or record.doctor_id != user.id:
-            request.session["flash"] = "Запись не найдена"
-            return RedirectResponse("/", status_code=303)
-        nurses = state.employees.list_nurses()
-        return TEMPLATES.TemplateResponse(
-            request,
-            "edit.html",
-            {"user": user, "record": record, "nurses": nurses, "flash": None},
-        )
-
-    @app.post("/anesthesia/{anesthesia_id}/update")
-    def update_anesthesia(
-        request: Request,
-        anesthesia_id: int,
-        user: Annotated[Employee, Depends(current_user)],
-        patient_name: Annotated[str, Form()],
-        nurse_id: Annotated[int, Form()] = 0,
-    ):
-        if user is None:
-            return RedirectResponse("/login", status_code=303)
-        try:
-            request.app.state.service.update(
-                user.id,
-                anesthesia_id,
-                patient_name.strip(),
-                nurse_id,
-            )
-        except ValueError as exc:
-            request.session["flash"] = str(exc)
-        return RedirectResponse("/", status_code=303)
-
-    @app.post("/anesthesia/{anesthesia_id}/delete")
-    def delete_anesthesia(request: Request, anesthesia_id: int, user: Annotated[Employee, Depends(current_user)]):
-        if user is None:
-            return RedirectResponse("/login", status_code=303)
-        try:
-            request.app.state.service.delete(user.id, anesthesia_id)
-        except ValueError as exc:
-            request.session["flash"] = str(exc)
-        return RedirectResponse("/", status_code=303)
-
-    # Модули разделов: из реестра (docapp.modules) — контейнеры и роутеры.
-    # Ядро приложения (сотрудники, анестезии) остаётся здесь; вынести его в
-    # отдельный модуль `records` — работа шагов 5–6 (docs/ТЗ-каркас.md).
-    db_file = Path(db_path)
-    db_file.parent.mkdir(parents=True, exist_ok=True)
-    registry.build_containers(app, modules, registry.AppContext(db_path=db_file))
-    registry.include_routers(app, modules)
-
     return app
 
 
 def current_user(request: Request) -> Employee | None:
     """Текущий вошедший сотрудник (по сессии) или None.
 
-    Обёртка над швом доступа (core.access): здесь имя сохранено для
-    `Depends(current_user)` в маршрутах этого модуля.
+    Обёртка над швом доступа (core.access): имя сохранено для
+    `Depends(current_user)` в маршрутах приложения.
     """
     return access.current_user(request)

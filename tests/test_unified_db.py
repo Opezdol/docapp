@@ -70,9 +70,10 @@ class TestOneFile:
         finally:
             conn.close()
         assert [(r["module"], r["version"]) for r in rows] == [
-            ("docapp", 3),
             ("duty", 1),
             ("needs", 2),
+            ("people", 1),
+            ("records", 3),
             ("wiki", 2),
         ]
 

@@ -7,10 +7,8 @@ import pytest
 from docapp.auth.auth import Authenticator, InvalidCredentials
 from docapp.auth.passwords import hash_password, verify_password
 from docapp.domain.employee import DOCTOR, HEAD, NURSE, Employee
-from docapp.storage.sqlite_store import (
-    SqliteActiveNurseStore,
-    SqliteEmployeeStore,
-)
+from docapp.people.store import SqliteEmployeeStore
+from docapp.records.store import SqliteActiveNurseStore
 
 
 def make_employee(**overrides):

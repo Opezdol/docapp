@@ -17,7 +17,7 @@ import sys
 from docapp.auth.passwords import hash_password
 from docapp.config import db_path
 from docapp.domain.employee import DOCTOR, EDITOR, HEAD, HEAD_NURSE, NURSE, Employee
-from docapp.storage.sqlite_store import SqliteEmployeeStore
+from docapp.people.store import SqliteEmployeeStore
 
 _CHARS = string.ascii_letters + string.digits
 

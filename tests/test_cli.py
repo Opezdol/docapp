@@ -6,7 +6,7 @@ import pytest
 
 from docapp.auth.passwords import verify_password
 from docapp.domain.employee import DOCTOR, HEAD, HEAD_NURSE, NURSE, Employee
-from docapp.storage.sqlite_store import SqliteEmployeeStore
+from docapp.people.store import SqliteEmployeeStore
 
 
 @pytest.fixture

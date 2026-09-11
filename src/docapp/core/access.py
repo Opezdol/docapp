@@ -147,6 +147,9 @@ MENU: tuple[MenuItem, ...] = (
     MenuItem("/compendium", "Компендиум", "wiki"),
     MenuItem("/needs", "Потребности", "needs"),
     MenuItem("/duty", "Дежурства", "duty"),
+    # «Сводка» — вид на данные записей, поэтому её видимость определяется правами
+    # на записи (records.*), а не отдельным набором разрешений (ADR-0023).
+    MenuItem("/summary", "Сводка", "records"),
 )
 
 

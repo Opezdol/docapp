@@ -8,7 +8,7 @@ from docapp.core.period import minutes_into_shift
 from docapp.duty.config import DutyConfig
 from docapp.duty.service import DutyClosed, DutyService
 from docapp.duty.store import SqliteDutyStore
-from factories import test_db
+from factories import make_db
 
 UTC = timezone.utc
 
@@ -19,7 +19,7 @@ def aware(y, m, d, hour, minute=0):
 
 @pytest.fixture
 def svc(tmp_path):
-    store = SqliteDutyStore(test_db(tmp_path))
+    store = SqliteDutyStore(make_db(tmp_path))
     config = DutyConfig(tz=UTC)
     service = DutyService(store, config)
     yield service

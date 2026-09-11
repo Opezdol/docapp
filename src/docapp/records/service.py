@@ -91,3 +91,65 @@ class AnesthesiaService:
         if existing.doctor_id != doctor_id:
             raise NotOwnedError("Нельзя изменять чужую запись")
         return existing
+
+    # ── сводка по поданным анестезиям (интерфейс для других модулей) ───
+
+    def aggregate(
+        self,
+        from_date: str,
+        to_date: str,
+        by: str = "doctor",
+        *,
+        doctor_id: int | None = None,
+        nurse_id: int | None = None,
+    ) -> dict:
+        """Считать поданные анестезии за период по одному разрезу.
+
+        `by` — разрез сводки:
+        - `doctor` / `nurse` — кто подал / с кем работали (ключ — id сотрудника,
+          имя подставляет вызывающий: справочник принадлежит модулю `people`);
+        - `month` / `day` — динамика по месяцам и дням (ключ — дата).
+
+        Период — по дате подачи, границы включительно. `doctor_id`/`nurse_id`
+        ограничивают выборку («только мои»): сам сервис прав не проверяет — это
+        делает вызывающий, у которого есть роль пользователя.
+
+        Это интерфейс модуля `records`: «Сводка» читает записи здесь, а не в
+        таблице `anesthesia` (ADR-0017).
+        """
+        keys = {
+            "doctor": lambda a: str(a.doctor_id),
+            "nurse": lambda a: str(a.nurse_id),
+            "month": lambda a: a.date.strftime("%Y-%m"),
+            "day": lambda a: a.date.isoformat(),
+        }
+        if by not in keys:
+            raise ValueError(f"Неизвестный разрез сводки: {by!r}")
+
+        records = self._anesthesia.list_range(
+            date.fromisoformat(from_date),
+            date.fromisoformat(to_date),
+            doctor_id=doctor_id,
+            nurse_id=nurse_id,
+        )
+        key_of = keys[by]
+        counts: dict[str, int] = {}
+        for record in records:
+            key = key_of(record)
+            counts[key] = counts.get(key, 0) + 1
+
+        # Динамика — по времени (старое сверху), люди — по количеству (кто больше).
+        if by in ("month", "day"):
+            rows = [{"key": key, "count": counts[key]} for key in sorted(counts)]
+        else:
+            rows = [
+                {"key": key, "count": count}
+                for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+            ]
+        return {
+            "from": from_date,
+            "to": to_date,
+            "by": by,
+            "total": len(records),
+            "rows": rows,
+        }

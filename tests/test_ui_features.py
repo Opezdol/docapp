@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 import docapp.config as config
 from docapp.auth.passwords import hash_password
 from docapp.domain.employee import HEAD_NURSE, NURSE, Employee
-from docapp.storage.sqlite_store import SqliteEmployeeStore
+from docapp.people.store import SqliteEmployeeStore
 from docapp.web.app import create_app
 
 CATALOG_YAML = """\

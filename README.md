@@ -245,14 +245,16 @@ docapp — первое подприложение в общем интерфе�
 ```
 src/docapp/
   domain/          # Employee, Anesthesia, Payment — без зависимостей
-  storage/         # порты (ABC) + Sqlite*Store (employees, anesthesia, active_nurse)
-  auth/            # хеши паролей (pbkdf2), вход, активная сестра
-  records/         # AnesthesiaService: ввод, «мои записи», правка, удаление
+  core/            # каркас: БД, период, статусы, права, реестр модулей, веб-общее
+  people/          # сотрудники: таблица, хранилище, справочник для соседей
+  auth/            # хеши паролей (pbkdf2), вход
+  records/         # анестезии: ввод, «мои записи», правка, удаление, сводные счёты
   allocation/      # импорт Excel, матчинг, разноска, экспорт, сводки (этап 2 — планируется)
   ai/              # общий слой вызовов ИИ (LLM, vision-OCR)
   wiki/            # «Компендиум»: PDF-источники + курируемые .md-статьи + QA
   needs/           # потребности: заявки точек, отчёты, аналитика
   duty/            # дежурства: разлиновка дежурных бригад (сетка время × врач)
+  summary/         # сводка по поданным анестезиям (своей таблицы не имеет)
   web/             # FastAPI + PWA-интерфейс (мобильный)
 tests/             # pytest
 main.py            # запуск
@@ -474,7 +476,7 @@ remote `origin` и SSH-ключ сервера в GitHub (deploy key репоз�
 ### Миграции схемы БД
 
 Версия схемы хранится в `PRAGMA user_version` каждой БД. Текущая версия —
-`SCHEMA_VERSION` в `src/docapp/storage/sqlite_store.py`,
+`SCHEMA_VERSION` в `src/docapp/records/store.py` (и `people/store.py`),
 `src/docapp/wiki/store.py`, `src/docapp/needs/store.py`.
 
 **Как добавить миграцию** (при изменении схемы):

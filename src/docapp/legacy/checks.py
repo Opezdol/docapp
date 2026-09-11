@@ -17,7 +17,8 @@ from docapp.legacy.importer import find_orphans
 
 #: Таблицы по модулям — для счётчиков (порядок как в реестре модулей).
 MODULE_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("docapp", ("employees", "anesthesia", "active_nurse", "accrual")),
+    ("people", ("employees",)),
+    ("records", ("anesthesia", "active_nurse", "accrual")),
     (
         "wiki",
         ("wiki_sources", "wiki_articles", "wiki_revisions", "wiki_article_links",

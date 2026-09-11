@@ -35,7 +35,7 @@ from fastapi.testclient import TestClient
 from docapp.auth.passwords import hash_password
 from docapp.domain.employee import DOCTOR, HEAD, HEAD_NURSE, NURSE, Employee
 from docapp.needs.catalog import CATEGORY_MEDICAMENTS, CATEGORY_SOLUTIONS
-from docapp.storage.sqlite_store import SqliteEmployeeStore
+from docapp.people.store import SqliteEmployeeStore
 from docapp.web.app import create_app
 
 #: Фиксированная неделя (понедельник) для всех запросов тестов.

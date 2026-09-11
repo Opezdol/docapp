@@ -45,8 +45,9 @@ class TestModuleContract:
     """Контракт модуля: имя, схема, база, сборка, роутер."""
 
     def test_app_modules_are_declared(self):
+        """Порядок значим: модуль берёт интерфейс соседа, объявленного раньше."""
         names = [module.name for module in MODULES]
-        assert names == ["docapp", "wiki", "needs", "duty"]
+        assert names == ["people", "records", "wiki", "needs", "duty", "summary"]
 
     def test_every_module_with_schema_has_version(self):
         """Схема модуля — объект Schema с версией (файл у всех один, ADR-0016)."""
@@ -55,30 +56,37 @@ class TestModuleContract:
                 assert isinstance(module.schema, Schema)
                 assert module.schema.version >= 1
 
-    def test_core_has_no_build_and_no_router(self):
-        """Ядро владеет только схемой: HTTP-часть живёт в web/app.py."""
-        core = MODULES[0]
-        assert core.name == "docapp"
-        assert core.build is None
-        assert core.router is None
+    def test_no_module_without_build(self):
+        """Каждый модуль собирает контейнер; схемы без сборки больше нет."""
+        for module in MODULES:
+            assert module.build is not None, module.name
+
+    def test_summary_has_no_schema(self):
+        """«Сводка» своей таблицы не имеет — она и есть проверка каркаса."""
+        summary = next(module for module in MODULES if module.name == "summary")
+        assert summary.schema is None
+        assert summary.router is not None
 
     def test_app_modules_have_container_and_router(self):
+        """У модуля есть сборка; HTTP-адаптер — у всех, кроме справочника."""
         for module in MODULES:
-            if module.name == "docapp":
-                continue
             assert module.build is not None, module.name
-            assert module.router is not None, module.name
+            if module.name == "people":
+                # Сотрудников заводят командой CLI, страницы у модуля нет.
+                assert module.router is None
+            else:
+                assert module.router is not None, module.name
 
     def test_module_schema_versions(self):
         """Версии схем модулей в единой БД (ADR-0016)."""
         versions = {module.name: module.schema.version for module in MODULES if module.schema}
-        assert versions == {"docapp": 3, "wiki": 2, "needs": 2, "duty": 1}
+        assert versions == {"people": 1, "records": 3, "wiki": 2, "needs": 2, "duty": 1}
 
     def test_databases_covers_all_schemas(self):
         """Все схемы объявлены в одном файле — путь у записей одинаковый."""
         path = Path("/tmp/app.db")
         rows = databases(MODULES, path)
-        assert [name for name, _, _ in rows] == ["docapp", "wiki", "needs", "duty"]
+        assert [name for name, _, _ in rows] == ["people", "records", "wiki", "needs", "duty"]
         for _, row_path, schema in rows:
             assert row_path == path
             assert isinstance(schema, Schema)
