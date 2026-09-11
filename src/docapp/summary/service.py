@@ -19,7 +19,7 @@ from docapp.domain.employee import Employee
 from docapp.records.service import AnesthesiaService
 from docapp.people.store import SqliteEmployeeStore
 
-#: Разрезы сводки. «Подприложение» тут не при чём: это группировка одного набора
+#: Разрезы сводки. Модуль тут не при чём: это группировка одного набора
 #: данных, поэтому и права — от записей, а не свои.
 BY_DOCTOR = "doctor"
 BY_NURSE = "nurse"

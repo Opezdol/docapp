@@ -27,7 +27,7 @@ class DutyClosed(ValueError):
 
 
 class DutyService:
-    """Бизнес-правила подприложения «Дежурства».
+    """Бизнес-правила модуля `duty` («Дежурства»).
 
     store — SQLite-хранилище (SqliteDutyStore), config — DutyConfig (tz).
     Сервис ничего не знает про HTTP: окно и права — исключениями/значениями.

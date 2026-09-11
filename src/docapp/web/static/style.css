@@ -9,7 +9,7 @@ body {
 
 .app { max-width: 560px; margin: 0 auto; padding: 0 12px 24px; }
 
-/* Меню подприложений: на телефоне — строка сверху, на широких экранах — слева */
+/* Меню разделов: на телефоне — строка сверху, на широких экранах — слева */
 .layout { display: flex; flex-direction: column; gap: 12px; }
 
 .apps {

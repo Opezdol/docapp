@@ -305,7 +305,7 @@ class TestMyData:
 
 
 class TestAppMenu:
-    """Меню подприложений и заглушки (ADR-9)."""
+    """Меню разделов и заглушки (ADR-9)."""
 
     def test_menu_on_main_page(self, client):
         _login(client)

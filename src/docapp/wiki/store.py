@@ -1,4 +1,4 @@
-"""Хранилище подприложения «Компендиум» на SQLite.
+"""Хранилище модуля `wiki` («Компендиум») на SQLite.
 
 Собственная база (data/wiki/wiki.db), основную docapp.db не трогаем.
 Стиль — как в остальных хранилищах (docapp/needs/store.py, docapp/records/store.py):

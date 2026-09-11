@@ -1,4 +1,4 @@
-"""Хранилище подприложения «Дежурства» на SQLite.
+"""Хранилище модуля `duty` («Дежурства») на SQLite.
 
 Собственная БД (data/duty/duty.db), основную docapp.db не трогаем.
 Соединение и стиль — как в needs/store.py и storage/sqlite_store.py:
