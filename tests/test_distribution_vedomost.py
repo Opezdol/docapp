@@ -211,6 +211,41 @@ class TestPersonKey:
         assert person_key(fio) == expected
 
 
+class TestInitialsAreRequired:
+    """Совпадения одной фамилии мало: инициалы обязательны (финансовый документ)."""
+
+    def _file(self, patient: str):
+        return vedomost_xlsx([{"date": date(2026, 6, 2), "patient": patient,
+                               "doctor": 1206.8, "smp": 431, "mmp": 86.2}])
+
+    def test_other_initials_are_not_paid(self, env):
+        """Фамилия та же, инициалы другие — денег нет, строка помечена."""
+        result = spread_file(env, self._file("ПЕТРОВ П.И."))
+        row = result.rows[0]
+        assert row.attention is True
+        assert row.doctor is None and row.nurse is None
+        assert result.assigned_rows == 0
+        assert result.doctors == () and result.nurses == ()
+
+    def test_short_record_initials_still_match(self, env):
+        """Врач ввёл только имя: «и» и «ип» — одно лицо, инициалы короче."""
+        records = [make_anesthesia(date=date(2026, 6, 2), patient_name="Тимофеев Игорь",
+                                   doctor_id=env["doctor"].id, nurse_id=env["nurse"].id)]
+        result = spread("2026-06", parse(self._file("ТИМОФЕЕВ И.П.")), records,
+                        env["employees"])
+        assert result.rows[0].attention is False
+        assert result.rows[0].doctor == env["doctor"]
+
+    def test_record_without_initials_is_not_enough(self, env):
+        """В записи одна фамилия — сравнивать нечем, пару не ставим."""
+        records = [make_anesthesia(date=date(2026, 6, 2), patient_name="Соколов",
+                                   doctor_id=env["doctor"].id, nurse_id=env["nurse"].id)]
+        result = spread("2026-06", parse(self._file("СОКОЛОВ С.С.")), records,
+                        env["employees"])
+        assert result.rows[0].attention is True
+        assert result.rows[0].doctor is None
+
+
 class TestSpread:
     def test_pair_goes_to_every_row_of_the_patient(self, env):
         """Одна заявка врача закрывает и осмотр, и анестезию (ТЗ §сопоставление)."""

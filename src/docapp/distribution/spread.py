@@ -3,11 +3,13 @@
 Правила (ADR-0024, `docs/ТЗ-распределение.md`):
 
 - месяц задаёт заведующий, и поиск идёт строго внутри него;
-- пациент ведомости ищется по нормализованной фамилии, инициалы — уточнение,
-  когда фамилия в месяце не одна;
+- пациент ведомости ищется по фамилии **и инициалам**: совпадения одной фамилии
+  мало — это финансовый документ, и «Иванов А.» не должен получить деньги за
+  «Иванова П.»;
 - найденная пара «врач + сестра» проставляется **во все строки этого пациента**
   (одна заявка врача закрывает и осмотр, и анестезию);
-- не нашли — пусто, нашли несколько — «Внимание» и пара не ставится: угадывать
+- не нашли — пусто, а если фамилия в месяце есть, но инициалы расходятся или
+  подходящих записей несколько — «Внимание» и пара не ставится: угадывать
   нельзя, это деньги.
 """
 
@@ -46,13 +48,15 @@ def person_key(fio: str) -> tuple[str, str]:
 
 
 def _initials_close(needed: str, found: str) -> bool:
-    """Инициалы совпадают на общем префиксе.
+    """Инициалы совпадают — на общем префиксе.
 
-    В ведомости всегда «Фамилия И.О.», а врач мог ввести только имя — тогда
-    сравниваем то, что есть: «пс» и «п» — одно и то же лицо, «пс» и «пи» — нет.
+    В ведомости всегда «Фамилия И.О.», а врач мог ввести только имя: «пс» и «п» —
+    это одно лицо (инициалы просто короче), «пс» и «пи» — разные люди. Пустые
+    инициалы (в ведомости или в записи нечего сравнивать) совпадением не считаем:
+    решает вызывающий — он смотрит на число оставшихся записей.
     """
     if not needed or not found:
-        return True          # сравнивать нечего — не отбрасываем
+        return False
     return needed[: len(found)] == found or found[: len(needed)] == needed
 
 
@@ -67,7 +71,12 @@ class Match:
 def match_patients(
     patients: Iterable[str], records: Sequence[Anesthesia]
 ) -> dict[str, Match]:
-    """Для каждого пациента ведомости — его запись или признак неоднозначности."""
+    """Для каждого пациента ведомости — его запись, «Внимание» или пусто.
+
+    Пара ставится, только если совпали **и фамилия, и инициалы** и такая запись
+    одна. Фамилия совпала, а инициалы нет — значит, в ведомости другой человек
+    (или врач ошибся в ФИО): денег не начисляем и помечаем строку.
+    """
     by_surname: dict[str, list[Anesthesia]] = defaultdict(list)
     for record in records:
         by_surname[person_key(record.patient_name)[0]].append(record)
@@ -76,20 +85,26 @@ def match_patients(
     for patient in patients:
         surname, initials = person_key(patient)
         candidates = by_surname.get(surname, [])
-        if len(candidates) > 1 and initials:
-            # Инициалы уточняют, но не отбрасывают: врачи вводят ФИО по-своему.
-            narrowed = [
-                record for record in candidates
-                if _initials_close(initials, person_key(record.patient_name)[1])
-            ]
-            if len(narrowed) == 1:
-                candidates = narrowed
-        if len(candidates) == 1:
-            result[normalize(patient)] = Match(record=candidates[0])
-        elif candidates:
-            result[normalize(patient)] = Match(ambiguous=True)
+        if not candidates:
+            result[normalize(patient)] = Match()          # такого пациента нет
+            continue
+        if not initials:
+            # В ведомости нет инициалов: сравнивать нечего — годится только
+            # единственная запись с этой фамилией, иначе разбирать руками.
+            result[normalize(patient)] = (
+                Match(record=candidates[0]) if len(candidates) == 1 else Match(ambiguous=True)
+            )
+            continue
+        close = [
+            record for record in candidates
+            if _initials_close(initials, person_key(record.patient_name)[1])
+        ]
+        if len(close) == 1:
+            result[normalize(patient)] = Match(record=close[0])
         else:
-            result[normalize(patient)] = Match()
+            # Либо несколько подходящих записей, либо фамилия есть, а инициалы
+            # расходятся — в обоих случаях пара не ставится.
+            result[normalize(patient)] = Match(ambiguous=True)
     return result
 
 
