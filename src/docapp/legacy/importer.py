@@ -45,7 +45,6 @@ EMPLOYEE_REFERENCES: tuple[tuple[str, str], ...] = (
     ("anesthesia", "nurse_id"),
     ("active_nurse", "doctor_id"),
     ("active_nurse", "nurse_id"),
-    ("accrual", "employee_id"),
     ("needs_requests", "author_id"),
     ("needs_closures", "closed_by"),
     ("duty_reports", "doctor_id"),
@@ -324,7 +323,6 @@ def _import_core(source: Path, dst: sqlite3.Connection, report: ImportReport) ->
             ("anesthesia", "nurse_id"),
             ("active_nurse", "doctor_id"),
             ("active_nurse", "nurse_id"),
-            ("accrual", "employee_id"),
         ):
             if _table_exists(src, table) and column in _columns(src, table):
                 ids = [
@@ -334,7 +332,6 @@ def _import_core(source: Path, dst: sqlite3.Connection, report: ImportReport) ->
                 _guard_employees(dst, ids, f"Ядро: {table}.{column}")
         _copy_simple(src, dst, "anesthesia", "anesthesia", report, key=("id",))
         _copy_simple(src, dst, "active_nurse", "active_nurse", report, key=("doctor_id",))
-        _copy_simple(src, dst, "accrual", "accrual", report, key=("employee_id", "month"))
     finally:
         src.close()
 

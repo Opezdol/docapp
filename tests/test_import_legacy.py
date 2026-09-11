@@ -535,7 +535,7 @@ class TestCheck:
         assert report.ok
         assert report.counts["employees"] == 3
         assert report.counts["needs_requests"] == 2
-        assert report.versions["records"] == 3
+        assert report.versions["records"] == 4
         assert report.versions["people"] == 1
         assert report.versions["needs"] == 2
         assert report.versions["duty"] == 1

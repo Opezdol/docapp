@@ -300,3 +300,84 @@ class TestAccruedMark:
 
         assert (cleared, marked) == (1, 0)
         assert an_store.get_by_id(first).accrued_at is None
+
+
+class TestAccrualTableRemoved:
+    """Таблицы `accrual` больше нет: отменённый план «Отчёт» убран (ADR-0024, шаг 5)."""
+
+    def test_new_database_has_no_accrual(self, tmp_path):
+        """Новая БД строится по текущему DDL — заготовки отменённого плана в ней нет."""
+        db = make_db(tmp_path, seed=False)
+        with sqlite3.connect(db) as conn:
+            names = {row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )}
+        assert "accrual" not in names
+        assert {"employees", "anesthesia", "active_nurse"} <= names
+
+    def test_old_database_loses_the_table_on_migration(self, tmp_path):
+        """БД версии 3 (с таблицей): миграция 4 её удаляет, записи остаются."""
+        db = tmp_path / "old.db"
+        connection = sqlite3.connect(db)
+        connection.executescript(
+            """
+            CREATE TABLE employees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, last_name TEXT NOT NULL,
+                first_name TEXT NOT NULL, middle_name TEXT NOT NULL DEFAULT '',
+                role TEXT NOT NULL, login TEXT UNIQUE, password_hash TEXT, buh_id TEXT);
+            CREATE TABLE anesthesia (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL,
+                patient_name TEXT NOT NULL,
+                doctor_id INTEGER NOT NULL REFERENCES employees(id),
+                nurse_id INTEGER NOT NULL REFERENCES employees(id),
+                created_at TEXT NOT NULL, accrued_at TEXT);
+            CREATE TABLE active_nurse (
+                doctor_id INTEGER PRIMARY KEY REFERENCES employees(id),
+                nurse_id INTEGER NOT NULL REFERENCES employees(id));
+            CREATE TABLE accrual (
+                employee_id INTEGER NOT NULL REFERENCES employees(id),
+                month TEXT NOT NULL, amount TEXT NOT NULL,
+                PRIMARY KEY (employee_id, month));
+            CREATE TABLE schema_migrations (
+                module TEXT NOT NULL, version INTEGER NOT NULL,
+                applied_at TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (module, version));
+            """
+        )
+        connection.execute(
+            "INSERT INTO employees (id, last_name, first_name, role) "
+            "VALUES (1, 'Иванов', 'Иван', 'doctor')"
+        )
+        connection.execute(
+            "INSERT INTO employees (id, last_name, first_name, role) "
+            "VALUES (2, 'Сидорова', 'Анна', 'nurse')"
+        )
+        connection.execute(
+            "INSERT INTO anesthesia (date, patient_name, doctor_id, nurse_id, created_at) "
+            "VALUES ('2026-09-02', 'Петров Пётр Сергеевич', 1, 2, '2026-09-02T09:00:00+00:00')"
+        )
+        connection.execute(
+            "INSERT INTO accrual (employee_id, month, amount) "
+            "VALUES (1, '2026-08', '100.00')"
+        )
+        connection.execute(
+            "INSERT INTO schema_migrations (module, version, applied_at, note) "
+            "VALUES ('records', 3, '2026-09-01T00:00:00+00:00', "
+            "'add accrual table and accrued_at column')"
+        )
+        connection.commit()
+        connection.close()
+
+        with SqliteAnesthesiaStore(db) as store:      # открытие применяет миграцию 4
+            records = store.list_range(date(2026, 9, 1), date(2026, 9, 30))
+
+        assert [record.patient_name for record in records] == ["Петров Пётр Сергеевич"]
+        with sqlite3.connect(db) as conn:
+            names = {row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )}
+            versions = {row[0] for row in conn.execute(
+                "SELECT version FROM schema_migrations WHERE module = 'records'"
+            )}
+        assert "accrual" not in names
+        assert versions == {3, 4}

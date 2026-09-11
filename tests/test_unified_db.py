@@ -43,7 +43,9 @@ class TestOneFile:
             conn.close()
 
         # ядро — без префикса
-        assert {"employees", "anesthesia", "active_nurse", "accrual"} <= tables
+        assert {"employees", "anesthesia", "active_nurse"} <= tables
+        # заготовка отменённого плана «Отчёт» удалена (ADR-0024, шаг 5)
+        assert "accrual" not in tables
         # модули — с префиксом владельца
         assert {"needs_requests", "needs_request_lines", "needs_closures"} <= tables
         assert {"duty_reports", "duty_operations"} <= tables
@@ -73,7 +75,7 @@ class TestOneFile:
             ("duty", 1),
             ("needs", 2),
             ("people", 1),
-            ("records", 3),
+            ("records", 4),
             ("wiki", 2),
         ]
 
@@ -106,7 +108,6 @@ class TestForeignKeys:
             ("anesthesia", "doctor_id"),
             ("anesthesia", "nurse_id"),
             ("active_nurse", "nurse_id"),
-            ("accrual", "employee_id"),
         ],
     )
     def test_declared(self, tmp_path, table, column):

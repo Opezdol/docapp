@@ -80,7 +80,7 @@ class TestModuleContract:
     def test_module_schema_versions(self):
         """Версии схем модулей в единой БД (ADR-0016)."""
         versions = {module.name: module.schema.version for module in MODULES if module.schema}
-        assert versions == {"people": 1, "records": 3, "wiki": 2, "needs": 2, "duty": 1}
+        assert versions == {"people": 1, "records": 4, "wiki": 2, "needs": 2, "duty": 1}
 
     def test_databases_covers_all_schemas(self):
         """Все схемы объявлены в одном файле — путь у записей одинаковый."""

@@ -63,15 +63,11 @@ DUTY_EDIT_OWN = "duty.edit_own"
 DUTY_VIEW_ALL = "duty.view_all"
 DUTY_MANAGE = "duty.manage"
 
-#: «Отчёт» (начисления): свой итог за месяц и все итоги.
-ACCRUAL_VIEW_OWN = "accrual.view_own"
-ACCRUAL_VIEW_ALL = "accrual.view_all"
-
 #: Таблица прав. Роль → разрешения (ADR-0023).
 #:
 #: `editor` — это врач с правом курирования справочных документов: права врача
-#: плюс `wiki.curate`. `head` видит все анестезии только в сводках и «Отчёте»
-#: (`view_all`), а на странице анестезий — свои, как все (ADR-0023, Q20).
+#: плюс `wiki.curate`. `head` видит все анестезии в разделе «Распределение»
+#: (`distribution.manage`), а на странице анестезий — свои, как все (ADR-0023, Q20).
 ALLOWED: dict[str, frozenset[str]] = {
     DOCTOR: frozenset(
         {
@@ -80,7 +76,6 @@ ALLOWED: dict[str, frozenset[str]] = {
             WIKI_READ,
             DUTY_VIEW_OWN,
             DUTY_EDIT_OWN,
-            ACCRUAL_VIEW_OWN,
         }
     ),
     NURSE: frozenset(
@@ -88,7 +83,6 @@ ALLOWED: dict[str, frozenset[str]] = {
             RECORDS_VIEW_OWN,
             NEEDS_VIEW_OWN,
             NEEDS_EDIT_OWN,
-            ACCRUAL_VIEW_OWN,
         }
     ),
     HEAD_NURSE: frozenset(
@@ -114,7 +108,6 @@ ALLOWED: dict[str, frozenset[str]] = {
             NEEDS_CATALOG,
             DUTY_VIEW_ALL,
             DUTY_MANAGE,
-            ACCRUAL_VIEW_ALL,
         }
     ),
     EDITOR: frozenset(
@@ -125,7 +118,6 @@ ALLOWED: dict[str, frozenset[str]] = {
             WIKI_CURATE,
             DUTY_VIEW_OWN,
             DUTY_EDIT_OWN,
-            ACCRUAL_VIEW_OWN,
         }
     ),
 }

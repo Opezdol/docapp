@@ -38,19 +38,10 @@ CREATE TABLE IF NOT EXISTS active_nurse (
     doctor_id INTEGER PRIMARY KEY REFERENCES employees(id),
     nurse_id  INTEGER NOT NULL REFERENCES employees(id)
 );
--- Итоги начислений за месяц — задел прежнего плана «Отчёт» (docs/ТЗ-отчёт.md,
--- файла больше нет). По ADR-0024 план отменён: таблица удаляется шагом 5
--- ТЗ `docs/ТЗ-распределение.md`.
-CREATE TABLE IF NOT EXISTS accrual (
-    employee_id INTEGER NOT NULL REFERENCES employees(id),
-    month       TEXT NOT NULL,
-    amount      TEXT NOT NULL,
-    PRIMARY KEY (employee_id, month)
-);
 """
 
-#: Версия схемы записей: прежняя основная схема шла v1 → v2 → v3.
-SCHEMA_VERSION = 3
+#: Версия схемы записей: прежняя основная схема шла v1 → v2 → v3 → v4.
+SCHEMA_VERSION = 4
 
 _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     # (1, "initial schema", [])  # базовая схема создаётся _SCHEMA выше
@@ -81,8 +72,8 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
     ),
     # v3: задел под прежний план «Отчёт» (начисления): флаг на записи и итоги за
     # месяц. План отменён ADR-0024 — флаг `accrued_at` меняет смысл на «учтена в
-    # распределении», таблица `accrual` удаляется отдельной миграцией
-    # (`docs/ТЗ-распределение.md`, шаг 5). Миграция оставлена как есть: она уже
+    # распределении», а таблица `accrual` удалена шагом 5 ТЗ
+    # `docs/ТЗ-распределение.md` (11.09.2026). Миграция оставлена как есть: она уже
     # применена на живой базе, переписывать применённые миграции нельзя.
     (
         3,
@@ -95,6 +86,14 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "amount TEXT NOT NULL, "
             "PRIMARY KEY (employee_id, month))",
         ],
+    ),
+    # v4: убрать заготовку отменённого плана «Отчёт» (ADR-0024): итоги начислений
+    # живут в файле распределения, а не в таблице. Данных не жалко — таблица
+    # создавалась пустой и никогда не заполнялась.
+    (
+        4,
+        "drop accrual table",
+        ["DROP TABLE IF EXISTS accrual"],
     ),
 ]
 

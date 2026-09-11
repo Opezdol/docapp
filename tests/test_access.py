@@ -26,7 +26,7 @@ class TestPermissionsTable:
 
     def test_permissions_are_namespaced(self):
         """Разрешение всегда «модуль.действие» — от этого зависит меню."""
-        modules = {"records", "wiki", "needs", "duty", "accrual", "distribution"}
+        modules = {"records", "wiki", "needs", "duty", "distribution"}
         for role, granted in access.ALLOWED.items():
             for permission in granted:
                 module, _, action = permission.partition(".")
@@ -58,7 +58,6 @@ class TestPermissionsTable:
             (HEAD, access.DUTY_MANAGE, True),
             (HEAD, access.DISTRIBUTION_MANAGE, True),
             (HEAD, access.NEEDS_CATALOG, True),
-            (HEAD, access.ACCRUAL_VIEW_ALL, True),
             (DOCTOR, access.DISTRIBUTION_MANAGE, False),
             (HEAD_NURSE, access.DISTRIBUTION_MANAGE, False),
             # редактор — врач с правом курирования документов
@@ -77,6 +76,12 @@ class TestPermissionsTable:
         assert access.has(HEAD, access.NEEDS_VIEW_OWN, access.NEEDS_VIEW_ALL) is True
         assert access.has(NURSE, access.NEEDS_VIEW_OWN, access.NEEDS_VIEW_ALL) is True
         assert access.has(NURSE, access.DUTY_MANAGE, access.WIKI_CURATE) is False
+
+    def test_accrual_permissions_are_gone(self):
+        """Права отменённого плана «Отчёт» убраны вместе с таблицей (ADR-0024, шаг 5)."""
+        removed = {"accrual.view_own", "accrual.view_all"}
+        for role, granted in access.ALLOWED.items():
+            assert not (granted & removed), f"{role}: {granted & removed}"
 
     def test_head_has_no_duty_edit(self):
         """Заведующий не вносит отчёт за врача (тест API это фиксирует)."""
