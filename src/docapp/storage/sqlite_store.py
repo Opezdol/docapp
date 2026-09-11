@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone, timedelta
 from dataclasses import replace
 from pathlib import Path
 
+from docapp.core.db import Schema, open_db
 from docapp.domain.anesthesia import Anesthesia
 from docapp.domain.employee import Employee
 from docapp.storage.store import ActiveNurseStore, AnesthesiaStore, EmployeeStore
@@ -76,40 +77,19 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
 ]
 
 
-def _apply_migrations(conn: sqlite3.Connection) -> None:
-    """Применить миграции схемы, если user_version устарел.
-
-    Новая БД (user_version=0) считается созданной на текущей версии схемы:
-    _SCHEMA выше уже создал все таблицы. Старые БД с user_version < текущей
-    проходят через миграции из _MIGRATIONS по порядку.
-    """
-    version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version == 0:
-        # БД только что создана _SCHEMA — сразу помечаем текущей версией
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        conn.commit()
-        return
-    for target, name, statements in _MIGRATIONS:
-        if version < target:
-            for stmt in statements:
-                conn.execute(stmt)
-            conn.execute(f"PRAGMA user_version = {target}")
-            conn.commit()
-            version = target
+#: Схема модуля ядра для общего механизма БД (core.db): одна БД на три
+#: хранилища этого файла — сотрудники, анестезии, «активная сестра».
+SCHEMA = Schema(
+    module="docapp",
+    sql=_SCHEMA,
+    version=SCHEMA_VERSION,
+    migrations=_MIGRATIONS,
+)
 
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
-    # check_same_thread=False: FastAPI обрабатывает запросы в пуле потоков,
-    # соединение не может быть привязано к одному потоку.
-    conn = sqlite3.connect(str(db_path), check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA busy_timeout = 5000")
-    conn.executescript(_SCHEMA)
-    _apply_migrations(conn)
-    conn.commit()
-    return conn
+    """Открыть БД ядра: подключение, PRAGMA, схема, миграции — внутри core.db."""
+    return open_db(db_path, SCHEMA)
 
 
 class SqliteEmployeeStore(EmployeeStore):

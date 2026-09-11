@@ -11,6 +11,8 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+from docapp.core.db import Schema, open_db
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS duty_report (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,31 +48,17 @@ def _now() -> str:
 
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path), check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA busy_timeout = 5000")
-    conn.executescript(_SCHEMA)
-    _apply_migrations(conn)
-    conn.commit()
-    return conn
+    """Открыть БД отчётов: подключение, PRAGMA, схема, миграции — внутри core.db."""
+    return open_db(db_path, SCHEMA)
 
 
-def _apply_migrations(conn: sqlite3.Connection) -> None:
-    """Применить миграции схемы, если user_version устарел."""
-    version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version == 0:
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        conn.commit()
-        return
-    for target, name, statements in _MIGRATIONS:
-        if version < target:
-            for stmt in statements:
-                conn.execute(stmt)
-            conn.execute(f"PRAGMA user_version = {target}")
-            conn.commit()
-            version = target
+#: Схема модуля «Дежурства» для общего механизма БД (core.db).
+SCHEMA = Schema(
+    module="duty",
+    sql=_SCHEMA,
+    version=SCHEMA_VERSION,
+    migrations=_MIGRATIONS,
+)
 
 
 class SqliteDutyStore:

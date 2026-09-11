@@ -122,59 +122,45 @@ def _set_buh_id(args: argparse.Namespace) -> int:
 def _migrate(args: argparse.Namespace) -> int:
     """Применить миграции схемы ко всем БД приложения.
 
-    Базовая схема каждой БД создаётся _SCHEMA при подключении; будущие
-    изменения добавляются как миграции в *_store.py (список _MIGRATIONS).
-    Здесь они применяются принудительно, чтобы не ждать первого запроса.
+    Механизм один на всё приложение (core.db, ADR-0016): подключение, PRAGMA,
+    создание таблиц, порядок миграций и учёт версий живут там. Здесь — только
+    реестр баз и отчёт. Версии каждой БД видны в её таблице schema_migrations.
     """
-    import sqlite3
     from pathlib import Path
 
+    from docapp.core.db import migrate
     from docapp.duty.config import load_duty_config
-    from docapp.duty.store import SCHEMA_VERSION as DUTY_VERSION
+    from docapp.duty.store import SCHEMA as DUTY_SCHEMA
     from docapp.needs.config import load_needs_config
-    from docapp.needs.store import SCHEMA_VERSION as NEEDS_VERSION
-    from docapp.storage.sqlite_store import SCHEMA_VERSION as MAIN_VERSION
+    from docapp.needs.store import SCHEMA as NEEDS_SCHEMA
+    from docapp.storage.sqlite_store import SCHEMA as CORE_SCHEMA
     from docapp.wiki.config import load_wiki_config
-    from docapp.wiki.store import SCHEMA_VERSION as WIKI_VERSION
+    from docapp.wiki.store import SCHEMA as WIKI_SCHEMA
 
-    dbs = [
-        ("docapp", db_path(), MAIN_VERSION),
-        ("wiki", load_wiki_config().db_path, WIKI_VERSION),
-        ("needs", load_needs_config().db_path, NEEDS_VERSION),
-        ("duty", load_duty_config().db_path, DUTY_VERSION),
+    #: Реестр баз приложения: имя, файл, схема владеющего модуля.
+    databases = [
+        ("docapp", Path(db_path()), CORE_SCHEMA),
+        ("wiki", Path(load_wiki_config().db_path), WIKI_SCHEMA),
+        ("needs", Path(load_needs_config().db_path), NEEDS_SCHEMA),
+        ("duty", Path(load_duty_config().db_path), DUTY_SCHEMA),
     ]
 
     all_ok = True
-    for name, path, want_version in dbs:
-        path = Path(path)
+    for name, path, schema in databases:
         path.parent.mkdir(parents=True, exist_ok=True)
         created = not path.exists()
-        # Открыть соединение как делают хранилища: применит _SCHEMA + миграции
-        # (создаст файл БД, если его нет)
         try:
-            if name == "docapp":
-                from docapp.storage.sqlite_store import _connect as _c
-            elif name == "wiki":
-                from docapp.wiki.store import _connect as _c
-            elif name == "duty":
-                from docapp.duty.store import _connect as _c
-            else:
-                from docapp.needs.store import _connect as _c
-            conn = _c(path)
-            conn.close()
-            new_version = sqlite3.connect(str(path)).execute(
-                "PRAGMA user_version"
-            ).fetchone()[0]
-            status = "OK" if new_version >= want_version else "WARN"
-            created_note = " (создана)" if created else ""
-            print(
-                f"{status}: {name} user_version={new_version}"
-                f" (нужно {want_version}){created_note}"
-            )
-            if new_version < want_version:
-                all_ok = False
-        except Exception as exc:  # noqa: BLE001
+            version = migrate(path, schema)
+        except Exception as exc:  # noqa: BLE001 — отчёт по всем БД важнее первой ошибки
             print(f"ОШИБКА: {name}: {exc}")
+            all_ok = False
+            continue
+        status = "OK" if version >= schema.version else "WARN"
+        created_note = " (создана)" if created else ""
+        print(
+            f"{status}: {name} version={version} (нужно {schema.version}){created_note}"
+        )
+        if version < schema.version:
             all_ok = False
 
     return 0 if all_ok else 1
