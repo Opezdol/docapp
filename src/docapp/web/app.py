@@ -13,7 +13,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from docapp.auth.auth import Authenticator, InvalidCredentials
 from docapp.config import git_revision, https_only
-from docapp.domain.employee import HEAD_NURSE, NURSE, Employee
+from docapp.core import access
+from docapp.domain.employee import Employee
 from docapp.records.service import AnesthesiaService
 from docapp.storage.sqlite_store import (
     SqliteActiveNurseStore,
@@ -24,9 +25,20 @@ from docapp.storage.sqlite_store import (
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).parent
+
+
+def _menu_context(request: Request) -> dict:
+    """Меню разделов для шаблона: из таблицы прав, второго списка не существует."""
+    user = access.current_user(request)
+    return {"menu": access.menu_for(user.role) if user else []}
+
+
 TEMPLATES = Jinja2Templates(
     directory=str(BASE_DIR / "templates"),
-    context_processors=[lambda request: {"git_revision": git_revision()}],
+    context_processors=[
+        lambda request: {"git_revision": git_revision()},
+        _menu_context,
+    ],
 )
 
 
@@ -50,6 +62,16 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
     app.state.service = AnesthesiaService(anesthesia)
 
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+    @app.exception_handler(access.AccessDenied)
+    def access_denied_handler(request: Request, exc: access.AccessDenied):
+        """403: модули бросают исключение шва доступа, HTTP ставит приложение."""
+        return JSONResponse({"detail": str(exc)}, status_code=403)
+
+    @app.exception_handler(access.NotAuthenticated)
+    def not_authenticated_handler(request: Request, exc: access.NotAuthenticated):
+        """401: то же для запросов без сессии."""
+        return JSONResponse({"detail": str(exc)}, status_code=401)
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request):
@@ -92,9 +114,9 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
         state = request.app.state
         flash = request.session.pop("flash", None)
 
-        # Медсестра и старшая сестра видят только свои анестезии
-        # (только просмотр, ADR-5; старшая сестра — тоже медсестра, ADR-11)
-        if user.role in (NURSE, HEAD_NURSE):
+        # Медсестра и старшая сестра видят только свои анестезии (просмотр,
+        # ADR-5); право ввода — разрешение records.edit (ADR-0023).
+        if not access.has(user.role, access.RECORDS_EDIT):
             records = state.service.list_for_nurse(user.id)
             doctor_by_id = {d.id: d for d in state.employees.list_all()}
             records_with_doctors = [(r, doctor_by_id.get(r.doctor_id)) for r in records]
@@ -131,7 +153,7 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
     def choose_nurse(request: Request, user: Annotated[Employee, Depends(current_user)], nurse_id: Annotated[int, Form()]):
         if user is None:
             return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
-        if user.role in (NURSE, HEAD_NURSE):
+        if not access.has(user.role, access.RECORDS_EDIT):
             return JSONResponse({"error": "Выбор сестры доступен только врачам"}, status_code=403)
         request.app.state.active_nurse.set_active_nurse(user.id, nurse_id)
         return {"ok": True, "nurse_id": nurse_id}
@@ -146,6 +168,11 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
         if user is None:
             return RedirectResponse("/login", status_code=303)
         try:
+            if not access.has(user.role, access.RECORDS_EDIT):
+                # Формы у медсестры нет, но адрес открыт: отвечаем как раньше —
+                # сообщением, а не страницей ошибки (поведение в тестах).
+                request.session["flash"] = "Ввод анестезий доступен врачу"
+                return RedirectResponse("/", status_code=303)
             request.app.state.service.create(user.id, nurse_id, patient_name.strip())
         except ValueError as exc:
             request.session["flash"] = str(exc)
@@ -198,11 +225,11 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
             request.session["flash"] = str(exc)
         return RedirectResponse("/", status_code=303)
 
-    # Подприложение «Компендиум»: LLM-wiki по курируемым .md-статьям
-    # поверх PDF-источников. Инициализация дешёвая и без сети: LLMClient/
+    # Модуль «Компендиум»: LLM-wiki по курируемым .md-статьям поверх
+    # PDF-источников. Инициализация дешёвая и без сети: LLMClient/
     # VisionClient только создают HTTP-транспорт, WikiService строит индекс
-    # из пустой БД. Импорты локальные: router импортирует docapp.web.app
-    # (current_user), поэтому на уровне модуля был бы круговой импорт.
+    # из пустой БД. Импорт модуля — по месту: список модулей станет реестром
+    # на шаге 3 (docs/ТЗ-каркас.md), до тех пор подключение живёт здесь.
     from docapp.ai.config import load_ai_config
     from docapp.ai.llm import LLMClient
     from docapp.ai.vision import VisionClient
@@ -230,11 +257,9 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
     }
     app.include_router(compendium_router)
 
-    # Подприложение «Потребности» (задача T6 ТЗ-потребностей).
-    # Инициализация дешёвая и без сети: чтение YAML-каталога и создание
-    # SQLite-файла заявок (как «Компендиум» создаёт свою wiki.db).
-    # Импорты локальные: needs.router импортирует docapp.web.app (current_user),
-    # поэтому на уровне модуля был бы круговой импорт.
+    # Модуль «Потребности» (ТЗ-потребности, T6). Инициализация дешёвая и без
+    # сети: чтение YAML-каталога и создание SQLite-файла заявок. Доступ — через
+    # core.access, поэтому импорт модуля больше не грозит круговым импортом.
     from docapp.needs.catalog import Catalog
     from docapp.needs.config import load_needs_config
     from docapp.needs.router import router as needs_router
@@ -253,11 +278,9 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
     }
     app.include_router(needs_router)
 
-    # Подприложение «Дежурства»: разлиновка дежурных бригад за ночные смены.
-    # Инициализация дешёвая и без сети: создаётся своя SQLite-БД отчётов
-    # (как «Компендиум» и «Потребности»). Импорты локальные: duty.router
-    # импортирует docapp.web.app (current_user), поэтому на уровне модуля
-    # был бы круговой импорт.
+    # Модуль «Дежурства»: разлиновка дежурных бригад за ночные смены.
+    # Инициализация дешёвая и без сети: своя SQLite-БД отчётов. Доступ — через
+    # core.access, кругового импорта с web.app больше нет.
     from docapp.duty.config import load_duty_config
     from docapp.duty.router import router as duty_router
     from docapp.duty.service import DutyService
@@ -277,8 +300,9 @@ def create_app(db_path: str | Path, secret: str) -> FastAPI:
 
 
 def current_user(request: Request) -> Employee | None:
-    """Текущий вошедший сотрудник (по сессии) или None."""
-    employee_id = request.session.get("employee_id")
-    if employee_id is None:
-        return None
-    return request.app.state.employees.get_by_id(employee_id)
+    """Текущий вошедший сотрудник (по сессии) или None.
+
+    Обёртка над швом доступа (core.access): здесь имя сохранено для
+    `Depends(current_user)` в маршрутах этого модуля.
+    """
+    return access.current_user(request)

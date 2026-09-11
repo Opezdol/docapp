@@ -5,10 +5,11 @@
 сестра и заведующий — всё: доска, правка любых заявок, отчёты, аналитика,
 закрытие/переоткрытие недель.
 
-Авторизация — current_user из docapp.web.app (импорт на уровне модуля,
-как в wiki.router); из-за этого роутер подключается в create_app
-лениво, внутри функции. Шаблоны — свои (needs/templates) поверх общего
-base.html (web/templates): Jinja2Templates принимает список директорий.
+Авторизация — core.access (`current_user`, `require`, `ensure`); модуль больше
+не импортирует docapp.web.app, поэтому кругового импорта нет и роутер
+подключается в create_app обычным include_router. Шаблоны — свои
+(needs/templates) поверх общего base.html (web/templates): Jinja2Templates
+принимает список директорий.
 
 Ошибки бизнес-слоя транслируются в HTTP: NeedsForbidden → 403,
 NeedsClosed → 409, прочие ValueError → 400. Полный UI страниц — в T8;
@@ -24,14 +25,13 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
-import docapp.web.app
 from docapp.config import git_revision
-from docapp.domain.employee import DOCTOR, Employee
+from docapp.core import access
+from docapp.domain.employee import Employee
 from docapp.needs.analytics import summarize
 from docapp.needs.catalog import CATEGORY_LABELS, CATEGORY_MEDICAMENTS, CATEGORY_SOLUTIONS
 from docapp.needs.report import aggregate_requests, build_xlsx, html_table
 from docapp.needs.service import (
-    ALLOWED_FULL,
     NeedsClosed,
     NeedsForbidden,
     NeedsService,
@@ -44,7 +44,8 @@ XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 #: Директории шаблонов: сначала «Потребностей», затем общие (чтобы needs.html
 #: мог наследовать base.html). Starlette принимает список директорий.
 needs_templates_dir = Path(__file__).parent / "templates"
-web_templates_dir = Path(docapp.web.app.__file__).parent / "templates"
+#: Общие шаблоны приложения (base.html) — рядом с модулем web, без импорта app.
+web_templates_dir = Path(__file__).resolve().parent.parent / "web" / "templates"
 TEMPLATES = Jinja2Templates(
     directory=[needs_templates_dir, web_templates_dir],
     context_processors=[lambda request: {"git_revision": git_revision()}],
@@ -81,29 +82,25 @@ def _valid_category(value: str | None, *, param: str = "category") -> str:
 # ── проверка ролей ──────────────────────────────────────────────────
 
 def _require_not_doctor(user: Employee) -> None:
-    """Врач не имеет доступа к «Потребностям» вовсе (ADR-11): 403 везде."""
-    if user.role == DOCTOR:
-        raise HTTPException(
-            status_code=403,
-            detail="Потребности доступны медсестре, старшей сестре и заведующему",
-        )
+    """Врач не имеет доступа к «Потребностям» вовсе (ADR-11, ADR-0023)."""
+    access.ensure(
+        user,
+        access.NEEDS_VIEW_OWN,
+        access.NEEDS_VIEW_ALL,
+        message="Потребности доступны медсестре, старшей сестре и заведующему",
+    )
 
 
 def _require_full(user: Employee) -> None:
-    """Полные права (доска, отчёты, закрытие недель): head_nurse/head, иначе 403."""
-    _require_not_doctor(user)
-    if user.role not in ALLOWED_FULL:
-        raise HTTPException(
-            status_code=403,
-            detail="Доступно только старшей сестре или заведующему",
-        )
+    """Полные права: доска, отчёты, закрытие недель (head_nurse/head)."""
+    access.ensure(
+        user, access.NEEDS_MANAGE, message="Доступно только старшей сестре или заведующему"
+    )
 
 
 def _api_user(request: Request) -> Employee:
     """Текущий пользователь для JSON-API; без сессии — 401."""
-    user = docapp.web.app.current_user(request)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Требуется авторизация")
+    user = access.api_user(request)
     assert user.id is not None  # вошедший сотрудник всегда с id из БД
     return user
 
@@ -113,7 +110,7 @@ def _api_user(request: Request) -> Employee:
 @router.get("", response_class=HTMLResponse)
 def needs_page(request: Request):
     """Страница подприложения «Потребности» (заглушка; полный UI — в T8)."""
-    user = docapp.web.app.current_user(request)
+    user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_not_doctor(user)
@@ -325,7 +322,7 @@ def _report_agg(request: Request) -> tuple[dict, str]:
 @router.get("/report", response_class=HTMLResponse)
 def report_page(request: Request):
     """Отчёт-форма для аптеки по базе и разделу за неделю: HTML (head_nurse/head)."""
-    user = docapp.web.app.current_user(request)
+    user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_full(user)
@@ -347,7 +344,7 @@ def report_page(request: Request):
 @router.get("/report.xlsx")
 def report_xlsx(request: Request):
     """Отчёт-форма для аптеки: .xlsx раздела для скачивания (head_nurse/head)."""
-    user = docapp.web.app.current_user(request)
+    user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_full(user)
@@ -389,7 +386,7 @@ def _analytics_params(request: Request) -> tuple[str, str, str | None, str | Non
 @router.get("/analytics", response_class=HTMLResponse)
 def analytics_page(request: Request):
     """Страница аналитики по истории заявок (заглушка; UI — в T8)."""
-    user = docapp.web.app.current_user(request)
+    user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_full(user)
@@ -414,7 +411,7 @@ def analytics(request: Request):
 @router.get("/api/analytics.xlsx")
 def analytics_xlsx(request: Request):
     """Экспорт свода за период в .xlsx (только head_nurse/head)."""
-    user = docapp.web.app.current_user(request)
+    user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_full(user)

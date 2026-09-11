@@ -34,16 +34,9 @@
     {% if user %}
     <div class="layout">
       <nav class="apps">
-        <a href="/" class="app-link {% if request.url.path == '/' or request.url.path.startswith('/anesthesia') %}active{% endif %}">Анестезии</a>
-        {% if user.role != 'nurse' %}
-        <a href="/compendium" class="app-link {% if request.url.path == '/compendium' %}active{% endif %}">Компендиум</a>
-        {% endif %}
-        {% if user.role != 'doctor' %}
-        <a href="/needs" class="app-link {% if request.url.path.startswith('/needs') %}active{% endif %}">Потребности</a>
-        {% endif %}
-        {% if user.role in ('doctor', 'head') %}
-        <a href="/duty" class="app-link {% if request.url.path.startswith('/duty') %}active{% endif %}">Дежурства</a>
-        {% endif %}
+        {% for item in menu %}
+        <a href="{{ item.path }}" class="app-link {% if request.url.path == item.path or (item.path != '/' and request.url.path.startswith(item.path)) %}active{% endif %}">{{ item.label }}</a>
+        {% endfor %}
       </nav>
     {% endif %}
 

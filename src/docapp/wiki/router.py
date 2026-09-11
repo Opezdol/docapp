@@ -1,7 +1,7 @@
 """Маршруты подприложения «Компендиум»: страница, JSON/SSE-API, источники, статьи.
 
-Маршруты под префиксом /compendium. Авторизация — current_user из
-docapp.web.app; редиректы и коды ошибок — в стиле остального приложения.
+Маршруты под префиксом /compendium. Авторизация — core.access (`current_user`,
+`require`, `ensure`): модуль не импортирует docapp.web.app, кругового импорта нет.
 Роли: медсёстрам доступ закрыт (403); врачи/старшая сестра/заведующий задают
 вопросы; head/editor курируют (источники, статьи, публикация); настройки —
 только head.
@@ -15,18 +15,18 @@ import uuid
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
-import docapp.web.app
 from docapp.config import git_revision
-from docapp.domain.employee import EDITOR, HEAD, NURSE
+from docapp.core import access
 from docapp.wiki.markdown import render_html
 from docapp.wiki.service import WikiForbidden, WikiService
 
 compendium_templates_dir = Path(__file__).parent / "templates"
-web_templates_dir = Path(docapp.web.app.__file__).parent / "templates"
+#: Общие шаблоны приложения (base.html) — рядом с модулем web, без импорта app.
+web_templates_dir = Path(__file__).resolve().parent.parent / "web" / "templates"
 TEMPLATES = Jinja2Templates(
     directory=[compendium_templates_dir, web_templates_dir],
     context_processors=[lambda request: {"git_revision": git_revision()}],
@@ -42,15 +42,23 @@ def _service(request: Request) -> WikiService:
 
 
 def _api_user(request: Request):
-    user = docapp.web.app.current_user(request)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Требуется авторизация")
-    return user
+    """Пользователь для JSON-API: 401 без сессии (права — отдельными проверками)."""
+    return access.api_user(request)
 
 
 def _require_not_nurse(user) -> None:
-    if user.role == NURSE:
-        raise HTTPException(status_code=403, detail="Медсёстрам доступ закрыт")
+    """«Компендиум» доступен всем, кроме медсестёр (ADR-10, ADR-11)."""
+    access.ensure(user, access.WIKI_READ, message="Медсёстрам доступ закрыт")
+
+
+def _require_curator(user) -> None:
+    """Источники, статьи и публикация — заведующий и редактор."""
+    access.ensure(user, access.WIKI_CURATE, message="Доступно заведующему или редактору")
+
+
+def _require_head(user) -> None:
+    """Настройки консультанта — только заведующий."""
+    access.ensure(user, access.WIKI_SETTINGS, message="Только заведующий")
 
 
 def _content_disposition(filename: str) -> str:
@@ -66,7 +74,7 @@ def _content_disposition(filename: str) -> str:
 
 @router.get("", response_class=HTMLResponse)
 def compendium_page(request: Request):
-    user = docapp.web.app.current_user(request)
+    user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_not_nurse(user)
@@ -78,8 +86,8 @@ def compendium_page(request: Request):
             "user": user,
             "flash": None,
             "stats": _service(request).stats(),
-            "is_curator": user.role in (HEAD, EDITOR),
-            "is_head": user.role == HEAD,
+            "is_curator": access.has(user.role, access.WIKI_CURATE),
+            "is_head": access.has(user.role, access.WIKI_SETTINGS),
         },
     )
 
@@ -132,7 +140,7 @@ def sources_list(request: Request):
 
 @router.get("/sources/{source_id}/download")
 def source_download(request: Request, source_id: int):
-    user = docapp.web.app.current_user(request)
+    user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_not_nurse(user)
@@ -145,7 +153,7 @@ def source_download(request: Request, source_id: int):
 
 @router.get("/sources/{source_id}/text", response_class=HTMLResponse)
 def source_text_page(request: Request, source_id: int):
-    user = docapp.web.app.current_user(request)
+    user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_not_nurse(user)
@@ -165,8 +173,7 @@ def source_text_page(request: Request, source_id: int):
 async def upload_sources(request: Request, files: list[UploadFile] = File(...)):
     """Загрузка PDF-источников (head/editor) с фоновым OCR."""
     user = _api_user(request)
-    if user.role not in (HEAD, EDITOR):
-        return JSONResponse({"error": "Доступно заведующему или редактору"}, status_code=403)
+    _require_curator(user)
     payloads: list[tuple[str, bytes]] = []
     for f in files:
         name = Path(f.filename or "").name
@@ -190,8 +197,7 @@ async def upload_sources(request: Request, files: list[UploadFile] = File(...)):
 @router.delete("/sources/{source_id}")
 def source_delete(request: Request, source_id: int):
     user = _api_user(request)
-    if user.role not in (HEAD, EDITOR):
-        return JSONResponse({"error": "Доступно заведующему или редактору"}, status_code=403)
+    _require_curator(user)
     try:
         _service(request).delete_source(source_id, user.role)
     except ValueError as exc:
@@ -215,12 +221,12 @@ def article_page(request: Request, article_id: int):
     Кураторы получают кнопки «Править»/«Опубликовать»/«Удалить» и режим
     редактирования прямо на странице. Врачи/старшая сестра — только чтение.
     """
-    user = docapp.web.app.current_user(request)
+    user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_not_nurse(user)
     service = _service(request)
-    is_curator = user.role in (HEAD, EDITOR)
+    is_curator = access.has(user.role, access.WIKI_CURATE)
     article = service.article(article_id) if is_curator else service.article_public(article_id)
     if article is None:
         return HTMLResponse("Статья не найдена", status_code=404)
@@ -241,8 +247,7 @@ def article_page(request: Request, article_id: int):
 async def article_save(request: Request):
     """Создать/сохранить статью (head/editor): новая ревизия (draft)."""
     user = _api_user(request)
-    if user.role not in (HEAD, EDITOR):
-        return JSONResponse({"error": "Доступно заведующему или редактору"}, status_code=403)
+    _require_curator(user)
     body = await request.json()
     article_id = body.get("article_id") or None
     try:
@@ -269,11 +274,10 @@ async def article_edit(request: Request, article_id: int):
     """
     from fastapi import Form
 
-    user = docapp.web.app.current_user(request)
+    user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
-    if user.role not in (HEAD, EDITOR):
-        return JSONResponse({"error": "Доступно заведующему или редактору"}, status_code=403)
+    _require_curator(user)
     form = await request.form()
     body_md = str(form.get("body_md") or "")
     change_note = str(form.get("change_note") or "")
@@ -287,8 +291,7 @@ async def article_edit(request: Request, article_id: int):
 @router.post("/articles/{article_id}/publish")
 def article_publish(request: Request, article_id: int):
     user = _api_user(request)
-    if user.role not in (HEAD, EDITOR):
-        return JSONResponse({"error": "Доступно заведующему или редактору"}, status_code=403)
+    _require_curator(user)
     try:
         article = _service(request).publish(user.id, user.role, article_id)
     except WikiForbidden as exc:
@@ -301,8 +304,7 @@ def article_publish(request: Request, article_id: int):
 @router.post("/articles/{article_id}/unpublish")
 def article_unpublish(request: Request, article_id: int):
     user = _api_user(request)
-    if user.role not in (HEAD, EDITOR):
-        return JSONResponse({"error": "Доступно заведующему или редактору"}, status_code=403)
+    _require_curator(user)
     try:
         article = _service(request).unpublish(user.id, user.role, article_id)
     except WikiForbidden as exc:
@@ -315,8 +317,7 @@ def article_unpublish(request: Request, article_id: int):
 @router.delete("/articles/{article_id}")
 def article_delete(request: Request, article_id: int):
     user = _api_user(request)
-    if user.role not in (HEAD, EDITOR):
-        return JSONResponse({"error": "Доступно заведующему или редактору"}, status_code=403)
+    _require_curator(user)
     try:
         _service(request).delete_article(user.id, user.role, article_id)
     except WikiForbidden as exc:
@@ -329,8 +330,7 @@ def article_delete(request: Request, article_id: int):
 @router.get("/articles/{article_id}/revisions")
 def article_revisions(request: Request, article_id: int):
     user = _api_user(request)
-    if user.role not in (HEAD, EDITOR):
-        return JSONResponse({"error": "Доступно заведующему или редактору"}, status_code=403)
+    _require_curator(user)
     return {"revisions": _service(request).revisions(article_id)}
 
 
@@ -339,16 +339,14 @@ def article_revisions(request: Request, article_id: int):
 @router.get("/settings")
 def settings_get(request: Request):
     user = _api_user(request)
-    if user.role != HEAD:
-        return JSONResponse({"error": "Только заведующий"}, status_code=403)
+    _require_head(user)
     return _service(request).settings()
 
 
 @router.post("/settings")
 async def settings_update(request: Request):
     user = _api_user(request)
-    if user.role != HEAD:
-        return JSONResponse({"error": "Только заведующий"}, status_code=403)
+    _require_head(user)
     body = await request.json()
     return _service(request).update_settings(body)
 
@@ -358,8 +356,7 @@ async def settings_update(request: Request):
 @router.get("/questions")
 def questions(request: Request):
     user = _api_user(request)
-    if user.role != HEAD:
-        return JSONResponse({"error": "Только заведующий"}, status_code=403)
+    _require_head(user)
     params = request.query_params
     from_date = params.get("from") or None
     to_date = params.get("to") or None

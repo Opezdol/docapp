@@ -4,9 +4,10 @@
 видит все отчёты и выгружает разлиновку за период. Остальным ролям — 403,
 пункт меню скрыт.
 
-Авторизация — current_user из docapp.web.app (импорт на уровне модуля, как в
-needs.router); из-за этого роутер подключается в create_app лениво, внутри
-функции. Шаблон — свой (duty/templates) поверх общего base.html (web/templates).
+Авторизация — core.access (`current_user`, `require`, `ensure`); модуль больше не
+импортирует docapp.web.app, поэтому роутер подключается в create_app обычным
+include_router. Шаблон — свой (duty/templates) поверх общего base.html
+(web/templates).
 """
 
 from __future__ import annotations
@@ -18,9 +19,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
-import docapp.web.app
 from docapp.config import git_revision
-from docapp.domain.employee import DOCTOR, HEAD, Employee
+from docapp.core import access
+from docapp.domain.employee import Employee
 from docapp.duty.config import BASES
 from docapp.duty.report import build_xlsx
 from docapp.duty.service import DutyClosed, DutyService
@@ -29,7 +30,8 @@ from docapp.duty.service import DutyClosed, DutyService
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 duty_templates_dir = Path(__file__).parent / "templates"
-web_templates_dir = Path(docapp.web.app.__file__).parent / "templates"
+#: Общие шаблоны приложения (base.html) — рядом с модулем web, без импорта app.
+web_templates_dir = Path(__file__).resolve().parent.parent / "web" / "templates"
 TEMPLATES = Jinja2Templates(
     directory=[duty_templates_dir, web_templates_dir],
     context_processors=[lambda request: {"git_revision": git_revision()}],
@@ -55,31 +57,30 @@ def _content_disposition(filename: str) -> str:
 # ── проверка ролей ──────────────────────────────────────────────────
 
 def _require_access(user: Employee) -> None:
-    """К «Дежурствам» допускаются только врач и заведующий."""
-    if user.role not in (DOCTOR, HEAD):
-        raise HTTPException(
-            status_code=403,
-            detail="Дежурства доступны только врачам и заведующему",
-        )
+    """К «Дежурствам» допускаются врач (свой отчёт) и заведующий (все отчёты)."""
+    access.ensure(
+        user,
+        access.DUTY_VIEW_OWN,
+        access.DUTY_VIEW_ALL,
+        message="Дежурства доступны только врачам и заведующему",
+    )
 
 
 def _require_doctor(user: Employee) -> None:
-    _require_access(user)
-    if user.role != DOCTOR:
-        raise HTTPException(status_code=403, detail="Ввод отчёта доступен только врачу")
+    """Вносить отчёт за смену может только врач (заведующий — не вносит)."""
+    access.ensure(
+        user, access.DUTY_EDIT_OWN, message="Ввод отчёта доступен только врачу"
+    )
 
 
 def _require_head(user: Employee) -> None:
-    _require_access(user)
-    if user.role != HEAD:
-        raise HTTPException(status_code=403, detail="Доступно только заведующему")
+    """Доска, закрытие смены и выгрузка разлиновки — только заведующий."""
+    access.ensure(user, access.DUTY_MANAGE, message="Доступно только заведующему")
 
 
 def _api_user(request: Request) -> Employee:
     """Текущий пользователь для JSON-API; без сессии — 401."""
-    user = docapp.web.app.current_user(request)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Требуется авторизация")
+    user = access.api_user(request)
     assert user.id is not None  # вошедший сотрудник всегда с id из БД
     return user
 
@@ -88,7 +89,7 @@ def _api_user(request: Request) -> Employee:
 
 @router.get("", response_class=HTMLResponse)
 def duty_page(request: Request):
-    user = docapp.web.app.current_user(request)
+    user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_access(user)
@@ -220,7 +221,7 @@ def report_xlsx(request: Request):
 
     В отчёт попадают только закрытые (status == 'closed') отчёты.
     """
-    user = docapp.web.app.current_user(request)
+    user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
     _require_head(user)

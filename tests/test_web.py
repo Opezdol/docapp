@@ -335,17 +335,31 @@ class TestAppMenu:
         assert "Компендиум" in r.text
         assert "Потребности" not in r.text
 
-    def test_head_nurse_menu_has_both(self, client):
+    def test_head_nurse_menu(self, client):
+        # ADR-11 + ADR-0023: старшая сестра читает «Компендиум» и ведёт «Потребности»,
+        # но «Дежурства» ей недоступны (она не врач).
         _login(client, login="vera", password="vera_pass")
         r = client.get("/")
         assert "Компендиум" in r.text
         assert "Потребности" in r.text
+        assert "Дежурства" not in r.text
 
-    def test_head_menu_has_both(self, client):
+    def test_head_menu_shows_all_four(self, client):
+        # заведующий видит все разделы, включая «Дежурства»
         _login(client, login="zav", password="zav_pass")
         r = client.get("/")
-        assert "Компендиум" in r.text
-        assert "Потребности" in r.text
+        for label in ("Анестезии", "Компендиум", "Потребности", "Дежурства"):
+            assert label in r.text
+
+    def test_menu_is_rendered_from_permissions(self, client):
+        """Меню — из таблицы прав: в шаблоне нет условий по ролям."""
+        from pathlib import Path
+
+        import docapp.web
+
+        base = Path(docapp.web.__file__).parent / "templates" / "base.html"
+        text = base.read_text(encoding="utf-8")
+        assert "user.role" not in text
 
     def test_compendium_page(self, client):
         _login(client)
