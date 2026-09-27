@@ -76,6 +76,14 @@
     return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
   }
 
+  // 'ГГГГ-ММ-ДД' → 'ДД.ММ.ГГГГ' — как дата показывается человеку.
+  // Пустое значение → пусто; неожиданный формат → как есть, без «undefined».
+  function fmtDate(value) {
+    if (!value) return '';
+    var p = String(value).slice(0, 10).split('-');
+    return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : String(value);
+  }
+
   // Понедельник недели даты — та же граница недели, что у серверного «периода».
   function mondayOf(d) {
     var x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -302,6 +310,7 @@
     apiFetch: apiFetch,
     banner: banner,
     iso: iso,
+    fmtDate: fmtDate,
     mondayOf: mondayOf,
     parseTimeMin: parseTimeMin,
     fmtTimeMin: fmtTimeMin,

@@ -9,6 +9,7 @@
 
   var esc = dc.esc;
   var apiFetch = dc.apiFetch;
+  var fmtDate = dc.fmtDate;
 
   var app = document.getElementById('duty-app');
   if (!app) return;

@@ -9,7 +9,11 @@
  *   3) загрузку сценариев страниц в подставном DOM: файл обязан молча выйти на
  *      чужой странице и дойти до первого запроса к API на своей;
  *   4) структуру: нет копий общего в файлах модулей, шаблоны грузят библиотеку
- *      раньше своего сценария, классы баннеров приведены к одному.
+ *      раньше своего сценария, классы баннеров приведены к одному;
+ *   5) вызовы помощников: имя обязано быть объявлено в самом файле, в общей
+ *      библиотеке (dc) или быть браузерным глобальным. Так ловится ошибка вида
+ *      `fmtDate is not defined`, которую подставной DOM пропускает: ответ API
+ *      там никогда не приходит, и код внутри .then() не выполняется.
  *
  * Запуск: node scripts/check-frontend.mjs
  * Из pytest: tests/test_frontend_js.py (пропускается, если в системе нет node).
@@ -378,6 +382,147 @@ check("комбобокс стилизован в style.css", () => {
 check("service worker кэширует статику правилом, а не списком", () => {
   const sw = read(join(STATIC, "sw.js"));
   return /startsWith\(\s*["']\/static\//.test(sw) ? null : "нет правила по /static/";
+});
+
+/* ── 5. вызовы помощников без объявления ───────────────────────────── */
+
+/* Браузерные глобальные и встроенные объекты — их можно вызывать «сами по себе». */
+const BROWSER_GLOBALS = new Set([
+  "console", "fetch", "setTimeout", "clearTimeout", "setInterval", "clearInterval",
+  "requestAnimationFrame", "cancelAnimationFrame", "queueMicrotask", "structuredClone",
+  "getComputedStyle", "matchMedia", "parseInt", "parseFloat", "isNaN", "isFinite",
+  "encodeURIComponent", "decodeURIComponent", "alert", "confirm", "prompt", "atob", "btoa",
+  "JSON", "Object", "Array", "Math", "Number", "String", "Boolean", "Date", "RegExp",
+  "Error", "TypeError", "Promise", "Set", "Map", "WeakMap", "WeakSet", "FormData",
+  "URLSearchParams", "URL", "Blob", "File", "FileReader", "Image", "Event", "CustomEvent",
+  "MutationObserver", "IntersectionObserver", "Intl", "Symbol", "BigInt",
+  "Uint8Array", "Int32Array", "Float64Array",
+]);
+
+/* Ключевые слова стоят рядом со скобкой и попадают в тот же шаблон. */
+const KEYWORDS = new Set([
+  "if", "for", "while", "switch", "catch", "return", "typeof", "function", "new",
+  "delete", "void", "in", "of", "do", "else", "case", "await", "yield",
+]);
+
+/* В шаблонах сначала убираем Jinja: там свои вызовы (url_for, фильтры). */
+const withoutJinja = (html) =>
+  html.replace(/\{\{[\s\S]*?\}\}/g, " ").replace(/\{[\s\S]*?%\}/g, " ");
+
+/* Имена, объявленные в тексте: function f(), var f =, f: function, {a, b: c} = dc,
+   плюс параметры функций и стрелок — их тоже можно вызывать. */
+function declaredIn(text) {
+  const names = new Set();
+  for (const m of text.matchAll(/\bfunction\s+([A-Za-z_$][\w$]*)/g)) names.add(m[1]);
+  for (const m of text.matchAll(/\b(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=/g)) names.add(m[1]);
+  for (const m of text.matchAll(/\b([A-Za-z_$][\w$]*)\s*:\s*function\b/g)) names.add(m[1]);
+  for (const m of text.matchAll(/\b(?:var|let|const)\s*\{([^}]*)\}/g)) {
+    for (const part of m[1].split(",")) {
+      const tail = (part.includes(":") ? part.split(":")[1] : part).trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(tail)) names.add(tail);
+    }
+  }
+  const addParams = (list) => {
+    for (const part of list.split(",")) {
+      const name = part.trim().replace(/^\.\.\./, "").split(/[=:{\s]/)[0];
+      if (/^[A-Za-z_$][\w$]*$/.test(name)) names.add(name);
+    }
+  };
+  for (const m of text.matchAll(/\bfunction\b\s*[A-Za-z_$\w]*\s*\(([^)]*)\)/g)) addParams(m[1]);
+  for (const m of text.matchAll(/\(([^()]*)\)\s*=>/g)) addParams(m[1]);
+  for (const m of text.matchAll(/(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*=>/g)) names.add(m[1]);
+  return names;
+}
+
+/* Только код: убираем комментарии и строковые литералы. В комментариях и
+   текстах подсказок тоже встречается «слово (» — это не вызов. */
+function codeOnly(text) {
+  let out = "";
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (ch === "/" && next === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end < 0 ? n : end + 2;
+      out += " ";
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      const end = text.indexOf("\n", i);
+      i = end < 0 ? n : end + 1;
+      out += " ";
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      i += 1;
+      while (i < n) {
+        if (text[i] === "\\") { i += 2; continue; }
+        if (text[i] === quote) { i += 1; break; }
+        i += 1;
+      }
+      out += " ";
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+/* Имена, вызываемые «сами по себе»: f( — но не obj.f( и не new Foo(. */
+function calledIn(text) {
+  const names = new Set();
+  const re = /([A-Za-z_$][\w$]*)\s*\(/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const before = text.slice(0, m.index);
+    if (/[.\w$]$/.test(before)) continue;
+    if (/\bnew\s+$/.test(before)) continue;
+    names.add(m[1]);
+  }
+  return names;
+}
+
+function walkFiles(dir, ext, out = []) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) walkFiles(path, ext, out);
+    else if (entry.name.endsWith(ext)) out.push(path);
+  }
+  return out;
+}
+
+check("помощники вызываются там, где объявлены (файл или браузер), а dc.* — только существующие", () => {
+  const core = read(join(STATIC, "lib", "core.js"));
+  const block = core.match(/window\.dc\s*=\s*\{([\s\S]*?)\n\s*\};/);
+  const inLibrary = new Set(block ? [...block[1].matchAll(/([A-Za-z_$][\w$]*)\s*:/g)].map((m) => m[1]) : []);
+
+  const pieces = walkFiles(STATIC, ".js").map((path) => [path, codeOnly(read(path))]);
+  for (const path of walkFiles(SOURCE, ".html")) {
+    const html = read(path);
+    for (const m of html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
+      const body = codeOnly(withoutJinja(m[1])).trim();
+      if (body) pieces.push([path, body]);
+    }
+  }
+
+  const guilty = [];
+  for (const [path, text] of pieces) {
+    const where = relative(ROOT, path);
+    const here = declaredIn(text);
+    for (const name of calledIn(text)) {
+      if (here.has(name) || BROWSER_GLOBALS.has(name) || KEYWORDS.has(name)) continue;
+      guilty.push(where + ": " + name + "()");
+    }
+    // Общее берётся из dc: имя после dc. обязано быть в библиотеке.
+    for (const m of text.matchAll(/\bdc\.([A-Za-z_$][\w$]*)/g)) {
+      if (!inLibrary.has(m[1])) guilty.push(where + ": dc." + m[1] + " — нет в библиотеке");
+    }
+  }
+  return guilty.length ? "без объявления: " + guilty.join(", ") : null;
 });
 
 console.log(`\n${checks - failed} из ${checks} проверок прошло`);
