@@ -27,6 +27,8 @@ echo "==> 0/6: бэкап данных до обновления"
 
 echo "==> 1/6: git pull ($(git remote get-url origin 2>/dev/null || echo 'remote не настроен'))"
 git pull --ff-only origin main
+# Значок версии в шапке: файл REVISION важнее git в config.git_revision().
+git rev-parse --short HEAD > REVISION
 
 echo "==> 2/6: обновление зависимостей (venv приложения)"
 .venv/bin/pip install -e . --quiet 2>&1 | tail -3 || true
