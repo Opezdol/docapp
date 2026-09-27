@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
-# Бэкап БД docapp: основная + «Чат» + потребности. Запуск: ./scripts/backup.sh
+# Бэкап данных docapp: единая БД + PDF-источники «Чата» + ключ сессий + каталог.
+# Запуск: ./scripts/backup.sh
 # (cron: 0 3 * * * cd /путь/к/docapp && ./scripts/backup.sh >> logs/backup.log 2>&1)
+#
+# После слияния баз (ADR-0016) данные лежат в одном файле, поэтому бэкап
+# двухчастный (ADR-0020): снимок БД + архив папки PDF-источников, которые
+# в базе не хранятся.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 BACKUP_DIR="backups"
 KEEP_DAYS=14
 mkdir -p "$BACKUP_DIR" logs
 stamp=$(date +%Y%m%d-%H%M%S)
+
 # Бэкап через sqlite3 .backup (безопасен при WAL: консистентная копия).
 # Нужен Python >= 3.7 (в 3.6 у sqlite3.Connection нет метода .backup).
 # На сервере AlmaLinux системный python3 — 3.6, поэтому предпочитаем python3.12.
@@ -17,6 +23,7 @@ elif command -v python3.11 >/dev/null 2>&1; then
 else
   PY_BIN=python3
 fi
+
 backup_db() {
   local db="$1" out="$2"
   if [ -f "$db" ]; then
@@ -33,16 +40,30 @@ PY
     echo "skip: $db (нет файла)"
   fi
 }
+
+# 1. Единая БД (люди, записи, «Чат», «Потребности», «Дежурства»)
 backup_db data/docapp.db "$BACKUP_DIR/docapp-$stamp.db"
-backup_db data/wiki/wiki.db "$BACKUP_DIR/wiki-$stamp.db"
-backup_db data/needs/needs.db "$BACKUP_DIR/needs-$stamp.db"
-# Каталог «Потребностей» — YAML (правится файлом), копируем как есть
-if [ -f data/needs/catalog.yaml ]; then
-  cp data/needs/catalog.yaml "$BACKUP_DIR/catalog-$stamp.yaml"
-  echo "OK: data/needs/catalog.yaml -> $BACKUP_DIR/catalog-$stamp.yaml"
+
+# 2. PDF-источники «Чата» — файлы, в базе их нет
+if [ -d data/wiki/sources ] && [ -n "$(ls -A data/wiki/sources 2>/dev/null)" ]; then
+  tar czf "$BACKUP_DIR/wiki-sources-$stamp.tar.gz" -C data/wiki sources
+  echo "OK: data/wiki/sources -> $BACKUP_DIR/wiki-sources-$stamp.tar.gz"
 else
-  echo "skip: data/needs/catalog.yaml (нет файла)"
+  echo "skip: data/wiki/sources (папки нет или пуста)"
 fi
-# Удаляем старые бэкапы (и .db, и .yaml) старше KEEP_DAYS дней
-find "$BACKUP_DIR" \( -name '*.db' -o -name '*.yaml' \) -mtime +$KEEP_DAYS -delete
+
+# 3. Ключ подписи сессий и каталог расходки (правятся файлом)
+if [ -f data/secret.key ]; then
+  cp -p data/secret.key "$BACKUP_DIR/secret-$stamp.key"
+  echo "OK: data/secret.key -> $BACKUP_DIR/secret-$stamp.key"
+fi
+if [ -f data/needs/catalog.yaml ]; then
+  cp -p data/needs/catalog.yaml "$BACKUP_DIR/catalog-$stamp.yaml"
+  echo "OK: data/needs/catalog.yaml -> $BACKUP_DIR/catalog-$stamp.yaml"
+fi
+
+# 4. Удаляем старое (и снимки, и архивы, и файлы рядом)
+find "$BACKUP_DIR" \
+  \( -name '*.db' -o -name '*.yaml' -o -name '*.key' -o -name '*.tar.gz' \) \
+  -mtime +$KEEP_DAYS -delete
 echo "Готово. Старые бэкапы (>$KEEP_DAYS дней) удалены."
