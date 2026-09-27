@@ -4,13 +4,16 @@
 #   cd ~/data/docapp && ./scripts/git-update.sh
 #
 # Делает:
+#   0. бэкап данных (единая БД + PDF-источники + ключ сессий)
 #   1. git pull (обновление кода с GitHub)
 #   2. обновление зависимостей (venv приложения + venv Passenger)
-#   3. миграции схемы БД (docapp/wiki/needs)
+#   3. миграции схемы БД (единая база, все модули реестра)
 #   4. перезапуск Passenger (touch tmp/restart.txt в корне сайта)
 #   5. проверка HTTPS
 #
 # Требует: git, SSH-ключ сервера в GitHub (deploy key), настроенный remote.
+# Это единственный путь выкладки: rsync-скрипты убраны — они уносили с сервера
+# файлы, которых нет в репозитории, и допускали два расходящихся состояния кода.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -18,6 +21,9 @@ cd "$(dirname "$0")/.."
 DOCAPP_DIR="$(pwd)"
 SITE_ROOT="${DOCAPP_SITE_ROOT:-/var/www/u3617050/data/www/phhmn.ru}"
 DOMAIN="${DOCAPP_DOMAIN:-phhmn.ru}"
+
+echo "==> 0/6: бэкап данных до обновления"
+./scripts/backup.sh
 
 echo "==> 1/6: git pull ($(git remote get-url origin 2>/dev/null || echo 'remote не настроен'))"
 git pull --ff-only origin main
@@ -33,7 +39,6 @@ else
 fi
 
 echo "==> 4/6: миграции схемы БД"
-export $(grep -v '^#' .env | xargs) 2>/dev/null || true
 .venv/bin/python -m docapp.cli migrate
 
 echo "==> 5/6: перезапуск Passenger (touch tmp/restart.txt)"

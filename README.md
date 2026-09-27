@@ -149,7 +149,7 @@ DOCAPP_HOST=0.0.0.0 uv run python main.py
 
 Версия сборки: рядом с брендом «docapp» в шапке показывается короткий хэш
 последнего коммита. Источники по приоритету: env `DOCAPP_GIT_REVISION`,
-файл `REVISION` в корне (записывается `scripts/update.sh` при rsync-деплое),
+файл `REVISION` в корне (`git rev-parse --short HEAD > REVISION` при выкладке),
 иначе `git rev-parse --short HEAD` (в разработке/на сервере с `.git`).
 
 Настройки: путь к БД — переменная окружения DOCAPP_DB (по умолчанию
@@ -288,34 +288,16 @@ PassengerPython /opt/python/python-3.12/bin/python   ← системный pyth
 3. **venv — в корне сайта** (`~/data/www/ДОМЕН/venv`), не в `~/data/docapp`.
 4. **os.execl на venv-python НЕ нужен** — Passenger запускает системным
    python, а site-packages venv добавляется в sys.path (иначе 502).
-5. После замены `passenger_wsgi.py` убить старый wsgi-loader:
-   `pkill -f "u3617050.*wsgi-loader"` — Passenger перезапустит с новым кодом.
+5. **Перезапуск — только через `tmp/restart.txt`** (`scripts/restart-passenger.sh`),
+   не `pkill`: на shared-хостинге cmdline wsgi-loader не содержит имени
+   пользователя, и глобальный pkill убил бы процессы чужих сайтов.
 
 Полезные ссылки: [инструкция reg.ru по Flask](https://help.reg.ru/support/hosting/php-asp-net-i-skripty/kak-ustanovit-flask-na-hosting),
 [рабочий пример FastAPI на reg.ru](https://github.com/devlumba/fastapi-tracking-time-1).
 
-### Обновление на сервере (`scripts/update.sh`)
+### Обновление на сервере (`scripts/git-update.sh`)
 
-Полный цикл обновления (запускать с локальной машины из корня docapp):
-
-```bash
-./scripts/update.sh
-```
-
-Скрипт делает по порядку:
-
-1. **Бэкап БД** на сервере (`scripts/backup.sh` — docapp/wiki/needs).
-2. **rsync кода** на сервер (исключая `.venv`, `data`, `.env`).
-3. **Обновление зависимостей** в обоих venv (приложения и Passenger-корня сайта).
-4. **Миграции схемы БД**: `docapp migrate` — применяет миграции ко всем трём
-   БД (docapp/wiki/needs), создаёт их при отсутствии. Идемпотентно.
-5. **Перезапуск Passenger**: убивает `wsgi-loader` — Passenger подхватывает
-   новый код при следующем запросе.
-6. **Проверка HTTPS** домена.
-
-### Обновление с GitHub (`scripts/git-update.sh`)
-
-Если код в git-репозитории на GitHub, обновление делается прямо **на сервере**:
+Единственный путь выкладки — git: код живёт в GitHub, сервер достаёт его сам.
 
 ```bash
 ssh u3617050@37.140.192.212
@@ -323,9 +305,17 @@ cd /var/www/u3617050/data/docapp
 ./scripts/git-update.sh
 ```
 
-Скрипт: `git pull --ff-only` → обновление зависимостей в обоих venv →
-миграции БД → перезапуск Passenger → проверка HTTPS. Требует настроенный
-remote `origin` и SSH-ключ сервера в GitHub (deploy key репозитория).
+Скрипт: **бэкап данных** (`scripts/backup.sh`) → `git pull --ff-only` →
+зависимости в обоих venv (приложения и Passenger-корня сайта) → `docapp migrate`
+(идемпотентно) → перезапуск Passenger через `tmp/restart.txt` → проверка HTTPS.
+Требует настроенный remote `origin` и SSH-ключ сервера в GitHub (deploy key).
+
+Прежние rsync-скрипты (`deploy.sh`, `update.sh`) убраны: rsync с `--delete`
+уносил с сервера файлы, которых нет в репозитории, — то есть допускал два
+расходящихся состояния кода вместо одного.
+
+**Одноразовый перенос данных** (переезд с четырёх баз на единую, ADR-0016) —
+`docapp import-legacy`; порядок описан в разделе о схеме ниже.
 
 ### Схема БД и миграции
 
