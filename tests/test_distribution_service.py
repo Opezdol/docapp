@@ -16,14 +16,15 @@ import pytest
 
 from docapp.domain.anesthesia import Anesthesia
 from docapp.domain.employee import DOCTOR, HEAD, NURSE, Employee
+from docapp.distribution.run import RunStore
 from docapp.distribution.service import BY_DAY, BY_MONTH, BY_NURSE, DistributionService
-from docapp.distribution.spread import Spread
 from docapp.people.store import SqliteEmployeeStore
 from docapp.records.service import AnesthesiaService
 from docapp.records.store import SqliteAnesthesiaStore
 from factories import make_db, vedomost_xlsx
 
-DISTRIBUTION_DIR = Path(__file__).resolve().parents[1] / "src" / "docapp" / "distribution"
+#: Исходники модуля «Распределение» — для проверки шва (ADR-0017).
+MODULE_SOURCE_DIR = Path(__file__).resolve().parents[1] / "src" / "docapp" / "distribution"
 
 
 def make_anesthesia(**overrides) -> Anesthesia:
@@ -59,7 +60,9 @@ def env(tmp_path):
     ):
         store.add(record)
 
-    service = DistributionService(AnesthesiaService(store), employees)
+    service = DistributionService(
+        AnesthesiaService(store), employees, RunStore(tmp_path / "runs")
+    )
     yield service, store, employees, head, doctor, nurse
     store.close()
     employees.close()
@@ -153,7 +156,9 @@ class TestCarcass:
         doctor = employees.add(Employee(last_name="Петров", first_name="Пётр", role=DOCTOR))
         stub = _StubRecords(key=str(doctor.id))
 
-        result = DistributionService(stub, employees).aggregate("2026-09-01", "2026-09-30")
+        result = DistributionService(
+            stub, employees, RunStore(tmp_path / "runs")
+        ).aggregate("2026-09-01", "2026-09-30")
 
         assert result["total"] == 1
         assert result["rows"] == [
@@ -170,7 +175,7 @@ class TestCarcass:
         assert sources["records"] == "AnesthesiaService"
         assert sources["employees"] == "SqliteEmployeeStore"
 
-    @pytest.mark.parametrize("path", sorted(DISTRIBUTION_DIR.rglob("*.py")), ids=lambda p: p.name)
+    @pytest.mark.parametrize("path", sorted(MODULE_SOURCE_DIR.rglob("*.py")), ids=lambda p: p.name)
     def test_module_never_touches_anesthesia_table(self, path):
         """Ни одного SQL-обращения к `anesthesia` в исходниках модуля.
 
@@ -206,7 +211,9 @@ def marks(tmp_path):
         make_anesthesia(date=date(2026, 8, 20), patient_name="Петров Пётр Сергеевич",
                         doctor_id=doctor.id, nurse_id=nurse.id)
     )
-    service = DistributionService(AnesthesiaService(store), employees)
+    service = DistributionService(
+        AnesthesiaService(store), employees, RunStore(tmp_path / "runs")
+    )
     yield service, store, september, another, august
     store.close()
     employees.close()
@@ -229,7 +236,7 @@ class TestMark:
         result = service.spread("2026-09", file_with("ПЕТРОВ П.С.", "МИХАЙЛОВА А.И."))
 
         assert result.matched_ids == (september.id,)
-        assert service.mark("2026-09", result) == {"cleared": 0, "marked": 1}
+        assert service.mark("2026-09", result.matched_ids) == {"cleared": 0, "marked": 1}
         assert store.get_by_id(september.id).accrued_at is not None
         assert store.get_by_id(another.id).accrued_at is None
         assert store.get_by_id(august.id).accrued_at is None     # чужой месяц не тронут
@@ -237,12 +244,12 @@ class TestMark:
     def test_rerun_of_the_month_clears_stale_marks(self, marks):
         """Повторный прогон месяца снимает метку записи, которой в ведомости нет."""
         service, store, september, *_ = marks
-        service.mark("2026-09", service.spread("2026-09", file_with("ПЕТРОВ П.С.")))
+        service.mark("2026-09", service.spread("2026-09", file_with("ПЕТРОВ П.С.")).matched_ids)
 
         result = service.spread("2026-09", file_with("МИХАЙЛОВА А.И."))
 
         assert result.matched_ids == ()
-        assert service.mark("2026-09", result) == {"cleared": 1, "marked": 0}
+        assert service.mark("2026-09", result.matched_ids) == {"cleared": 1, "marked": 0}
         assert store.get_by_id(september.id).accrued_at is None
 
     def test_attention_rows_get_no_mark(self, marks):
@@ -252,15 +259,15 @@ class TestMark:
         result = service.spread("2026-09", file_with("ПЕТРОВ П.И."))
 
         assert result.attention_rows == 1 and result.matched_ids == ()
-        assert service.mark("2026-09", result) == {"cleared": 0, "marked": 0}
+        assert service.mark("2026-09", result.matched_ids) == {"cleared": 0, "marked": 0}
         assert store.get_by_id(september.id).accrued_at is None
 
     def test_months_are_independent(self, marks):
         """Метки разных месяцев не мешают друг другу."""
         service, store, september, _, august = marks
 
-        service.mark("2026-09", service.spread("2026-09", file_with("ПЕТРОВ П.С.")))
-        service.mark("2026-08", service.spread("2026-08", file_with("ПЕТРОВ П.С.")))
+        service.mark("2026-09", service.spread("2026-09", file_with("ПЕТРОВ П.С.")).matched_ids)
+        service.mark("2026-08", service.spread("2026-08", file_with("ПЕТРОВ П.С.")).matched_ids)
 
         assert store.get_by_id(september.id).accrued_at is not None
         assert store.get_by_id(august.id).accrued_at is not None
@@ -273,11 +280,84 @@ class TestMarkGoesThroughTheInterface:
         db = make_db(tmp_path, seed=False)
         employees = SqliteEmployeeStore(db)
         stub = _StubRecords()
-        result = Spread(month="2026-09", source_sheet="Sheet Name Here", rows=(),
-                        doctors=(), nurses=(), matched_ids=(7, 8))
 
-        marks = DistributionService(stub, employees).mark("2026-09", result)
+        marks = DistributionService(
+            stub, employees, RunStore(tmp_path / "runs")
+        ).mark("2026-09", (7, 8))
 
         assert stub.mark_calls == [("2026-09-01", "2026-09-30", (7, 8))]
         assert marks == {"cleared": 1, "marked": 2}
         employees.close()
+
+
+# ── прогон и публикация — два шага (ADR-0027) ─────────────────────────
+
+
+class TestRunAndPublish:
+    """Прогон меток не ставит; месяц закрывает отдельная публикация."""
+
+    def test_check_saves_the_run_without_marks(self, marks):
+        service, store, september, *_ = marks
+
+        run = service.check("2026-09", file_with("ПЕТРОВ П.С."),
+                            source_name="ведомость.xlsx")
+
+        assert run.month == "2026-09" and run.source_name == "ведомость.xlsx"
+        assert run.counters == {"rows": 1, "assigned": 1, "attention": 0,
+                                "unmatched": 0, "records": 2}
+        assert run.matched_ids == (september.id,)
+        assert run.published is False
+        assert store.get_by_id(september.id).accrued_at is None      # метки ещё нет
+        assert service.current_run() == run
+
+    def test_publish_marks_and_remembers_the_moment(self, marks):
+        service, store, september, *_ = marks
+        service.check("2026-09", file_with("ПЕТРОВ П.С."))
+
+        counts, run = service.publish()
+
+        assert counts == {"cleared": 0, "marked": 1}
+        assert store.get_by_id(september.id).accrued_at is not None
+        assert run.published is True and run.published_at
+        assert service.current_run().published_at == run.published_at
+
+    def test_publish_without_a_run_is_a_value_error(self, marks):
+        service, *_ = marks
+        with pytest.raises(ValueError, match="Прогона нет"):
+            service.publish()
+
+    def test_download_gives_the_file_of_the_last_run(self, marks):
+        service, *_ = marks
+        with pytest.raises(ValueError, match="Прогона нет"):
+            service.download()
+
+        service.check("2026-09", file_with("ПЕТРОВ П.С."))
+        payload, filename = service.download()
+
+        assert filename == "распределение-2026-09.xlsx"
+        assert payload[:2] == b"PK"          # .xlsx — это zip-архив
+
+    def test_new_run_replaces_the_previous_one(self, marks):
+        """Прогон один: августовский прогон заменяет сентябрьский (ADR-0027)."""
+        service, *_ = marks
+        service.check("2026-09", file_with("ПЕТРОВ П.С."))
+        service.check("2026-08", file_with("ПЕТРОВ П.С."))
+
+        run = service.current_run()
+        assert run.month == "2026-08"
+        assert run.published is False
+
+    def test_second_publish_counts_the_marks_again(self, marks):
+        """Публикация пересчитывает метки месяца: прежние снимаются."""
+        service, store, september, another, _ = marks
+        service.check("2026-09", file_with("ПЕТРОВ П.С.", "ПАЦИЕНТ А."))
+        first, _ = service.publish()
+
+        assert first == {"cleared": 0, "marked": 2}
+
+        service.check("2026-09", file_with("ПЕТРОВ П.С."))
+        second, _ = service.publish()
+
+        assert second == {"cleared": 2, "marked": 1}
+        assert store.get_by_id(september.id).accrued_at is not None
+        assert store.get_by_id(another.id).accrued_at is None

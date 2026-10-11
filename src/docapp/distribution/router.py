@@ -1,12 +1,16 @@
-"""HTTP-адаптер «Распределения»: ведомость, счёт и выгрузка.
+"""HTTP-адаптер «Распределения»: ведомость, прогон, публикация и счёт.
 
 Правил здесь нет: разбор файла — в `vedomost.py`, разноска — в `spread.py`,
-сборка книги — в `xlsx.py`, права — в `core/access`. Роутер только переводит
-HTTP в вызовы сервиса и обратно (ADR-0017).
+сборка книги — в `xlsx.py`, прогон на диске — в `run.py`, права — в
+`core/access`. Роутер только переводит HTTP в вызовы сервиса и обратно
+(ADR-0017).
 
 Раздел целиком принадлежит заведующему (`distribution.manage`, ADR-0024):
 
-- `/distribution` — ведомость: выбрать месяц, загрузить файл, скачать результат;
+- `/distribution` — ведомость: месяц, файл и результат последнего прогона;
+- `/distribution/spread` — прогон: разнести и показать результат, без меток;
+- `/distribution/download` — файл результата последнего прогона;
+- `/distribution/publish` — поставить метки «учтена» (ADR-0027);
 - `/distribution/counts` — счёт поданных анестезий за период;
 - `/distribution/api/aggregate` — тот же счёт одним JSON.
 """
@@ -22,8 +26,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from docapp.core import access, web
 from docapp.core.registry import container_of
-from docapp.distribution import xlsx
 from docapp.distribution.container import DistributionContainer
+from docapp.distribution.run import Run, human
 from docapp.distribution.service import ALLOWED_BY, BY_DOCTOR, BY_LABELS
 
 TEMPLATES = web.templates(Path(__file__).parent / "templates")
@@ -63,25 +67,42 @@ def _current_month() -> str:
     return date.today().strftime("%Y-%m")
 
 
+def _run_context(run: Run | None) -> dict:
+    """Прогон и его даты для страницы; пусто, если прогона ещё не было."""
+    if run is None:
+        return {"run": None, "created_label": "", "published_label": ""}
+    return {
+        "run": run,
+        "created_label": human(run.created_at),
+        "published_label": human(run.published_at),
+    }
+
+
 def _vedomost_page(request: Request, user, *, error: str | None = None,
-                   month: str | None = None, status_code: int = 200):
-    """Страница ведомости: месяц, файл и сообщение об ошибке, если была."""
+                   note: str | None = None, month: str | None = None,
+                   run: Run | None = None, status_code: int = 200):
+    """Страница ведомости: форма, сообщение и результат последнего прогона.
+
+    Прогон передаётся явно: свежий — после прогона и публикации, прежний —
+    когда последнее действие закончилось ошибкой (прежний результат при этом
+    на месте, и прятать его незачем).
+    """
     return TEMPLATES.TemplateResponse(
         request,
         "vedomost.html",
-        {"user": user, "tab": "vedomost", "error": error,
-         "month": month or _current_month()},
+        {"user": user, "tab": "vedomost", "error": error, "note": note,
+         "month": month or _current_month(), **_run_context(run)},
         status_code=status_code,
     )
 
 
 @router.get("", response_class=HTMLResponse)
 def vedomost_page(request: Request):
-    """Ведомость: выбор месяца и загрузка файла больницы."""
+    """Ведомость: месяц, файл и результат последнего прогона."""
     user = _guard_page(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
-    return _vedomost_page(request, user)
+    return _vedomost_page(request, user, run=_service(request).current_run())
 
 
 @router.post("/spread")
@@ -90,20 +111,66 @@ async def spread_file(
     month: Annotated[str, Form()],
     file: Annotated[UploadFile, File()],
 ):
-    """Разнести ведомость и вернуть тот же файл с двумя нашими листами."""
+    """Прогон: разнести ведомость, показать результат и сохранить его.
+
+    Метки «учтена» здесь не ставятся, и файл пока не отдаётся: сначала
+    заведующий смотрит, что получилось, и только потом закрывает месяц
+    (ADR-0027).
+    """
     access.require(request, access.DISTRIBUTION_MANAGE)
     user = access.current_user(request)
     source = await file.read()
+    service = _service(request)
     try:
-        service = _service(request)
-        result = service.spread(month.strip(), source)
-        # Сначала собираем файл: метки «учтена» ставим только по тому
-        # распределению, которое заведующий уже получил.
-        payload = xlsx.build(source, result)
-        service.mark(month.strip(), result)
+        run = service.check(month.strip(), source, source_name=file.filename or "")
     except ValueError as exc:
-        return _vedomost_page(request, user, error=str(exc), month=month, status_code=400)
-    return web.xlsx_response(payload, xlsx.filename(month.strip()))
+        return _vedomost_page(request, user, error=str(exc), month=month,
+                              run=service.current_run(), status_code=400)
+    return _vedomost_page(
+        request,
+        user,
+        run=run,
+        note="Проверка сделана: результат ниже. Метки «учтено» ещё не поставлены — "
+             "месяц закрывает кнопка «Опубликовать».",
+    )
+
+
+@router.get("/download")
+def download_file(request: Request):
+    """Файл результата последнего прогона — тот же, что был разнесён."""
+    access.require(request, access.DISTRIBUTION_MANAGE)
+    user = access.current_user(request)
+    service = _service(request)
+    try:
+        payload, filename = service.download()
+    except ValueError as exc:
+        return _vedomost_page(request, user, error=str(exc),
+                              run=service.current_run(), status_code=400)
+    return web.xlsx_response(payload, filename)
+
+
+@router.post("/publish")
+def publish_run(request: Request):
+    """Опубликовать прогон: поставить метки «учтена» (ADR-0027).
+
+    Только это действие закрывает месяц: до него бейджа «учтено» нет ни у
+    врача, ни у сестры.
+    """
+    access.require(request, access.DISTRIBUTION_MANAGE)
+    user = access.current_user(request)
+    service = _service(request)
+    try:
+        marks, run = service.publish()
+    except ValueError as exc:
+        return _vedomost_page(request, user, error=str(exc),
+                              run=service.current_run(), status_code=400)
+    return _vedomost_page(
+        request,
+        user,
+        run=run,
+        note=f"Опубликовано за {run.month}: помечено записей — {marks['marked']}, "
+             f"снято прежних — {marks['cleared']}. Врач и медсестра видят «учтено».",
+    )
 
 
 @router.get("/counts", response_class=HTMLResponse)

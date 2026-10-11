@@ -7,14 +7,40 @@
   {% include "_tabs.html" %}
 
   <p class="report-meta">
-    Загрузите ведомость больницы и выберите месяц: система найдёт врача и сестру
-    по поданным анестезиям, посчитает суммы и вернёт тот же файл с листами
+    Ведомость больницы разносится по поданным анестезиям: система находит врача
+    и сестру каждой строки, считает суммы и отдаёт тот же файл с листами
     «Распределение» и «Суммы по лицам».
   </p>
 
-  {% if error %}
-    <p class="distribution-error">{{ error }}</p>
-  {% endif %}
+  <details class="distribution-help">
+    <summary>Какой файл подаётся и что произойдёт</summary>
+    <ul>
+      <li>Книга <b>.xlsx</b>; читается <b>первый лист</b>, остальные не трогаются.</li>
+      <li>Шапка ищется в первых 20 строках по столбцу «Ф.И.О. пациента» — её место
+        в файле и остальные столбцы не важны.</li>
+      <li>Обязательные столбцы: «Ф.И.О. пациента», «Название услуги», «Врач»,
+        «СМП», «ММП». Столбец «Дата оказания услуги» не обязателен.</li>
+      <li>Суммы берутся как есть: «Врач» — врачу, «СМП» + «ММП» — сестре.
+        Своих коэффициентов система не считает.</li>
+      <li>Месяц выбираете вы: даты в файле на поиск не влияют — записи ищутся
+        по месяцу подачи анестезий.</li>
+    </ul>
+    <p>
+      Строки пациента получают пару, если ФИО совпало и в месяце нашлась ровно
+      одна подходящая запись — и осмотр, и анестезия. Фамилия сошлась, а
+      инициалы нет (или подходящих записей несколько) — строка помечается
+      «Внимание» и денег не получает: угадывать нельзя.
+    </p>
+    <p>
+      <b>Проверить</b> — разнести и посмотреть результат, ничего не закрывая.
+      <b>Скачать файл</b> — забрать результат в бухгалтерию.
+      <b>Опубликовать</b> — поставить метку «учтена»: только после этого врач и
+      медсестра увидят её у своей записи.
+    </p>
+  </details>
+
+  {% if error %}<p class="dc-banner error">{{ error }}</p>{% endif %}
+  {% if note %}<p class="dc-banner ok">{{ note }}</p>{% endif %}
 
   <form method="post" action="/distribution/spread" enctype="multipart/form-data" class="stack">
     <label>Месяц, за который прогоняем
@@ -23,13 +49,92 @@
     <label>Файл ведомости (.xlsx)
       <input type="file" name="file" accept=".xlsx" required>
     </label>
-    <button class="primary" type="submit">Разнести и скачать</button>
+    <button class="primary" type="submit">Проверить</button>
   </form>
 
-  <p class="report-meta">
-    Месяц — по дате подачи анестезий: ищем строго внутри него. Строки, которым
-    пары не нашлось, останутся пустыми; при однофамильцах в графе «Пометка»
-    появится «Внимание» — такие строки придётся развести руками.
-  </p>
+  {% if run %}
+  <div class="distribution-run">
+    <h2>Результат прогона за {{ run.month }}</h2>
+    <p class="report-meta">
+      Проверено: {{ created_label }}{% if run.source_name %} · файл: {{ run.source_name }}{% endif %}
+      {% if published_label %}<br><b>Опубликовано: {{ published_label }}</b> — метка «учтена» поставлена.{% else %}
+      <br>Метки «учтено» ещё не поставлены: месяц закроется кнопкой «Опубликовать».{% endif %}
+    </p>
+
+    <p class="distribution-counters">
+      Строк в ведомости: <b>{{ run.counters.rows }}</b> ·
+      с врачом и сестрой: <b>{{ run.counters.assigned }}</b> ·
+      «Внимание»: <b>{{ run.counters.attention }}</b> ·
+      без пары: <b>{{ run.counters.unmatched }}</b> ·
+      поданных анестезий за месяц: <b>{{ run.counters.records }}</b>
+    </p>
+
+    {% if run.counters.records == 0 %}
+    <p class="dc-banner warn">
+      За {{ run.month }} в приложении нет ни одной поданной анестезии — сверять
+      не с чем, поэтому все строки остались без пары. Это не ошибка поиска:
+      записи за этот месяц в приложение не подавали.
+    </p>
+    {% endif %}
+
+    <div class="distribution-actions">
+      <a class="btn" href="/distribution/download">Скачать файл</a>
+      <form method="post" action="/distribution/publish" class="inline">
+        <button class="primary" type="submit">{% if run.published %}Опубликовать снова{% else %}Опубликовать{% endif %}</button>
+      </form>
+    </div>
+    <p class="report-meta">
+      Файл можно скачать и до публикации. Повторная публикация того же месяца
+      пересчитывает метки: прежние снимаются, ставятся по этому прогону.
+    </p>
+
+    <h3 class="distribution-head">Суммы по врачам</h3>
+    {% if run.tables.doctors %}
+    <table class="distribution-table">
+      <thead><tr><th>ФИО</th><th>ID в бухгалтерии</th><th>Сумма</th></tr></thead>
+      <tbody>
+        {% for person in run.tables.doctors %}
+        <tr><td>{{ person.name }}</td><td>{{ person.buh_id }}</td><td>{{ person.amount }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="empty">Никто не попал: пар не нашлось.</p>{% endif %}
+
+    <h3 class="distribution-head">Суммы по сёстрам</h3>
+    {% if run.tables.nurses %}
+    <table class="distribution-table">
+      <thead><tr><th>ФИО</th><th>ID в бухгалтерии</th><th>Сумма</th></tr></thead>
+      <tbody>
+        {% for person in run.tables.nurses %}
+        <tr><td>{{ person.name }}</td><td>{{ person.buh_id }}</td><td>{{ person.amount }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="empty">Никто не попал: пар не нашлось.</p>{% endif %}
+
+    {% if run.tables.without_buh_id %}
+    <p class="dc-banner warn">
+      Без ID в бухгалтерии — строка не пройдёт: {{ run.tables.without_buh_id | join(', ') }}.
+      ID заполняется в разделе «Сотрудники».
+    </p>
+    {% endif %}
+
+    <h3 class="distribution-head">Строки «Внимание» — разобрать руками</h3>
+    {% if run.tables.attention %}
+    <table class="distribution-table">
+      <thead><tr><th>Строка файла</th><th>Пациент</th><th>Услуга</th></tr></thead>
+      <tbody>
+        {% for row in run.tables.attention %}
+        <tr><td>{{ row.row }}</td><td>{{ row.patient }}</td><td>{{ row.service }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="report-meta">
+      Здесь фамилия сошлась, а инициалы расходятся или подходящих записей
+      несколько. Пары и денег у таких строк нет — ни в файле, ни в метках.
+    </p>
+    {% else %}<p class="empty">Таких строк нет.</p>{% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

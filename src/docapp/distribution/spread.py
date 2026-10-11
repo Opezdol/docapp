@@ -142,6 +142,9 @@ class Spread:
     nurses: tuple[Person, ...]
     #: id записей, попавших в ведомость: их метит «учтена» владелец записей.
     matched_ids: tuple[int, ...] = ()
+    #: Сколько записей отделения попало в месяц прогона: ноль значит,
+    #: что сверять не с чем, и пустой результат — не ошибка сопоставления.
+    records_count: int = 0
 
     @property
     def assigned_rows(self) -> int:
@@ -216,6 +219,7 @@ def spread(month: str, vedomost: Vedomost, records: Sequence[Anesthesia],
         doctors=totals(by_doctor),
         nurses=totals(by_nurse),
         matched_ids=tuple(matched),
+        records_count=len(records),
     )
 
 

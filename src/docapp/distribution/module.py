@@ -12,15 +12,21 @@
 from __future__ import annotations
 
 from docapp.core.registry import AppContext, Module
+from docapp.distribution.config import load_distribution_config
 from docapp.distribution.container import DistributionContainer
 from docapp.distribution.router import router
+from docapp.distribution.run import RunStore
 from docapp.distribution.service import DistributionService
 from docapp.people.container import PeopleContainer
 from docapp.records.container import RecordsContainer
 
 
 def build(context: AppContext) -> DistributionContainer:
-    """Собрать сервис распределения поверх интерфейсов уже собранных модулей."""
+    """Собрать сервис распределения поверх интерфейсов уже собранных модулей.
+
+    Папка прогона (`DISTRIBUTION_DIR`) приходит из конфигурации модуля и не
+    создаётся: до первого прогона каталога может не быть (ADR-0027).
+    """
     records = context.containers.get("records")
     people = context.containers.get("people")
     if not isinstance(records, RecordsContainer) or not isinstance(people, PeopleContainer):
@@ -29,7 +35,11 @@ def build(context: AppContext) -> DistributionContainer:
             "через их интерфейсы, а своей таблицы не имеет"
         )
     return DistributionContainer(
-        service=DistributionService(records.service, people.employees)
+        service=DistributionService(
+            records.service,
+            people.employees,
+            RunStore(load_distribution_config().run_dir),
+        )
     )
 
 

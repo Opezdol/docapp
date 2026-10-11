@@ -15,6 +15,7 @@ import pytest
 from openpyxl import load_workbook
 
 from docapp.distribution import xlsx
+from docapp.distribution.run import RunStore
 from docapp.distribution.service import DistributionService
 from docapp.distribution.spread import person_key, spread
 from docapp.distribution.vedomost import VedomostError, parse
@@ -116,7 +117,9 @@ class TestServiceMonth:
         store = SqliteAnesthesiaStore(db)
         store.add(make_anesthesia(date=date(2026, 5, 20), patient_name="Орлов Олег Олегович",
                                   doctor_id=doctor.id, nurse_id=nurse.id))
-        yield DistributionService(AnesthesiaService(store), employees)
+        yield DistributionService(
+            AnesthesiaService(store), employees, RunStore(tmp_path / "runs")
+        )
         store.close()
         employees.close()
 

@@ -16,6 +16,8 @@ venv/
 *.sqlite3
 backups/
 data/wiki/
+# Прогон ведомости в «Распределении» (ADR-0027): в файлах — ФИО пациентов.
+data/distribution/
 
 # Окружение и секреты
 .env

@@ -11,17 +11,34 @@ def _isolated_module_dirs(tmp_path_factory):
     """Тесты не пишут в `data/` репозитория.
 
     При сборке приложения модуль «Чат» создаёт папку PDF-источников
-    (ADR-0020) — по умолчанию это `data/wiki/sources` внутри проекта. В тестах
-    уводим её во временную папку: репозиторий остаётся чистым.
+    (ADR-0020) — по умолчанию это `data/wiki/sources` внутри проекта, а
+    «Распределение» кладёт туда же прогон ведомости (ADR-0027, `data/distribution`).
+    В тестах уводим обе во временную папку: репозиторий остаётся чистым.
     """
     base = tmp_path_factory.mktemp("module-dirs")
-    previous = os.environ.get("WIKI_SOURCES_DIR")
+    previous = {
+        name: os.environ.get(name)
+        for name in ("WIKI_SOURCES_DIR", "DISTRIBUTION_DIR")
+    }
     os.environ["WIKI_SOURCES_DIR"] = str(base / "wiki-sources")
+    os.environ["DISTRIBUTION_DIR"] = str(base / "distribution")
     yield
-    if previous is None:
-        os.environ.pop("WIKI_SOURCES_DIR", None)
-    else:
-        os.environ["WIKI_SOURCES_DIR"] = previous
+    for name, value in previous.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+
+@pytest.fixture(autouse=True)
+def _run_dir_per_test(tmp_path, monkeypatch):
+    """Прогон ведомости — у каждого теста свой каталог (ADR-0027).
+
+    Прогон один на раздел и переживает перезапуск приложения: с общим каталогом
+    тесты видели бы прогон соседнего теста, и «прогона нет» стало бы
+    непроверяемым — именно так это и всплыло при первом же прогоне.
+    """
+    monkeypatch.setenv("DISTRIBUTION_DIR", str(tmp_path / "distribution"))
 
 
 @pytest.fixture(scope="session")

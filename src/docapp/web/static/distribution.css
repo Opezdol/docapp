@@ -48,3 +48,39 @@ input[type="file"] {
   font-size: 0.95rem;
 }
 .distribution-total { font-size: 0.95rem; }
+
+/* Подсказка о формате файла: свёрнута, но всегда под рукой. */
+.distribution-help {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border: 1px solid #e3e8ef;
+  border-radius: 8px;
+  background: #f7f9fc;
+  font-size: 0.9rem;
+  color: #444;
+}
+.distribution-help summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #1565c0;
+}
+.distribution-help ul { margin: 10px 0 0; padding-left: 20px; }
+.distribution-help li { margin-bottom: 6px; }
+.distribution-help p { margin: 10px 0 0; }
+
+/* Результат прогона: счётчики, кнопки и таблицы. */
+.distribution-run {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #e3e8ef;
+}
+.distribution-run h2 { font-size: 1.05rem; margin: 0 0 8px; }
+.distribution-head { font-size: 0.95rem; margin: 16px 0 6px; }
+.distribution-counters { font-size: 0.95rem; margin: 0 0 12px; }
+.distribution-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 12px 0 8px;
+}
