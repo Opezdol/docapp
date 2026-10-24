@@ -1,38 +1,33 @@
-"""Подготовка подписи: прозрачный фон и обрезка полей (ТЗ-кровь §6, ADR-0029).
+"""Подготовка подписи: прозрачный фон, обрезка полей, синий штрих (ADR-0029).
 
-`Pillow` в зависимостях нет, поэтому картинку разбирает `pymupdf`: он декодирует
-JPEG и PNG из байтов и отдаёт пиксели, а PNG с альфа-каналом собирается здесь же
-своим кодировщиком (IHDR + zlib + IEND) — так же, как это делал бы canvas.
+`Pillow` в зависимостях нет, поэтому картинку разбирает `pymupdf`, а PNG с
+альфа-каналом собирается своим кодировщиком (IHDR + zlib + IEND).
 
-**Почему порог не на телефоне.** Прозрачность зависит от освещения: в кабинете
-бумага на снимке серая или жёлтая, а не белая, и фиксированный порог «белее 200 —
-прозрачно» сделал бы из подписи цветной прямоугольник. Поэтому уровни «бумага» и
-«штрих» считаются по гистограмме конкретного снимка, и это одна реализация с
-тестами вместо двух — телефонной и серверной. Телефон делает то, что требует
-пальца: поворот и уменьшение (см. `web/static/signatures.js`).
+**Как отделяются чернила от бумаги.** Сначала по цвету: синяя ручка даёт избыток
+синего канала (`B − (R+G)//2`), а тень и бумага нейтральны — у них этот избыток
+около нуля при любой яркости. Поэтому тень от руки на листе исчезает целиком, даже
+тёмная: она не синяя. Если синего в снимке нет (чёрная ручка), включается второй
+путь — по темноте, с порогами по гистограмме конкретного снимка. Штрих при этом
+ищется как самый тёмный уровень, на котором уже есть заметное число пикселей:
+процентиль здесь ошибался, потому что тонкая подпись занимает меньше процента
+кадра, и «3-й процентиль» попадал на бумагу — отсюда отказ «на фото не видно
+подписи» на хорошем снимке.
 
-**Почему всё на срезах и таблицах, а не в цикле по пикселям.** Снимок с телефона —
-полтора миллиона пикселей; питоновский цикл по ним идёт минутами, а врач в
-операционной столько ждать не будет. Цвет приводится переводом байтов по заранее
-посчитанным таблицам (`bytes.translate`), яркость берётся по зелёному каналу (он
-даёт основной вклад в воспринимаемую яркость), гистограмма — `Counter` по срезу,
-рамка штриха — `find`/`rfind` по маске. Всё это выполняется в C.
+**Почему анализ по сетке в 4 раза мельче, а не по каждому пикселю.** Снимок с
+телефона — полтора миллиона пикселей; питоновский цикл по ним идёт минутами.
+Цвет и уровни считаются по каждому четвёртому пикселю (около 90 тысяч — десятые
+доли секунды), альфа потом растягивается на полное разрешение. Подпись печатается
+в графе шириной 3–4 см, поэтому шаг 4 пикселя на снимке 1600 точек — десятые доли
+миллиметра на бумаге: глазу не видно.
 
-Правило подготовки:
-
-- PNG с **настоящей** прозрачностью и разумной стороной возвращается как есть:
-  лишняя перекодировка только испортила бы штрих. Наличие альфа-канала само по
-  себе ничего не значит — canvas отдаёт RGBA, где альфа 255 во всех пикселях;
-- всё остальное (JPEG, PNG без прозрачности, слишком большая картинка) переводится
-  в PNG с прозрачным фоном: бумага становится прозрачной, штрих остаётся тёмным и
-  нейтральным (цвет бумаги не даёт ореола), поля обрезаются по штриху.
+**Цвет.** Штрих печатается синим (как подписываются в отделении): форму хранит
+альфа, цвет — константа, и жёлтая или голубая бумага в документ не переезжает.
 """
 
 from __future__ import annotations
 
 import struct
 import zlib
-from collections import Counter
 
 import pymupdf
 
@@ -45,35 +40,40 @@ _COLOR_TYPE_OFFSET = 25
 #: Предел длинной стороны: подпись печатается в графе шириной 3–4 см.
 MAX_SIDE = 1600
 
-#: Ниже этого различия «бумага/штрих» снимок считается пустым, а не подписью.
+#: Шаг анализа: альфа считается по каждому четвёртому пикселю и растягивается.
+COARSE = 4
+
+#: Ниже этого различия «бумага/штрих» снимок без синего считается пустым.
 MIN_CONTRAST = 25
 
-#: Пиксель считается штрихом при такой непрозрачности (порог для маски).
-INK_ALPHA = 96
-
-#: Рамка обрезки строится только по **плотному** штриху: тень на листе до этой
-#: непрозрачности не дотягивает и в кадр не попадает (владелец, 24.10.2026:
-#: «остаётся тёмная клякса» — это была именно тень, принятая за чернила).
-SOLID_ALPHA = 240
+#: Непрозрачность, при которой пиксель считается штрихом для рамки обрезки.
+INK_ALPHA = 160
 
 #: Запас вокруг штриха при обрезке, доля от его размера.
 MARGIN = 0.04
 
-#: Цвет подписи: отделение подписывается синей ручкой, и подпись должна быть
-#: синей независимо от того, каким светом снята бумага. Альфа хранит форму
-#: штриха, цвет — константа.
+#: Цвет подписи: отделение подписывается синей ручкой.
 INK_COLOUR = (20, 60, 160)
 
-#: Доли рампы от «штриха» к «бумаге»: ниже первой — непрозрачно, выше второй —
-#: прозрачно. Крутая рампа (было 20/55) отсекает тень, не трогая линию.
+#: Избыток синего, начиная с которого пиксель считается чернилами.
+BLUE_EXCESS = 12
+
+#: Рампа альфы по избытку синего: ниже — прозрачно, выше — непрозрачно.
+BLUE_FLOOR = 10
+BLUE_CEIL = 45
+
+#: Доли рампы «по темноте» (чёрная ручка): ниже первой — непрозрачно, выше второй — нет.
 SOLID_SHARE = 10
 CLEAR_SHARE = 30
 
 #: Порог «это уже прозрачный PNG»: есть хоть один пиксель прозрачнее этого.
 _TRANSPARENT_ENOUGH = 250
 
-#: Таблица «альфа → признак плотного штриха» для поиска рамки.
-_SOLID_MASK_TABLE = bytes(1 if alpha >= SOLID_ALPHA else 0 for alpha in range(256))
+#: Таблица «альфа → признак штриха» для поиска рамки.
+_INK_MASK_TABLE = bytes(1 if alpha >= INK_ALPHA else 0 for alpha in range(256))
+
+#: Байт → четыре его копии: растянуть альфу с грубой сетки на полное разрешение.
+_SPREAD = [bytes([value]) * COARSE for value in range(256)]
 
 
 def has_alpha(data: bytes) -> bool:
@@ -98,7 +98,6 @@ def prepare(data: bytes) -> bytes:
     Готовый файл определяется по **настоящей прозрачности**, а не по наличию
     альфа-канала: canvas на телефоне отдаёт RGBA, в котором альфа равна 255 во
     всех пикселях, — это обычный непрозрачный снимок, и пропускать его нельзя.
-    Именно так подпись владельца попала на прод жёлтым прямоугольником.
     """
     if _is_transparent_png(data):
         return data
@@ -106,21 +105,48 @@ def prepare(data: bytes) -> bytes:
 
 
 def transparent(data: bytes) -> bytes:
-    """Сделать фон прозрачным и обрезать поля (JPEG, PNG без прозрачности, большое фото)."""
+    """Прозрачный фон, обрезка полей и синий штрих для непрозрачного снимка."""
     source = _decode(data)
-    paper, ink = _levels(source)
-    rows, box = _rgba_rows(source, paper, ink)
+    red_rows, green_rows, blue_rows = _channel_rows(source)
+    grid = _coarse_grid(red_rows, green_rows, blue_rows, source.width, source.height)
+    paper, ink, blue_base = _levels(grid)
+    blue = _blue_present(grid, paper, blue_base)
+    if not blue and paper - ink < MIN_CONTRAST:
+        raise SignatureError("На фото не видно подписи: слишком мало контраста")
+
+    alpha = _alpha_grid(grid, paper, ink, blue, blue_base)
+    box = _ink_box(alpha)
     if box is None:
         raise SignatureError("На фото не видно подписи")
 
-    width, height = source.width, source.height
-    left, top, right, bottom = _with_margin(box, width, height)
+    coarse_width, coarse_height = len(alpha[0]), len(alpha)
+    left, top, right, bottom = _with_margin(box, coarse_width, coarse_height)
     # Если «штрих» занимает почти весь кадр, это не подпись на бумаге, а тёмный
     # снимок: обрезать нечего, оставляем как есть.
-    if (right - left) * (bottom - top) < width * height * 97 // 100:
-        rows = [row[left * 4 : right * 4] for row in rows[top:bottom]]
-        width, height = right - left, bottom - top
-    return _encode(width, height, rows)
+    crop = (right - left) * (bottom - top) < coarse_width * coarse_height * 97 // 100
+
+    width, height = source.width, source.height
+    first_column = left * COARSE if crop else 0
+    last_column = min(right * COARSE, width) if crop else width
+    first_row = top * COARSE
+    last_row = min(bottom * COARSE, height)
+
+    base = bytearray(width * 4)
+    base[0::4] = bytes([INK_COLOUR[0]]) * width
+    base[1::4] = bytes([INK_COLOUR[1]]) * width
+    base[2::4] = bytes([INK_COLOUR[2]]) * width
+
+    rows: list[bytearray] = []
+    for y in range(first_row, last_row):
+        spread = b"".join(_SPREAD[value] for value in alpha[y // COARSE])
+        line = bytearray(base)
+        line[3::4] = spread[:width]
+        rows.append(line[first_column * 4 : last_column * 4])
+
+    return _encode(last_column - first_column, len(rows), rows)
+
+
+# ── разбор картинки ──────────────────────────────────────────────────
 
 
 def _is_transparent_png(data: bytes) -> bool:
@@ -145,8 +171,7 @@ def _decode(data: bytes):
     if source.width <= 0 or source.height <= 0:
         raise SignatureError("Файл не читается как картинка")
     # Серый и CMYK приводим к RGB. Альфа-канал не убираем: `Pixmap(csRGB, pix)`
-    # его сохраняет (n = 4), а нам он не мешает — прозрачность считается заново,
-    # и `_green_rows` берёт шаг по фактическому числу каналов.
+    # его сохраняет (n = 4), а нам он не мешает — прозрачность считается заново.
     if source.colorspace is None or source.colorspace.n != 3:
         source = pymupdf.Pixmap(pymupdf.csRGB, source)
     while max(source.width, source.height) > MAX_SIDE:
@@ -156,45 +181,89 @@ def _decode(data: bytes):
     return source
 
 
-def _green_rows(source) -> list[bytes]:
-    """Зелёный канал по строкам: `bytes` на строку, без цикла по пикселям.
+def _channel_rows(source) -> list[list[bytes]]:
+    """Каналы R, G, B по строкам: `bytes` на строку, без цикла по пикселям.
 
     Шаг берётся по фактическому числу каналов: у снимка от canvas их четыре
     (RGBA), у JPEG — три. Альфа в расчёт не идёт, но её байты сдвигают соседние,
-    и шаг 3 по RGBA дал бы мусор вместо яркости.
+    и шаг 3 по RGBA дал бы мусор вместо цвета.
     """
     width, height, step = source.width, source.height, source.n
-    samples = source.samples
-    stride = source.stride
-    if stride == width * step:  # обычный случай: строки идут подряд — берём срезом
-        green = samples[1::step]
-        return [green[y * width : (y + 1) * width] for y in range(height)]
+    samples, stride = source.samples, source.stride
+    if stride == width * step:  # строки идут подряд — берём срезом
+        channels = [samples[offset::step] for offset in range(3)]
+        return [
+            [channel[y * width : (y + 1) * width] for y in range(height)]
+            for channel in channels
+        ]
     return [
-        samples[y * stride + 1 : y * stride + width * step : step]
-        for y in range(height)
+        [
+            samples[y * stride + offset : y * stride + width * step : step]
+            for y in range(height)
+        ]
+        for offset in range(3)
     ]
 
 
-def _levels(source) -> tuple[int, int]:
-    """Уровни «бумага» и «штрих» по гистограмме яркости снимка.
+def _coarse_grid(
+    red_rows: list[bytes],
+    green_rows: list[bytes],
+    blue_rows: list[bytes],
+    width: int,
+    height: int,
+) -> list[list[tuple[int, int]]]:
+    """Грубая сетка: (яркость, избыток синего) через каждые COARSE точек.
 
-    Бумага — 85-й процентиль яркости (её на снимке большинство), штрих — 3-й.
-    Так порог подстраивается под освещение и цвет: серая бумага в кабинете,
-    жёлтая под лампой и белый лист на столе дают разные абсолютные значения, но
-    одинаковое отношение. Гистограмма считается `Counter` по срезу — это C.
+    Срез с шагом по строке делает C, питоновский цикл остаётся по сетке — это
+    около 90 тысяч итераций на снимок 1600×900 вместо полутора миллионов.
+    """
+    grid = []
+    for y in range(0, height, COARSE):
+        red = red_rows[y][::COARSE]
+        green = green_rows[y][::COARSE]
+        blue = blue_rows[y][::COARSE]
+        grid.append(
+            [
+                ((r + g + b) // 3, b - (r + g) // 2)
+                for r, g, b in zip(red, green, blue)
+            ]
+        )
+    return grid
+
+
+def _levels(grid: list[list[tuple[int, int]]]) -> tuple[int, int, int]:
+    """Уровни: «бумага», «штрих» и собственная синева бумаги.
+
+    Бумага — 85-й процентиль яркости (её на снимке большинство). Штрих — самый
+    тёмный уровень, на котором уже есть заметное число пикселей: процентиль
+    ошибался, потому что тонкая подпись занимает меньше процента кадра, и «3-й
+    процентиль» попадал на бумагу — приложение отказывалось видеть подпись на
+    чистом снимке. Третий уровень — медиана избытка синего: холодный свет делает
+    бумагу голубоватой, и без вычитания её собственной синевы вся страница
+    считалась бы чернилами.
     """
     hist = [0] * 256
-    for value, count in Counter(b"".join(_green_rows(source))).items():
-        hist[value] = count
-
+    blue_hist = [0] * 256
+    for line in grid:
+        for level, excess in line:
+            hist[level] += 1
+            blue_hist[excess + 128] += 1
     total = sum(hist)
     if total == 0:
         raise SignatureError("Пустая картинка")
-    ink = _percentile(hist, total, 3)
+
     paper = _percentile(hist, total, 85)
-    if paper - ink < MIN_CONTRAST:
-        raise SignatureError("На фото не видно подписи: слишком мало контраста")
-    return paper, ink
+    blue_base = _percentile(blue_hist, total, 50) - 128
+    # Штрих — самый тёмный уровень, который вообще есть на снимке. Раньше брался
+    # первый уровень, набравший заметное число пикселей, и на тонкой подписи это
+    # оказывалась тень (её пикселей много, штриха мало): тень становилась
+    # «чернилами», а подпись — нет.
+    ink = paper
+    for level, count in enumerate(hist):
+        if count:
+            ink = level
+            break
+    return paper, ink, blue_base
 
 
 def _percentile(hist: list[int], total: int, percent: int) -> int:
@@ -210,12 +279,61 @@ def _percentile(hist: list[int], total: int, percent: int) -> int:
     return 255
 
 
-def _alpha_table(paper: int, ink: int) -> bytes:
-    """Таблица «яркость → альфа»: мягкий край между бумагой и штрихом.
+def _blue_present(
+    grid: list[list[tuple[int, int]]], paper: int, blue_base: int
+) -> bool:
+    """Есть ли на снимке синие чернила: тень и бумага такого избытка не дают.
 
-    Альфа растёт от нуля к единице, поэтому край штриха остаётся гладким, а не
-    рваным, как при жёстком пороге.
+    Нужны оба условия — абсолютный избыток и избыток сверх синевы самой бумаги.
+    Без первого тёмный нейтральный штрих на жёлтой бумаге считался бы синим
+    (он «менее жёлтый», значит относительно синий), и подпись чёрной ручкой
+    перестала бы находиться.
     """
+    enough = max(15, sum(len(line) for line in grid) // 20000)
+    found = 0
+    for line in grid:
+        for level, excess in line:
+            if (
+                excess >= BLUE_EXCESS
+                and excess - blue_base >= BLUE_EXCESS
+                and level < paper - 5
+            ):
+                found += 1
+                if found >= enough:
+                    return True
+    return False
+
+
+def _alpha_grid(
+    grid: list[list[tuple[int, int]]],
+    paper: int,
+    ink: int,
+    blue: bool,
+    blue_base: int,
+) -> list[bytes]:
+    """Альфа по грубой сетке: по синему, если он есть, иначе по темноте."""
+    table = None if blue else _dark_table(paper, ink)
+    spread = 255 // (BLUE_CEIL - BLUE_FLOOR)
+    lines = []
+    for line in grid:
+        values = bytearray()
+        for level, excess in line:
+            if table is None:
+                own = excess - blue_base
+                if own <= BLUE_FLOOR:
+                    values.append(0)
+                elif own >= BLUE_CEIL:
+                    values.append(255)
+                else:
+                    values.append((own - BLUE_FLOOR) * spread)
+            else:
+                values.append(table[level])
+        lines.append(bytes(values))
+    return lines
+
+
+def _dark_table(paper: int, ink: int) -> bytes:
+    """Таблица «яркость → альфа» для чёрной ручки: мягкий край между бумагой и штрихом."""
     span = max(1, paper - ink)
     clear = ink + span * CLEAR_SHARE // 100  # ярче — прозрачно
     solid = ink + span * SOLID_SHARE // 100  # темнее — непрозрачно
@@ -230,47 +348,27 @@ def _alpha_table(paper: int, ink: int) -> bytes:
     return bytes(table)
 
 
-def _rgba_rows(
-    source, paper: int, ink: int
-) -> tuple[list[bytearray], tuple[int, int, int, int] | None]:
-    """Строки RGBA и рамка штриха.
-
-    Каждая строка собирается присваиванием по срезу с шагом 4: цвет и альфа
-    приходят из таблиц, поэтому цикл идёт по строкам, а не по пикселям.
-    """
-    width = source.width
-    alpha_table = _alpha_table(paper, ink)
-    rows: list[bytearray] = []
-    left, right = width, -1
-    top, bottom = source.height, -1
-
-    red, green_ink, blue = INK_COLOUR
-    base_row = bytearray(width * 4)
-    base_row[0::4] = bytes([red]) * width
-    base_row[1::4] = bytes([green_ink]) * width
-    base_row[2::4] = bytes([blue]) * width
-
-    for y, green in enumerate(_green_rows(source)):
-        alpha = green.translate(alpha_table)
-        mask = alpha.translate(_SOLID_MASK_TABLE)
-        row = bytearray(base_row)
-        row[3::4] = alpha
-        rows.append(row)
-        if b"\x01" in mask:
-            first = mask.find(b"\x01")
-            last = mask.rfind(b"\x01")
-            if first < left:
-                left = first
-            if last > right:
-                right = last
-            if y < top:
-                top = y
-            if y > bottom:
-                bottom = y
-
+def _ink_box(alpha: list[bytes]) -> tuple[int, int, int, int] | None:
+    """Рамка штриха по грубой сетке альфы: (лево, верх, право, низ)."""
+    left, right = len(alpha[0]), -1
+    top, bottom = len(alpha), -1
+    for y, line in enumerate(alpha):
+        mask = line.translate(_INK_MASK_TABLE)
+        if b"\x01" not in mask:
+            continue
+        first = mask.find(b"\x01")
+        last = mask.rfind(b"\x01")
+        if first < left:
+            left = first
+        if last > right:
+            right = last
+        if y < top:
+            top = y
+        if y > bottom:
+            bottom = y
     if right < 0:
-        return rows, None
-    return rows, (left, top, right, bottom)
+        return None
+    return left, top, right, bottom
 
 
 def _with_margin(

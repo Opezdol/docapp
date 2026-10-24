@@ -93,6 +93,39 @@ def photo_with_shadow(width: int = 240, height: int = 80) -> bytes:
     return pixels.tobytes("jpeg")
 
 
+def blue_photo(
+    width: int = 240,
+    height: int = 90,
+    *,
+    shadow: bool = False,
+    paper: tuple[float, float, float] = (0.82, 0.76, 0.70),
+    ink: tuple[float, float, float] = (0.12, 0.18, 0.55),
+    pen: int = 3,
+) -> bytes:
+    """Синяя ручка на листе; `shadow` добавляет тень через нижнюю часть листа.
+
+    Тень нейтральная — ровно то, что не даёт избытка синего, поэтому отделяется
+    от чернил цветом, а не яркостью.
+    """
+    document = pymupdf.open()
+    page = document.new_page(width=width, height=height)
+    page.draw_rect(pymupdf.Rect(0, 0, width, height), color=None, fill=paper)
+    if shadow:
+        page.draw_rect(
+            pymupdf.Rect(0, height // 2, width, height),
+            color=None,
+            fill=(0.44, 0.42, 0.39),
+        )
+    points = [(20, 30), (60, 22), (100, 34), (140, 24), (180, 36), (220, 28)]
+    for start, finish in zip(points, points[1:]):
+        page.draw_line(
+            pymupdf.Point(*start), pymupdf.Point(*finish), color=ink, width=pen
+        )
+    pixels = page.get_pixmap(dpi=72)
+    document.close()
+    return pixels.tobytes("jpeg")
+
+
 def solid_pixels(data: bytes) -> list[bytes]:
     """Пиксели полностью непрозрачного штриха (RGB без альфы)."""
     pixmap = pymupdf.Pixmap(data)
@@ -221,6 +254,37 @@ class TestImage:
         ]
         semi = sum(1 for alpha in alphas if 0 < alpha < 255)
         assert semi < len(alphas) * 3 // 100, f"полупрозрачных пикселей {semi} из {len(alphas)}"
+
+    def test_blue_pen_is_found(self):
+        """Синяя ручка: штрих есть, он синий, кадр обрезан по нему."""
+        prepared = png.prepare(blue_photo())
+        stroke = solid_pixels(prepared)
+        assert stroke, "синий штрих не найден"
+        assert all(pixel[2] > pixel[0] and pixel[2] > pixel[1] for pixel in stroke)
+
+    def test_shadow_under_blue_pen_does_not_leave_a_blot(self):
+        """Тень на листе: она серая, синевы нет — значит прозрачна при любой яркости."""
+        prepared = png.prepare(blue_photo(shadow=True))
+        cropped = pymupdf.Pixmap(prepared)
+        assert cropped.height <= 60, f"тень осталась в кадре: {cropped.height}"
+        alphas = [
+            cropped.samples[y * cropped.stride + x * 4 + 3]
+            for y in range(cropped.height)
+            for x in range(cropped.width)
+        ]
+        semi = sum(1 for alpha in alphas if 0 < alpha < 255)
+        assert semi < len(alphas) * 3 // 100, f"полупрозрачных {semi} из {len(alphas)}"
+
+    def test_thin_line_on_clean_sheet_is_found(self):
+        """Чистый снимок тонкой подписи не должен отвечать «не видно подписи»."""
+        prepared = png.prepare(blue_photo(paper=(0.9, 0.9, 0.9), pen=2))
+        assert solid_pixels(prepared)
+
+    def test_cool_light_does_not_turn_the_sheet_into_ink(self):
+        """Голубоватая бумага (холодный свет) остаётся фоном, а не чернилами."""
+        prepared = png.prepare(blue_photo(paper=(0.90, 0.93, 0.99)))
+        assert alpha_at(prepared, 0, 0) == 0
+        assert solid_pixels(prepared)
 
     def test_ready_png_is_kept_as_is(self):
         prepared = png.prepare(photo())
