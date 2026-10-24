@@ -50,6 +50,7 @@ class TestOneFile:
         assert {"needs_requests", "needs_request_lines", "needs_closures"} <= tables
         assert {"duty_reports", "duty_operations"} <= tables
         assert {"wiki_sources", "wiki_articles", "wiki_revisions"} <= tables
+        assert "signatures" in tables
 
     def test_old_table_names_are_gone(self, tmp_path):
         """Прежние имена (requests/closures/duty_report) в новой БД не создаются."""
@@ -76,6 +77,7 @@ class TestOneFile:
             ("needs", 2),
             ("people", 1),
             ("records", 4),
+            ("signatures", 1),
             ("wiki", 2),
         ]
 

@@ -6,6 +6,8 @@
 Порядок значим: модуль может взять интерфейс соседа, объявленного раньше
 (`context.containers`). Поэтому `people` (справочник сотрудников) идёт первым,
 `records` (записи анестезий) — до «Распределения», которое их читает.
+`signatures` (подписи сотрудников) идёт вторым: подпись ссылается на сотрудника,
+а раздел «Кровь» возьмёт её интерфейс позже.
 
 База данных одна на все модули (ADR-0016): путь приходит из AppContext, ни один
 модуль его не ищет сам. Версия схемы ведётся на модуль — у каждого владельца своя.
@@ -20,7 +22,17 @@ from docapp.needs.module import MODULE as NEEDS
 from docapp.people.module import MODULE as PEOPLE
 from docapp.records.module import MODULE as RECORDS
 from docapp.scales.module import MODULE as SCALES
+from docapp.signatures.module import MODULE as SIGNATURES
 from docapp.wiki.module import MODULE as COMPENDIUM
 
 #: Модули приложения в порядке подключения (порядок = порядок сборки).
-MODULES: tuple[Module, ...] = (PEOPLE, RECORDS, SCALES, COMPENDIUM, NEEDS, DUTY, DISTRIBUTION)
+MODULES: tuple[Module, ...] = (
+    PEOPLE,
+    SIGNATURES,
+    RECORDS,
+    SCALES,
+    COMPENDIUM,
+    NEEDS,
+    DUTY,
+    DISTRIBUTION,
+)

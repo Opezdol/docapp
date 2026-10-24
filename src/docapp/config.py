@@ -21,6 +21,16 @@ def https_only() -> bool:
     return os.environ.get("DOCAPP_HTTPS_ONLY", "") == "1"
 
 
+def signatures_dir() -> Path:
+    """Папка файлов подписей сотрудников (ADR-0029).
+
+    Как у PDF-источников «Чата» (ADR-0020): путь из окружения, иначе `data/signatures`.
+    Папка создаётся при первой загрузке подписи, а не при старте приложения.
+    """
+    override = os.environ.get("DOCAPP_SIGNATURES_DIR")
+    return Path(override) if override else DATA_DIR / "signatures"
+
+
 def git_revision() -> str:
     """Короткий хэш текущего коммита git (для бейджа версии на страницах).
 

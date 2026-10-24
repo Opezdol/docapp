@@ -1,0 +1,54 @@
+/* Моя подпись: превью, область обрезки и кнопки (ТЗ-кровь §6, ADR-0029).
+   Свои классы — sig-*; карточки, кнопки и баннер — в style.css. */
+
+.sig-state {
+  margin: 1rem 0;
+}
+
+.sig-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 8rem;
+  padding: .4rem .6rem;
+  border: 1px dashed #c5cdd9;
+  border-radius: .5rem;
+  background:
+    repeating-conic-gradient(#eef2f7 0% 25%, #ffffff 0% 50%) 50% / 12px 12px;
+}
+
+.sig-meta {
+  margin: .4rem 0 0;
+  color: #666;
+  font-size: .85rem;
+}
+
+.sig-crop {
+  margin: 1rem 0;
+}
+
+.sig-canvas {
+  display: block;
+  width: 100%;
+  max-height: 14rem;
+  border: 1px solid #d7dee8;
+  border-radius: .5rem;
+  background:
+    repeating-conic-gradient(#eef2f7 0% 25%, #ffffff 0% 50%) 50% / 12px 12px;
+}
+
+.sig-actions {
+  display: flex;
+  gap: .6rem;
+  margin-top: .6rem;
+}
+
+.sig-save {
+  background: #1565c0;
+  border-color: #1565c0;
+  color: #fff;
+}
+
+.sig-pick {
+  display: inline-block;
+  margin-bottom: .5rem;
+}

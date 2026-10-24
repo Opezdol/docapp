@@ -49,6 +49,7 @@ class TestModuleContract:
         names = [module.name for module in MODULES]
         assert names == [
             "people",
+            "signatures",
             "records",
             "scales",
             "wiki",
@@ -88,13 +89,27 @@ class TestModuleContract:
     def test_module_schema_versions(self):
         """Версии схем модулей в единой БД (ADR-0016)."""
         versions = {module.name: module.schema.version for module in MODULES if module.schema}
-        assert versions == {"people": 1, "records": 4, "wiki": 2, "needs": 2, "duty": 1}
+        assert versions == {
+            "people": 1,
+            "signatures": 1,
+            "records": 4,
+            "wiki": 2,
+            "needs": 2,
+            "duty": 1,
+        }
 
     def test_databases_covers_all_schemas(self):
         """Все схемы объявлены в одном файле — путь у записей одинаковый."""
         path = Path("/tmp/app.db")
         rows = databases(MODULES, path)
-        assert [name for name, _, _ in rows] == ["people", "records", "wiki", "needs", "duty"]
+        assert [name for name, _, _ in rows] == [
+            "people",
+            "signatures",
+            "records",
+            "wiki",
+            "needs",
+            "duty",
+        ]
         for _, row_path, schema in rows:
             assert row_path == path
             assert isinstance(schema, Schema)

@@ -18,10 +18,11 @@ def _isolated_module_dirs(tmp_path_factory):
     base = tmp_path_factory.mktemp("module-dirs")
     previous = {
         name: os.environ.get(name)
-        for name in ("WIKI_SOURCES_DIR", "DISTRIBUTION_DIR")
+        for name in ("WIKI_SOURCES_DIR", "DISTRIBUTION_DIR", "DOCAPP_SIGNATURES_DIR")
     }
     os.environ["WIKI_SOURCES_DIR"] = str(base / "wiki-sources")
     os.environ["DISTRIBUTION_DIR"] = str(base / "distribution")
+    os.environ["DOCAPP_SIGNATURES_DIR"] = str(base / "signatures")
     yield
     for name, value in previous.items():
         if value is None:

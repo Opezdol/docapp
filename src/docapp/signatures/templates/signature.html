@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Моя подпись — docapp{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/signatures.css?v={{ git_revision }}">
+
+<div class="card narrow" id="signature-app">
+  <h1>Моя подпись</h1>
+  <p class="hint">
+    Подпись ставится в заявку на кровь и в предтрансфузионный эпикриз.
+    Фотографируйте на белом листе: фон станет прозрачным сам.
+  </p>
+
+  <div class="sig-state">
+    {% if signature %}
+    <img class="sig-preview" src="/signatures/api/image?v={{ signature.uploaded_at }}" alt="Моя подпись">
+    <p class="sig-meta">Загружена {{ stamp }} · {{ kilobytes }} КБ</p>
+    {% else %}
+    <p class="empty" id="signature-empty">Подписи нет. Загрузите фотографию своей подписи.</p>
+    {% endif %}
+  </div>
+
+  <div class="sig-crop" id="signature-crop" hidden>
+    <canvas id="signature-canvas" class="sig-canvas"></canvas>
+    <div class="sig-actions">
+      <button type="button" class="btn" id="signature-rotate">Повернуть</button>
+      <button type="button" class="btn sig-save" id="signature-save">Сохранить подпись</button>
+    </div>
+  </div>
+
+  <label class="btn sig-pick">
+    {% if signature %}Заменить подпись{% else %}Загрузить подпись{% endif %}
+    <input type="file" id="signature-file" accept="image/*" capture="environment" hidden>
+  </label>
+
+  <div id="signature-banner" class="dc-banner" hidden></div>
+
+  <p class="empty">
+    Подпись видит только её владелец. В документы она попадает по нажатию
+    «Собрать документы» в разделе «Кровь».
+  </p>
+  <p><a href="/me">← Мои данные</a></p>
+</div>
+
+<script src="/static/signatures.js?v={{ git_revision }}"></script>
+{% endblock %}

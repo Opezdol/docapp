@@ -23,6 +23,9 @@
     <dd>{{ user.buh_id or '— не задан —' }}</dd>
   </dl>
   <p class="empty">Данные вводит заведующий. Если найдена ошибка — сообщите ему.</p>
+  {% if can_sign %}
+  <p><a class="btn" href="/signatures">Моя подпись — загрузить или заменить</a></p>
+  {% endif %}
   <p><a href="/">← Назад</a></p>
 </div>
 {% endblock %}

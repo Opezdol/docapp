@@ -26,7 +26,7 @@ class TestPermissionsTable:
 
     def test_permissions_are_namespaced(self):
         """Разрешение всегда «модуль.действие» — от этого зависит меню."""
-        modules = {"records", "scales", "wiki", "needs", "duty", "distribution"}
+        modules = {"records", "scales", "wiki", "needs", "duty", "distribution", "signatures"}
         for role, granted in access.ALLOWED.items():
             for permission in granted:
                 module, _, action = permission.partition(".")
@@ -89,10 +89,16 @@ class TestPermissionsTable:
         assert access.has(HEAD, access.DUTY_EDIT_OWN) is False
 
     def test_editor_is_doctor_plus_curator(self):
-        """Редактор получает права врача и доступ к «Чату» (чтение и курирование)."""
+        """Редактор получает права врача и доступ к «Чату» (чтение и курирование).
+
+        Исключение одно — своя подпись (`signatures.own`): она нужна только для
+        документов раздела «Кровь», а раздел закрыт редактору решением владельца
+        («врачу и заведующему», ТЗ-кровь §11). Появится доступ к «Крови» —
+        вернётся и подпись, одной строкой.
+        """
         doctor = access.permissions(DOCTOR)
         editor = access.permissions(EDITOR)
-        assert doctor - editor == frozenset()
+        assert doctor - editor == frozenset({access.SIGNATURES_OWN})
         assert editor - doctor == frozenset({access.WIKI_READ, access.WIKI_CURATE})
 
     def test_chat_is_only_for_head_and_editor(self):

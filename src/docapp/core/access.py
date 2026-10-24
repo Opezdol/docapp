@@ -68,6 +68,11 @@ DUTY_MANAGE = "duty.manage"
 #: ни на что не влияет, поэтому разрешение одно; решения по баллам — за врачом.
 SCALES_USE = "scales.use"
 
+#: Подписи: своя подпись сотрудника (ADR-0029). Подпись ставится в документы
+#: раздела «Кровь», поэтому право есть у тех, кто эти документы составляет.
+#: Пункта меню у модуля нет: это действие в личном кабинете, а не раздел.
+SIGNATURES_OWN = "signatures.own"
+
 #: Таблица прав. Роль → разрешения (ADR-0023).
 #:
 #: `editor` — это врач с правом курирования справочных документов: права врача
@@ -81,6 +86,7 @@ ALLOWED: dict[str, frozenset[str]] = {
             DUTY_VIEW_OWN,
             DUTY_EDIT_OWN,
             SCALES_USE,
+            SIGNATURES_OWN,
         }
     ),
     NURSE: frozenset(
@@ -104,6 +110,7 @@ ALLOWED: dict[str, frozenset[str]] = {
             RECORDS_VIEW_OWN,
             RECORDS_EDIT,
             SCALES_USE,
+            SIGNATURES_OWN,
             DISTRIBUTION_MANAGE,
             WIKI_READ,
             WIKI_CURATE,

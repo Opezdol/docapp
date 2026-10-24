@@ -279,6 +279,12 @@ function runPageFile(file, presentIds) {
 check("needs.js молча выходит на чужой странице", () => {
   runPageFile(join(STATIC, "needs.js"), []);
 });
+check("signatures.js молча выходит на чужой странице", () => {
+  runPageFile(join(STATIC, "signatures.js"), []);
+});
+check("signatures.js стартует на странице подписи", () => {
+  runPageFile(join(STATIC, "signatures.js"), ["signature-app"]);
+});
 check("needs-analytics.js молча выходит без своей формы", () => {
   runPageFile(join(STATIC, "needs-analytics.js"), []);
 });
@@ -343,7 +349,7 @@ check("страницы со сценарием наследуют base.html (а
   const guilty = [];
   for (const path of templates) {
     const text = read(path);
-    const own = text.search(/\/static\/(needs|needs-analytics|duty|compendium|compendium-article)\.js/);
+    const own = text.search(/\/static\/(needs|needs-analytics|duty|compendium|compendium-article|signatures)\.js/);
     if (own < 0) continue;
     const extendsBase = /\{%\s*extends\s+["'][^"']*base\.html["']\s*%\}/.test(text);
     if (!extendsBase && text.indexOf("/static/lib/core.js") < 0) guilty.push(relative(ROOT, path));

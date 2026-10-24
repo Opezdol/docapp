@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Бэкап данных docapp: единая БД + PDF-источники «Чата» + ключ сессий + каталог.
+# Бэкап данных docapp: единая БД + PDF-источники «Чата» + подписи + ключ сессий + каталог.
 # Запуск: ./scripts/backup.sh
 # (cron: 0 3 * * * cd /путь/к/docapp && ./scripts/backup.sh >> logs/backup.log 2>&1)
 #
@@ -50,6 +50,15 @@ if [ -d data/wiki/sources ] && [ -n "$(ls -A data/wiki/sources 2>/dev/null)" ]; 
   echo "OK: data/wiki/sources -> $BACKUP_DIR/wiki-sources-$stamp.tar.gz"
 else
   echo "skip: data/wiki/sources (папки нет или пуста)"
+fi
+
+# 2б. Подписи сотрудников — файлы, в базе только имя (ADR-0029).
+# Без них восстановленная база не соберёт ни одной заявки на кровь.
+if [ -d data/signatures ] && [ -n "$(ls -A data/signatures 2>/dev/null)" ]; then
+  tar czf "$BACKUP_DIR/signatures-$stamp.tar.gz" -C data signatures
+  echo "OK: data/signatures -> $BACKUP_DIR/signatures-$stamp.tar.gz"
+else
+  echo "skip: data/signatures (папки нет или пуста)"
 fi
 
 # 3. Ключ подписи сессий и каталог расходки (правятся файлом)

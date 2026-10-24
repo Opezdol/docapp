@@ -108,11 +108,22 @@ def create_app(
 
     @app.get("/me", response_class=HTMLResponse)
     def my_data(request: Request, user: Annotated[Employee, Depends(current_user)]):
-        """Мои данные: просмотр (ФИО, роль, логин, номер в бухгалтерии)."""
+        """Мои данные: просмотр (ФИО, роль, логин, номер в бухгалтерии).
+
+        Здесь же ссылка на свою подпись: пункта меню у модуля подписей нет, потому
+        что это действие в кабинете, а не раздел (ADR-0029). Видимость ссылки —
+        вопрос прав, поэтому решается таблицей, а не перечислением ролей в шаблоне.
+        """
         if user is None:
             return RedirectResponse("/login", status_code=303)
         return TEMPLATES.TemplateResponse(
-            request, "me.html", {"user": user, "flash": None}
+            request,
+            "me.html",
+            {
+                "user": user,
+                "flash": None,
+                "can_sign": access.has(user.role, access.SIGNATURES_OWN),
+            },
         )
 
     return app
