@@ -1,0 +1,113 @@
+/* Шкалы: калькулятор клинических шкал (ТЗ-шкалы, ADR-0028).
+   Свои классы — scales-*; общие карточки, кнопки и цвета — в style.css. */
+
+.scales-picker {
+  display: grid;
+  gap: .5rem;
+}
+
+.scales-pick {
+  display: flex;
+  align-items: baseline;
+  gap: .6rem;
+  padding: .7rem .8rem;
+  border: 1px solid #d7dee8;
+  border-radius: .6rem;
+  cursor: pointer;
+}
+
+.scales-pick input {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+}
+
+.scales-pick-title {
+  font-weight: 600;
+}
+
+.scales-pick small,
+.scales-scale h2 small,
+.scales-item legend small {
+  color: #6b7785;
+  font-weight: 400;
+}
+
+.scales-summary {
+  border-left: 4px solid #1565c0;
+}
+
+.scales-result {
+  margin: .35rem 0;
+  font-size: 1.05rem;
+}
+
+.scales-result-title {
+  font-weight: 600;
+}
+
+.scales-item {
+  border: 0;
+  margin: 0 0 .9rem;
+  padding: 0;
+}
+
+.scales-item legend {
+  padding: 0;
+  font-weight: 600;
+}
+
+.scales-option {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .5rem .1rem;
+  cursor: pointer;
+}
+
+.scales-option input {
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: none;
+}
+
+.scales-derived {
+  margin: .2rem 0 .9rem;
+  color: #6b7785;
+}
+
+.scales-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.scales-submit {
+  padding: .7rem 1.4rem;
+  border: 0;
+  border-radius: .6rem;
+  background: #1565c0;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.scales-reset {
+  color: #1565c0;
+}
+
+.scales-rules summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.scales-rules h3 {
+  margin: 1rem 0 .3rem;
+  font-size: 1rem;
+}
+
+.scales-rules ul {
+  margin: .2rem 0 .6rem 1.1rem;
+  padding: 0;
+}

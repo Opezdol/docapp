@@ -19,7 +19,8 @@ from docapp.duty.module import MODULE as DUTY
 from docapp.needs.module import MODULE as NEEDS
 from docapp.people.module import MODULE as PEOPLE
 from docapp.records.module import MODULE as RECORDS
+from docapp.scales.module import MODULE as SCALES
 from docapp.wiki.module import MODULE as COMPENDIUM
 
 #: Модули приложения в порядке подключения (порядок = порядок сборки).
-MODULES: tuple[Module, ...] = (PEOPLE, RECORDS, COMPENDIUM, NEEDS, DUTY, DISTRIBUTION)
+MODULES: tuple[Module, ...] = (PEOPLE, RECORDS, SCALES, COMPENDIUM, NEEDS, DUTY, DISTRIBUTION)

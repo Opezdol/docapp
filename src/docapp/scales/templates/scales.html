@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Шкалы — docapp{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/scales.css?v={{ git_revision }}">
+
+<div class="card">
+  <h1>Шкалы</h1>
+  <p class="hint">Калькулятор клинических шкал. Ничего не сохраняется: посчитал — иди дальше.</p>
+</div>
+
+<form method="post" action="/scales" class="scales-form">
+
+  <div class="card">
+    <h2>Какие шкалы считаем</h2>
+    <div class="scales-picker">
+      {% for scale in scales %}
+      <label class="scales-pick">
+        <input type="checkbox" name="scales" value="{{ scale.key }}" {% if scale.key in selected %}checked{% endif %}>
+        <span class="scales-pick-title">{{ scale.title }}</span>
+        <small>{{ scale.stage }}</small>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if results %}
+  <div class="card scales-summary">
+    <h2>Результат</h2>
+    {% for r in results %}
+    <p class="scales-result">
+      <span class="scales-result-title">{{ r.scale.title }}</span>
+      <span class="scales-result-value">{{ r.result }}</span>
+    </p>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card">
+    <p class="hint">Отметьте хотя бы одну шкалу — ниже появятся её пункты.</p>
+  </div>
+  {% endif %}
+
+  {% for r in results %}
+  <div class="card scales-scale">
+    <h2>{{ r.scale.title }} <small>{{ r.scale.stage }}</small></h2>
+    {% for ri in r.items %}
+      {% if ri.derived %}
+      <p class="scales-derived">Пол — учтено из общего поля выше: {{ ri.points }} из 1</p>
+      {% else %}
+      <fieldset class="scales-item">
+        <legend>{{ ri.item.label }}{% if ri.item.hint %} <small>{{ ri.item.hint }}</small>{% endif %}</legend>
+        {% for option in ri.item.options %}
+        <label class="scales-option">
+          <input type="radio" name="{{ ri.item.key }}" value="{{ option.value }}" {% if ri.value == option.value %}checked{% endif %}>
+          <span>{{ option.label }}</span>
+        </label>
+        {% endfor %}
+      </fieldset>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endfor %}
+
+  <div class="card scales-actions">
+    <button type="submit" class="scales-submit">{% if results %}Пересчитать{% else %}Показать пункты{% endif %}</button>
+    <a class="scales-reset" href="/scales">Сбросить</a>
+  </div>
+
+</form>
+
+<details class="card scales-rules">
+  <summary>Правила и пороги</summary>
+
+  <h3>STOP-BANG — риск СОАС (до анестезии)</h3>
+  <ul>
+    <li>Восемь пунктов по 1 баллу: храп, усталость днём, наблюдаемые остановки дыхания, повышенное давление, ИМТ больше 35, возраст старше 50, окружность шеи больше 40 см, мужской пол.</li>
+    <li>0–2 — низкий риск, 3–4 — промежуточный, 5–8 — высокий.</li>
+  </ul>
+
+  <h3>Apfel — риск ПОТР (до анестезии)</h3>
+  <ul>
+    <li>Четыре фактора по 1 баллу: женский пол, некурящий, ПОТР или укачивание в анамнезе, планируемые послеоперационные опиоиды.</li>
+    <li>Примерный риск: 0 — около 10%, 1 — около 21%, 2 — около 39%, 3 — около 61%, 4 — около 79%.</li>
+  </ul>
+
+  <h3>Aldrete — готовность к переводу (после анестезии)</h3>
+  <ul>
+    <li>Пять критериев по 0–2 балла: активность, дыхание, кровообращение, сознание, насыщение кислородом.</li>
+    <li>9–10 — готовность к переводу в отделение, меньше 9 — не готова.</li>
+  </ul>
+
+  <h3>Nu-DESC — скрининг делирия (после анестезии)</h3>
+  <ul>
+    <li>Пять пунктов по 0–2 балла: дезориентация, неадекватное поведение, неадекватная коммуникация, иллюзии и галлюцинации, психомоторная заторможенность.</li>
+    <li>0–1 — отрицательный скрининг, 2 и выше — положительный.</li>
+  </ul>
+
+  <h3>Оговорки</h3>
+  <ul>
+    <li>Шкала Aldrete повторяется в динамике, и перевод разрешает последняя оценка — здесь считается один срез.</li>
+    <li>Незаполненный пункт считается нулевым. В STOP-BANG и Apfel это занижает риск, в Aldrete — занижает готовность к переводу.</li>
+    <li>ASA, El-Ganzouri, Caprini, индекс Lee и P-POSSUM считаются в больничной системе — здесь их нет.</li>
+    <li>Ничего не сохраняется: закрыли страницу — расчёт пропал. Это решение, а не недоделка (ADR-0028).</li>
+  </ul>
+</details>
+{% endblock %}

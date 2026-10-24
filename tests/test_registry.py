@@ -47,7 +47,15 @@ class TestModuleContract:
     def test_app_modules_are_declared(self):
         """Порядок значим: модуль берёт интерфейс соседа, объявленного раньше."""
         names = [module.name for module in MODULES]
-        assert names == ["people", "records", "wiki", "needs", "duty", "distribution"]
+        assert names == [
+            "people",
+            "records",
+            "scales",
+            "wiki",
+            "needs",
+            "duty",
+            "distribution",
+        ]
 
     def test_every_module_with_schema_has_version(self):
         """Схема модуля — объект Schema с версией (файл у всех один, ADR-0016)."""

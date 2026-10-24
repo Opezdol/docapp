@@ -64,6 +64,10 @@ DUTY_EDIT_OWN = "duty.edit_own"
 DUTY_VIEW_ALL = "duty.view_all"
 DUTY_MANAGE = "duty.manage"
 
+#: «Шкалы»: калькулятор клинических шкал (ADR-0028). Раздел ничего не хранит и
+#: ни на что не влияет, поэтому разрешение одно; решения по баллам — за врачом.
+SCALES_USE = "scales.use"
+
 #: Таблица прав. Роль → разрешения (ADR-0023).
 #:
 #: `editor` — это врач с правом курирования справочных документов: права врача
@@ -76,6 +80,7 @@ ALLOWED: dict[str, frozenset[str]] = {
             RECORDS_EDIT,
             DUTY_VIEW_OWN,
             DUTY_EDIT_OWN,
+            SCALES_USE,
         }
     ),
     NURSE: frozenset(
@@ -117,6 +122,7 @@ ALLOWED: dict[str, frozenset[str]] = {
             WIKI_CURATE,
             DUTY_VIEW_OWN,
             DUTY_EDIT_OWN,
+            SCALES_USE,
         }
     ),
 }
@@ -138,6 +144,8 @@ class MenuItem:
 #: Новый модуль добавляет здесь одну строку (и объявляет разрешения выше).
 MENU: tuple[MenuItem, ...] = (
     MenuItem("/", "Анестезии", "records"),
+    # «Шкалы» — калькулятор без данных (ADR-0028): врач и редактор.
+    MenuItem("/scales", "Шкалы", "scales"),
     # Раздел «Чат» (модуль `wiki`, адрес `/wiki`): до доработки виден
     # только заведующему и редактору — у врача и старшей сестры права
     # `wiki.read` нет вовсе, поэтому и пункта меню у них нет.
