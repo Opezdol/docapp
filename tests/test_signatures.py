@@ -68,6 +68,42 @@ def alpha_at(data: bytes, x: int, y: int) -> int:
     return pixmap.samples[y * pixmap.stride + x * 4 + 3]
 
 
+def photo_with_shadow(width: int = 240, height: int = 80) -> bytes:
+    """Снимок подписи с тенью в нижней половине листа.
+
+    Тень — не чернила: она светлее штриха, но темнее бумаги. Владелец поймал
+    именно её как «тёмную кляксу, которая остаётся на листе», и лечится это
+    обрезкой по плотному штриху плюс более крутым порогом.
+    """
+    document = pymupdf.open()
+    page = document.new_page(width=width, height=height)
+    page.draw_rect(pymupdf.Rect(0, 0, width, height), color=None, fill=(0.66, 0.66, 0.66))
+    page.draw_rect(
+        pymupdf.Rect(0, 52, width, height), color=None, fill=(0.5, 0.5, 0.5)
+    )
+    for start, finish, y in ((20, 90, 26), (90, 160, 20), (160, 220, 32)):
+        page.draw_line(
+            pymupdf.Point(start, y),
+            pymupdf.Point(finish, y + 5),
+            color=(0.1, 0.1, 0.1),
+            width=3,
+        )
+    pixels = page.get_pixmap(dpi=72)
+    document.close()
+    return pixels.tobytes("jpeg")
+
+
+def solid_pixels(data: bytes) -> list[bytes]:
+    """Пиксели полностью непрозрачного штриха (RGB без альфы)."""
+    pixmap = pymupdf.Pixmap(data)
+    return [
+        pixmap.samples[y * pixmap.stride + x * 4 : y * pixmap.stride + x * 4 + 3]
+        for y in range(pixmap.height)
+        for x in range(pixmap.width)
+        if pixmap.samples[y * pixmap.stride + x * 4 + 3] == 255
+    ]
+
+
 def opaque_png(data: bytes) -> bytes:
     """PNG с альфа-каналом и непрозрачной альфой — ровно так отдаёт canvas.
 
@@ -161,18 +197,30 @@ class TestImage:
         assert png.png_side(prepared) < 240
 
     def test_yellow_paper_does_not_leave_a_rectangle(self):
-        """Жёлтая бумага на снимке: фон прозрачный, штрих без цветного ореола."""
+        """Жёлтая бумага: фон прозрачный, цвет бумаги в штрих не переезжает."""
         prepared = png.prepare(photo(paper=(0.82, 0.76, 0.70)))
         assert alpha_at(prepared, 0, 0) == 0
-        pixmap = pymupdf.Pixmap(prepared)
-        darkest = [
-            pixmap.samples[y * pixmap.stride + x * 4 : y * pixmap.stride + x * 4 + 3]
-            for y in range(pixmap.height)
-            for x in range(pixmap.width)
-            if pixmap.samples[y * pixmap.stride + x * 4 + 3] == 255
+        assert solid_pixels(prepared), "не нашлось непрозрачных пикселей штриха"
+
+    def test_ink_is_blue(self):
+        """Подпись печатается синей, как её ставят в отделении."""
+        prepared = png.prepare(photo())
+        stroke = solid_pixels(prepared)
+        assert stroke
+        assert all(pixel[2] > pixel[0] and pixel[2] > pixel[1] for pixel in stroke)
+
+    def test_shadow_on_the_sheet_is_cropped_out(self):
+        """Тень внизу листа не попадает ни в кадр, ни в полупрозрачную зону."""
+        prepared = png.prepare(photo_with_shadow())
+        cropped = pymupdf.Pixmap(prepared)
+        assert cropped.height <= 55, f"тень осталась в кадре: высота {cropped.height}"
+        alphas = [
+            cropped.samples[y * cropped.stride + x * 4 + 3]
+            for y in range(cropped.height)
+            for x in range(cropped.width)
         ]
-        assert darkest, "не нашлось непрозрачных пикселей штриха"
-        assert all(pixel[0] == pixel[1] == pixel[2] for pixel in darkest)
+        semi = sum(1 for alpha in alphas if 0 < alpha < 255)
+        assert semi < len(alphas) * 3 // 100, f"полупрозрачных пикселей {semi} из {len(alphas)}"
 
     def test_ready_png_is_kept_as_is(self):
         prepared = png.prepare(photo())

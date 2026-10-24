@@ -48,24 +48,32 @@ MAX_SIDE = 1600
 #: Ниже этого различия «бумага/штрих» снимок считается пустым, а не подписью.
 MIN_CONTRAST = 25
 
-#: Пиксель считается штрихом при такой непрозрачности — по нему режется рамка.
+#: Пиксель считается штрихом при такой непрозрачности (порог для маски).
 INK_ALPHA = 96
+
+#: Рамка обрезки строится только по **плотному** штриху: тень на листе до этой
+#: непрозрачности не дотягивает и в кадр не попадает (владелец, 24.10.2026:
+#: «остаётся тёмная клякса» — это была именно тень, принятая за чернила).
+SOLID_ALPHA = 240
 
 #: Запас вокруг штриха при обрезке, доля от его размера.
 MARGIN = 0.04
 
-#: Потолок серого у штриха: подпись печатается тёмным, а цвет бумаги (жёлтая
-#: или голубая на снимке) не должен давать цветной ореол вокруг линии.
-INK_CEILING = 90
+#: Цвет подписи: отделение подписывается синей ручкой, и подпись должна быть
+#: синей независимо от того, каким светом снята бумага. Альфа хранит форму
+#: штриха, цвет — константа.
+INK_COLOUR = (20, 60, 160)
+
+#: Доли рампы от «штриха» к «бумаге»: ниже первой — непрозрачно, выше второй —
+#: прозрачно. Крутая рампа (было 20/55) отсекает тень, не трогая линию.
+SOLID_SHARE = 10
+CLEAR_SHARE = 30
 
 #: Порог «это уже прозрачный PNG»: есть хоть один пиксель прозрачнее этого.
 _TRANSPARENT_ENOUGH = 250
 
-#: Таблица «яркость → серый штриха»: цвет бумаги срезается, штрих остаётся тёмным.
-_SHADE_TABLE = bytes(min(level, INK_CEILING) for level in range(256))
-
-#: Таблица «яркость → признак штриха» для поиска рамки.
-_INK_TABLE = bytes(1 if level >= INK_ALPHA else 0 for level in range(256))
+#: Таблица «альфа → признак плотного штриха» для поиска рамки.
+_SOLID_MASK_TABLE = bytes(1 if alpha >= SOLID_ALPHA else 0 for alpha in range(256))
 
 
 def has_alpha(data: bytes) -> bool:
@@ -209,8 +217,8 @@ def _alpha_table(paper: int, ink: int) -> bytes:
     рваным, как при жёстком пороге.
     """
     span = max(1, paper - ink)
-    clear = ink + span * 55 // 100  # ярче — прозрачно
-    solid = ink + span * 20 // 100  # темнее — непрозрачно
+    clear = ink + span * CLEAR_SHARE // 100  # ярче — прозрачно
+    solid = ink + span * SOLID_SHARE // 100  # темнее — непрозрачно
     table = bytearray(256)
     for level in range(256):
         if level >= clear:
@@ -236,14 +244,16 @@ def _rgba_rows(
     left, right = width, -1
     top, bottom = source.height, -1
 
+    red, green_ink, blue = INK_COLOUR
+    base_row = bytearray(width * 4)
+    base_row[0::4] = bytes([red]) * width
+    base_row[1::4] = bytes([green_ink]) * width
+    base_row[2::4] = bytes([blue]) * width
+
     for y, green in enumerate(_green_rows(source)):
         alpha = green.translate(alpha_table)
-        shade = green.translate(_SHADE_TABLE)
-        mask = alpha.translate(_INK_TABLE)
-        row = bytearray(width * 4)
-        row[0::4] = shade
-        row[1::4] = shade
-        row[2::4] = shade
+        mask = alpha.translate(_SOLID_MASK_TABLE)
+        row = bytearray(base_row)
         row[3::4] = alpha
         rows.append(row)
         if b"\x01" in mask:
