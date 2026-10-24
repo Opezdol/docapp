@@ -32,17 +32,23 @@ PEOPLE = (
 )
 
 
-def photo(width: int = 240, height: int = 80, paper: float = 0.66, ink: float = 0.1) -> bytes:
-    """Синтетическая «фотография» подписи: серая бумага и тёмный штрих (JPEG).
+def photo(
+    width: int = 240,
+    height: int = 80,
+    paper: float | tuple[float, float, float] = 0.66,
+    ink: float = 0.1,
+) -> bytes:
+    """Синтетическая «фотография» подписи: бумага и тёмный штрих (JPEG).
 
-    Серая, а не белая — как в кабинете: порог прозрачности должен подстраиваться
-    под освещение, и тест это проверяет.
+    Бумага по умолчанию серая, а не белая — как в кабинете: порог прозрачности
+    должен подстраиваться под освещение. Можно задать цвет кортежем — жёлтая
+    бумага на реальном снимке владельца дала ровно ту ошибку, которую ловит
+    `test_yellow_paper_does_not_leave_a_rectangle`.
     """
+    fill = (paper, paper, paper) if isinstance(paper, (int, float)) else paper
     document = pymupdf.open()
     page = document.new_page(width=width, height=height)
-    page.draw_rect(
-        pymupdf.Rect(0, 0, width, height), color=None, fill=(paper, paper, paper)
-    )
+    page.draw_rect(pymupdf.Rect(0, 0, width, height), color=None, fill=fill)
     for start, finish, y in ((20, 90, 34), (90, 160, 26), (160, 220, 40)):
         page.draw_line(
             pymupdf.Point(start, y),
@@ -60,6 +66,25 @@ def alpha_at(data: bytes, x: int, y: int) -> int:
     pixmap = pymupdf.Pixmap(data)
     assert pixmap.n == 4, f"ожидался RGBA, получено каналов: {pixmap.n}"
     return pixmap.samples[y * pixmap.stride + x * 4 + 3]
+
+
+def opaque_png(data: bytes) -> bytes:
+    """PNG с альфа-каналом и непрозрачной альфой — ровно так отдаёт canvas.
+
+    Именно этот случай и вылез на проде: канал есть, прозрачности нет, а
+    проверка «альфа присутствует» пропускала файл как готовый.
+    """
+    pixmap = pymupdf.Pixmap(data)
+    rows = []
+    for y in range(pixmap.height):
+        base = y * pixmap.stride
+        row = bytearray(pixmap.width * 4)
+        for x in range(pixmap.width):
+            i = base + x * pixmap.n
+            row[x * 4 : x * 4 + 3] = pixmap.samples[i : i + 3]
+            row[x * 4 + 3] = 255
+        rows.append(row)
+    return png._encode(pixmap.width, pixmap.height, rows)
 
 
 @pytest.fixture()
@@ -127,6 +152,27 @@ class TestImage:
         """Серая бумага (0,55) — тоже прозрачная: порог считается по снимку."""
         prepared = png.prepare(photo(paper=0.55, ink=0.12))
         assert alpha_at(prepared, 0, 0) == 0
+
+    def test_opaque_png_from_canvas_gets_transparent_background(self):
+        """Canvas присылает RGBA без прозрачности — фон обязан исчезнуть."""
+        prepared = png.prepare(opaque_png(photo()))
+        assert png.has_alpha(prepared)
+        assert alpha_at(prepared, 0, 0) == 0
+        assert png.png_side(prepared) < 240
+
+    def test_yellow_paper_does_not_leave_a_rectangle(self):
+        """Жёлтая бумага на снимке: фон прозрачный, штрих без цветного ореола."""
+        prepared = png.prepare(photo(paper=(0.82, 0.76, 0.70)))
+        assert alpha_at(prepared, 0, 0) == 0
+        pixmap = pymupdf.Pixmap(prepared)
+        darkest = [
+            pixmap.samples[y * pixmap.stride + x * 4 : y * pixmap.stride + x * 4 + 3]
+            for y in range(pixmap.height)
+            for x in range(pixmap.width)
+            if pixmap.samples[y * pixmap.stride + x * 4 + 3] == 255
+        ]
+        assert darkest, "не нашлось непрозрачных пикселей штриха"
+        assert all(pixel[0] == pixel[1] == pixel[2] for pixel in darkest)
 
     def test_ready_png_is_kept_as_is(self):
         prepared = png.prepare(photo())

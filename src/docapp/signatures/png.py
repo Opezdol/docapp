@@ -5,25 +5,34 @@ JPEG и PNG из байтов и отдаёт пиксели, а PNG с альф
 своим кодировщиком (IHDR + zlib + IEND) — так же, как это делал бы canvas.
 
 **Почему порог не на телефоне.** Прозрачность зависит от освещения: в кабинете
-бумага на снимке серая, а не белая, и фиксированный порог «белее 200 — прозрачно»
-сделал бы из подписи серое пятно. Поэтому уровни «бумага» и «штрих» считаются по
-гистограмме конкретного снимка, и это одна реализация с тестами вместо двух —
-телефонной и серверной. Телефон делает то, что требует пальца: поворот и
-уменьшение (см. `web/static/signatures.js`).
+бумага на снимке серая или жёлтая, а не белая, и фиксированный порог «белее 200 —
+прозрачно» сделал бы из подписи цветной прямоугольник. Поэтому уровни «бумага» и
+«штрих» считаются по гистограмме конкретного снимка, и это одна реализация с
+тестами вместо двух — телефонной и серверной. Телефон делает то, что требует
+пальца: поворот и уменьшение (см. `web/static/signatures.js`).
+
+**Почему всё на срезах и таблицах, а не в цикле по пикселям.** Снимок с телефона —
+полтора миллиона пикселей; питоновский цикл по ним идёт минутами, а врач в
+операционной столько ждать не будет. Цвет приводится переводом байтов по заранее
+посчитанным таблицам (`bytes.translate`), яркость берётся по зелёному каналу (он
+даёт основной вклад в воспринимаемую яркость), гистограмма — `Counter` по срезу,
+рамка штриха — `find`/`rfind` по маске. Всё это выполняется в C.
 
 Правило подготовки:
 
-- PNG с альфа-каналом и разумной стороной возвращается **как есть**: клиент его
-  уже собрал, лишняя перекодировка только испортила бы штрих;
-- всё остальное (JPEG, PNG без альфы, слишком большая картинка) переводится в PNG
-  с прозрачным фоном: бумага становится прозрачной, штрих остаётся, поля
-  обрезаются по штриху с небольшим запасом.
+- PNG с **настоящей** прозрачностью и разумной стороной возвращается как есть:
+  лишняя перекодировка только испортила бы штрих. Наличие альфа-канала само по
+  себе ничего не значит — canvas отдаёт RGBA, где альфа 255 во всех пикселях;
+- всё остальное (JPEG, PNG без прозрачности, слишком большая картинка) переводится
+  в PNG с прозрачным фоном: бумага становится прозрачной, штрих остаётся тёмным и
+  нейтральным (цвет бумаги не даёт ореола), поля обрезаются по штриху.
 """
 
 from __future__ import annotations
 
 import struct
 import zlib
+from collections import Counter
 
 import pymupdf
 
@@ -45,9 +54,22 @@ INK_ALPHA = 96
 #: Запас вокруг штриха при обрезке, доля от его размера.
 MARGIN = 0.04
 
+#: Потолок серого у штриха: подпись печатается тёмным, а цвет бумаги (жёлтая
+#: или голубая на снимке) не должен давать цветной ореол вокруг линии.
+INK_CEILING = 90
+
+#: Порог «это уже прозрачный PNG»: есть хоть один пиксель прозрачнее этого.
+_TRANSPARENT_ENOUGH = 250
+
+#: Таблица «яркость → серый штриха»: цвет бумаги срезается, штрих остаётся тёмным.
+_SHADE_TABLE = bytes(min(level, INK_CEILING) for level in range(256))
+
+#: Таблица «яркость → признак штриха» для поиска рамки.
+_INK_TABLE = bytes(1 if level >= INK_ALPHA else 0 for level in range(256))
+
 
 def has_alpha(data: bytes) -> bool:
-    """PNG с альфа-каналом (тип цвета 4 — серый+альфа, 6 — RGBA)."""
+    """Есть ли в PNG альфа-канал (тип цвета 4 — серый+альфа, 6 — RGBA)."""
     if not data.startswith(PNG_MAGIC) or len(data) < 26:
         return False
     return data[_COLOR_TYPE_OFFSET] in (4, 6)
@@ -63,14 +85,20 @@ def png_side(data: bytes) -> int:
 
 
 def prepare(data: bytes) -> bytes:
-    """Подпись к сохранению: PNG с прозрачным фоном и обрезанными полями."""
-    if has_alpha(data) and 0 < png_side(data) <= MAX_SIDE:
+    """Подпись к сохранению: PNG с прозрачным фоном и обрезанными полями.
+
+    Готовый файл определяется по **настоящей прозрачности**, а не по наличию
+    альфа-канала: canvas на телефоне отдаёт RGBA, в котором альфа равна 255 во
+    всех пикселях, — это обычный непрозрачный снимок, и пропускать его нельзя.
+    Именно так подпись владельца попала на прод жёлтым прямоугольником.
+    """
+    if _is_transparent_png(data):
         return data
     return transparent(data)
 
 
 def transparent(data: bytes) -> bytes:
-    """Сделать фон прозрачным и обрезать поля (JPEG, PNG без альфы, большое фото)."""
+    """Сделать фон прозрачным и обрезать поля (JPEG, PNG без прозрачности, большое фото)."""
     source = _decode(data)
     paper, ink = _levels(source)
     rows, box = _rgba_rows(source, paper, ink)
@@ -87,6 +115,19 @@ def transparent(data: bytes) -> bytes:
     return _encode(width, height, rows)
 
 
+def _is_transparent_png(data: bytes) -> bool:
+    """PNG с альфа-каналом, в котором есть хотя бы один прозрачный пиксель."""
+    if not has_alpha(data) or not 0 < png_side(data) <= MAX_SIDE:
+        return False
+    try:
+        pixmap = pymupdf.Pixmap(data)
+    except Exception:  # noqa: BLE001 — битый PNG должен уйти в обычную обработку
+        return False
+    if pixmap.n != 4 or not pixmap.alpha:
+        return False
+    return min(pixmap.samples[3::4]) < _TRANSPARENT_ENOUGH
+
+
 def _decode(data: bytes):
     """Пиксели картинки: RGB, длинная сторона не больше MAX_SIDE."""
     try:
@@ -95,6 +136,9 @@ def _decode(data: bytes):
         raise SignatureError("Файл не читается как картинка") from error
     if source.width <= 0 or source.height <= 0:
         raise SignatureError("Файл не читается как картинка")
+    # Серый и CMYK приводим к RGB. Альфа-канал не убираем: `Pixmap(csRGB, pix)`
+    # его сохраняет (n = 4), а нам он не мешает — прозрачность считается заново,
+    # и `_green_rows` берёт шаг по фактическому числу каналов.
     if source.colorspace is None or source.colorspace.n != 3:
         source = pymupdf.Pixmap(pymupdf.csRGB, source)
     while max(source.width, source.height) > MAX_SIDE:
@@ -104,21 +148,36 @@ def _decode(data: bytes):
     return source
 
 
+def _green_rows(source) -> list[bytes]:
+    """Зелёный канал по строкам: `bytes` на строку, без цикла по пикселям.
+
+    Шаг берётся по фактическому числу каналов: у снимка от canvas их четыре
+    (RGBA), у JPEG — три. Альфа в расчёт не идёт, но её байты сдвигают соседние,
+    и шаг 3 по RGBA дал бы мусор вместо яркости.
+    """
+    width, height, step = source.width, source.height, source.n
+    samples = source.samples
+    stride = source.stride
+    if stride == width * step:  # обычный случай: строки идут подряд — берём срезом
+        green = samples[1::step]
+        return [green[y * width : (y + 1) * width] for y in range(height)]
+    return [
+        samples[y * stride + 1 : y * stride + width * step : step]
+        for y in range(height)
+    ]
+
+
 def _levels(source) -> tuple[int, int]:
     """Уровни «бумага» и «штрих» по гистограмме яркости снимка.
 
     Бумага — 85-й процентиль яркости (её на снимке большинство), штрих — 3-й.
-    Так порог подстраивается под освещение: серая бумага в кабинете и белый лист
-    на столе дают разные абсолютные значения, но одинаковое отношение.
+    Так порог подстраивается под освещение и цвет: серая бумага в кабинете,
+    жёлтая под лампой и белый лист на столе дают разные абсолютные значения, но
+    одинаковое отношение. Гистограмма считается `Counter` по срезу — это C.
     """
     hist = [0] * 256
-    samples = source.samples
-    stride = source.stride
-    for y in range(0, source.height, 2):
-        base = y * stride
-        for x in range(0, source.width, 2):
-            i = base + x * 3
-            hist[(samples[i] + samples[i + 1] + samples[i + 2]) // 3] += 1
+    for value, count in Counter(b"".join(_green_rows(source))).items():
+        hist[value] = count
 
     total = sum(hist)
     if total == 0:
@@ -135,53 +194,69 @@ def _percentile(hist: list[int], total: int, percent: int) -> int:
     target = total * percent // 100
     passed = 0
     for value, count in enumerate(hist):
+        if not count:
+            continue
         passed += count
         if passed >= target:
             return value
     return 255
 
 
-def _rgba_rows(source, paper: int, ink: int) -> tuple[list[bytearray], tuple[int, int, int, int] | None]:
-    """Строки RGBA и рамка штриха: один проход по пикселям.
+def _alpha_table(paper: int, ink: int) -> bytes:
+    """Таблица «яркость → альфа»: мягкий край между бумагой и штрихом.
 
-    Альфа растёт от нуля к единице между «бумагой» и «штрихом», поэтому край
-    штриха остаётся мягким, а не рваным, как при жёстком пороге.
+    Альфа растёт от нуля к единице, поэтому край штриха остаётся гладким, а не
+    рваным, как при жёстком пороге.
     """
     span = max(1, paper - ink)
     clear = ink + span * 55 // 100  # ярче — прозрачно
     solid = ink + span * 20 // 100  # темнее — непрозрачно
+    table = bytearray(256)
+    for level in range(256):
+        if level >= clear:
+            table[level] = 0
+        elif level <= solid:
+            table[level] = 255
+        else:
+            table[level] = 255 * (clear - level) // (clear - solid)
+    return bytes(table)
 
+
+def _rgba_rows(
+    source, paper: int, ink: int
+) -> tuple[list[bytearray], tuple[int, int, int, int] | None]:
+    """Строки RGBA и рамка штриха.
+
+    Каждая строка собирается присваиванием по срезу с шагом 4: цвет и альфа
+    приходят из таблиц, поэтому цикл идёт по строкам, а не по пикселям.
+    """
+    width = source.width
+    alpha_table = _alpha_table(paper, ink)
     rows: list[bytearray] = []
-    left, top, right, bottom = source.width, source.height, -1, -1
-    for y in range(source.height):
-        base = y * source.stride
-        row = bytearray(source.width * 4)
-        out = 0
-        for x in range(source.width):
-            i = base + x * 3
-            red, green, blue = source.samples[i], source.samples[i + 1], source.samples[i + 2]
-            level = (red + green + blue) // 3
-            if level >= clear:
-                alpha = 0
-            elif level <= solid:
-                alpha = 255
-            else:
-                alpha = 255 * (clear - level) // (clear - solid)
-            row[out] = red
-            row[out + 1] = green
-            row[out + 2] = blue
-            row[out + 3] = alpha
-            if alpha >= INK_ALPHA:
-                if x < left:
-                    left = x
-                if x > right:
-                    right = x
-                if y < top:
-                    top = y
-                if y > bottom:
-                    bottom = y
-            out += 4
+    left, right = width, -1
+    top, bottom = source.height, -1
+
+    for y, green in enumerate(_green_rows(source)):
+        alpha = green.translate(alpha_table)
+        shade = green.translate(_SHADE_TABLE)
+        mask = alpha.translate(_INK_TABLE)
+        row = bytearray(width * 4)
+        row[0::4] = shade
+        row[1::4] = shade
+        row[2::4] = shade
+        row[3::4] = alpha
         rows.append(row)
+        if b"\x01" in mask:
+            first = mask.find(b"\x01")
+            last = mask.rfind(b"\x01")
+            if first < left:
+                left = first
+            if last > right:
+                right = last
+            if y < top:
+                top = y
+            if y > bottom:
+                bottom = y
 
     if right < 0:
         return rows, None
