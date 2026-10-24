@@ -33,7 +33,7 @@ def _page_user(request: Request) -> Employee | None:
         access.ensure(
             user,
             access.SCALES_USE,
-            message="Раздел «Шкалы» доступен врачу и редактору",
+            message="Раздел «Шкалы» доступен врачу, редактору и заведующему",
         )
     return user
 

@@ -103,6 +103,7 @@ ALLOWED: dict[str, frozenset[str]] = {
         {
             RECORDS_VIEW_OWN,
             RECORDS_EDIT,
+            SCALES_USE,
             DISTRIBUTION_MANAGE,
             WIKI_READ,
             WIKI_CURATE,

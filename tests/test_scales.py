@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from docapp.auth.passwords import hash_password
-from docapp.domain.employee import DOCTOR, EDITOR, HEAD_NURSE, NURSE, Employee
+from docapp.domain.employee import DOCTOR, EDITOR, HEAD, HEAD_NURSE, NURSE, Employee
 from docapp.modules import MODULES
 from docapp.people.store import SqliteEmployeeStore
 from docapp.scales import calc
@@ -21,6 +21,7 @@ from factories import make_db
 PEOPLE = (
     ("doc", "doc_pass", DOCTOR, "Врач"),
     ("eds", "eds_pass", EDITOR, "Редактор"),
+    ("zav", "zav_pass", HEAD, "Заведующий"),
     ("nurse", "nurse_pass", NURSE, "Сестра"),
     ("headn", "headn_pass", HEAD_NURSE, "Старшая"),
 )
@@ -225,8 +226,12 @@ class TestPage:
         assert response.status_code == 303
         assert response.headers["location"] == "/login"
 
-    @pytest.mark.parametrize("login,password", [("doc", "doc_pass"), ("eds", "eds_pass")])
-    def test_doctor_and_editor_allowed(self, client, login, password):
+    @pytest.mark.parametrize(
+        "login,password",
+        [("doc", "doc_pass"), ("eds", "eds_pass"), ("zav", "zav_pass")],
+    )
+    def test_allowed_roles(self, client, login, password):
+        """Врач, редактор и заведующий — все трое работают с пациентами (уточнение 24.10.2026)."""
         _login(client, login, password)
         response = client.get("/scales")
         assert response.status_code == 200
@@ -240,7 +245,10 @@ class TestPage:
         _login(client, login, password)
         assert client.get("/scales").status_code == 403
 
-    @pytest.mark.parametrize("login,password", [("doc", "doc_pass"), ("eds", "eds_pass")])
+    @pytest.mark.parametrize(
+        "login,password",
+        [("doc", "doc_pass"), ("eds", "eds_pass"), ("zav", "zav_pass")],
+    )
     def test_menu_item_visible(self, client, login, password):
         _login(client, login, password)
         assert "Шкалы" in client.get("/").text
