@@ -286,6 +286,37 @@ class TestImage:
         assert alpha_at(prepared, 0, 0) == 0
         assert solid_pixels(prepared)
 
+    def test_edges_are_smooth_not_blocky(self):
+        """Край штриха идёт по пикселям, а не ступеньками по четыре.
+
+        Альфа считается по сетке вчетверо мельче и раньше растягивалась
+        квадратами 4×4 — на документе подпись выглядела «пиксельной», как
+        подделка. Теперь внутри рамки альфа точная, поэтому граница штриха
+        смещается на пиксель за строку, а не на четыре.
+        """
+        diagram = pymupdf.open()
+        page = diagram.new_page(width=400, height=200)
+        page.draw_rect(pymupdf.Rect(0, 0, 400, 200), color=None, fill=(0.8, 0.78, 0.74))
+        page.draw_line(
+            pymupdf.Point(40, 20), pymupdf.Point(360, 180), color=(0.12, 0.18, 0.55), width=4
+        )
+        photo = page.get_pixmap(dpi=72).tobytes("jpeg")
+        diagram.close()
+
+        prepared = png.prepare(photo)
+        pixmap = pymupdf.Pixmap(prepared)
+        edges = []
+        for y in range(pixmap.height):
+            row = pixmap.samples[y * pixmap.stride : y * pixmap.stride + pixmap.width * 4]
+            for x in range(pixmap.width):
+                if row[x * 4 + 3] >= 100:
+                    edges.append(x)
+                    break
+        assert edges, "штрих не найден"
+        assert any(position % 4 for position in edges), (
+            "граница штриха шагает по четыре пикселя — альфа растянута с сетки"
+        )
+
     def test_ready_png_is_kept_as_is(self):
         prepared = png.prepare(photo())
         assert png.has_alpha(prepared)

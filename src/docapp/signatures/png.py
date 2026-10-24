@@ -37,8 +37,12 @@ from docapp.signatures.errors import SignatureError
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _COLOR_TYPE_OFFSET = 25
 
-#: Предел длинной стороны: подпись печатается в графе шириной 3–4 см.
+#: Предел длинной стороны готового PNG (принимаем от клиента до 1600).
 MAX_SIDE = 1600
+
+#: Рабочее разрешение обработки: 1000 точек на 4 см — это около 600 dpi, больше
+#: не нужно, а время расчёта держит в десятых долях секунды.
+WORK_SIDE = 1000
 
 #: Шаг анализа: альфа считается по каждому четвёртому пикселю и растягивается.
 COARSE = 4
@@ -131,19 +135,78 @@ def transparent(data: bytes) -> bytes:
     first_row = top * COARSE
     last_row = min(bottom * COARSE, height)
 
-    base = bytearray(width * 4)
-    base[0::4] = bytes([INK_COLOUR[0]]) * width
-    base[1::4] = bytes([INK_COLOUR[1]]) * width
-    base[2::4] = bytes([INK_COLOUR[2]]) * width
+    alpha_rows = _fine_alpha(
+        red_rows, green_rows, blue_rows, paper, ink, blue, blue_base,
+        first_row, last_row, first_column, last_column,
+    )
+
+    out_width = last_column - first_column
+    base = bytearray(out_width * 4)
+    base[0::4] = bytes([INK_COLOUR[0]]) * out_width
+    base[1::4] = bytes([INK_COLOUR[1]]) * out_width
+    base[2::4] = bytes([INK_COLOUR[2]]) * out_width
 
     rows: list[bytearray] = []
-    for y in range(first_row, last_row):
-        spread = b"".join(_SPREAD[value] for value in alpha[y // COARSE])
+    for line_alpha in alpha_rows:
         line = bytearray(base)
-        line[3::4] = spread[:width]
-        rows.append(line[first_column * 4 : last_column * 4])
+        line[3::4] = line_alpha
+        rows.append(line)
 
-    return _encode(last_column - first_column, len(rows), rows)
+    return _encode(out_width, len(rows), rows)
+
+
+def _fine_alpha(
+    red_rows: list[bytes],
+    green_rows: list[bytes],
+    blue_rows: list[bytes],
+    paper: int,
+    ink: int,
+    blue: bool,
+    blue_base: int,
+    first_row: int,
+    last_row: int,
+    first_column: int,
+    last_column: int,
+) -> list[bytes]:
+    """Альфа по каждому пикселю внутри рамки — гладкие края без ступенек.
+
+    Сетка вчетверо мельче нужна только для решений (что считать бумагой, что
+    чернилами, где рамка): растянуть её альфу квадратами — и на документе видна
+    «пиксельность», подпись выглядит подделкой. Поэтому точная альфа считается
+    заново, но уже только внутри рамки, а не по всему кадру.
+    """
+    dark = None if blue else _dark_table(paper, ink)
+    ramp = _blue_ramp() if blue else None
+    result: list[bytes] = []
+    for y in range(first_row, last_row):
+        red = red_rows[y][first_column:last_column]
+        green = green_rows[y][first_column:last_column]
+        blue_channel = blue_rows[y][first_column:last_column]
+        line = bytearray(len(red))
+        if ramp is None:
+            for index, (r, g, b) in enumerate(zip(red, green, blue_channel)):
+                line[index] = dark[(r + g + b) // 3]  # type: ignore[index]
+        else:
+            for index, (r, g, b) in enumerate(zip(red, green, blue_channel)):
+                own = b - (r + g) // 2 - blue_base
+                line[index] = ramp[own + 128] if -128 <= own <= 127 else (255 if own > 127 else 0)
+        result.append(bytes(line))
+    return result
+
+
+def _blue_ramp() -> bytes:
+    """Таблица «избыток синего (со сдвигом +128) → альфа»."""
+    span = max(1, BLUE_CEIL - BLUE_FLOOR)
+    table = bytearray(256)
+    for index in range(256):
+        own = index - 128
+        if own <= BLUE_FLOOR:
+            table[index] = 0
+        elif own >= BLUE_CEIL:
+            table[index] = 255
+        else:
+            table[index] = 255 * (own - BLUE_FLOOR) // span
+    return bytes(table)
 
 
 # ── разбор картинки ──────────────────────────────────────────────────
@@ -174,7 +237,7 @@ def _decode(data: bytes):
     # его сохраняет (n = 4), а нам он не мешает — прозрачность считается заново.
     if source.colorspace is None or source.colorspace.n != 3:
         source = pymupdf.Pixmap(pymupdf.csRGB, source)
-    while max(source.width, source.height) > MAX_SIDE:
+    while max(source.width, source.height) > WORK_SIDE:
         shrunk = pymupdf.Pixmap(source)
         shrunk.shrink(1)
         source = shrunk
