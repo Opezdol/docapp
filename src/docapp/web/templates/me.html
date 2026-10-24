@@ -26,6 +26,27 @@
   {% if can_sign %}
   <p><a class="btn" href="/signatures">Моя подпись — загрузить или заменить</a></p>
   {% endif %}
+
+  <div class="install" id="install-app" hidden>
+    <h2 class="install-title">Приложение на телефон</h2>
+    <p class="hint">
+      Ярлык на экране «Домой»: открывается на весь экран, без адресной строки,
+      и не нужно каждый раз вспоминать адрес.
+    </p>
+    <button type="button" class="btn" id="install-app-button" hidden>Установить приложение</button>
+    <details class="install-help" id="install-app-help" hidden>
+      <summary>Как установить на iPhone</summary>
+      <ol>
+        <li>Откройте эту страницу в Safari (именно в Safari, не в другом браузере).</li>
+        <li>Нажмите кнопку «Поделиться» — квадрат со стрелкой вверх внизу экрана.</li>
+        <li>Прокрутите список и выберите «На экран «Домой»».</li>
+        <li>Нажмите «Добавить» — значок появится среди приложений.</li>
+      </ol>
+    </details>
+  </div>
+
   <p><a href="/">← Назад</a></p>
 </div>
+
+<script src="/static/pwa-install.js?v={{ git_revision }}"></script>
 {% endblock %}

@@ -268,7 +268,14 @@ function runPageFile(file, presentIds) {
     querySelectorAll: () => [],
     addEventListener() {}, createElement: (tag) => fakeElement(tag), body: fakeElement("body"),
   };
-  const sandbox = { dc, location: { href: "" } };
+  /* addEventListener есть у настоящего window; в песочнице его не было, и файл,
+     который вешает обработчик на window (pwa-install.js), падал на загрузке. */
+  const sandbox = {
+    dc,
+    location: { href: "" },
+    addEventListener() {},
+    removeEventListener() {},
+  };
   netCalls.length = 0;  // запрос «зависает»: дальше инициализации файл не пойдёт
   new Function("window", "document", "fetch", "location", "dc", "setTimeout", "clearTimeout", read(file))(
     sandbox, document, recordingFetch, sandbox.location, dc, setTimeout, clearTimeout
@@ -281,6 +288,12 @@ check("needs.js молча выходит на чужой странице", () 
 });
 check("signatures.js молча выходит на чужой странице", () => {
   runPageFile(join(STATIC, "signatures.js"), []);
+});
+check("pwa-install.js молча выходит на чужой странице", () => {
+  runPageFile(join(STATIC, "pwa-install.js"), []);
+});
+check("pwa-install.js стартует на странице кабинета", () => {
+  runPageFile(join(STATIC, "pwa-install.js"), ["install-app"]);
 });
 check("signatures.js стартует на странице подписи", () => {
   runPageFile(join(STATIC, "signatures.js"), ["signature-app"]);
@@ -349,7 +362,7 @@ check("страницы со сценарием наследуют base.html (а
   const guilty = [];
   for (const path of templates) {
     const text = read(path);
-    const own = text.search(/\/static\/(needs|needs-analytics|duty|compendium|compendium-article|signatures)\.js/);
+    const own = text.search(/\/static\/(needs|needs-analytics|duty|compendium|compendium-article|signatures|pwa-install)\.js/);
     if (own < 0) continue;
     const extendsBase = /\{%\s*extends\s+["'][^"']*base\.html["']\s*%\}/.test(text);
     if (!extendsBase && text.indexOf("/static/lib/core.js") < 0) guilty.push(relative(ROOT, path));

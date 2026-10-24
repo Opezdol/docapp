@@ -233,3 +233,33 @@ button.linklike {
 .dc-combo-item:last-child { border-bottom: none; }
 .dc-combo-item:active { background: #eef2f7; }
 .dc-combo-empty { padding: 10px 12px; color: #888; font-size: 0.9rem; }
+
+/* Приложение на телефон: постоянная кнопка установки в личном кабинете.
+   На Android вызывает системное окно, на iPhone показывает инструкцию
+   (Safari своего окна установки не имеет). */
+.install {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e3e8f0;
+}
+
+.install-title {
+  margin: 0 0 .4rem;
+  font-size: 1rem;
+}
+
+.install-help {
+  margin-top: .6rem;
+}
+
+.install-help summary {
+  cursor: pointer;
+  color: #1565c0;
+}
+
+.install-help ol {
+  margin: .5rem 0 0 1.1rem;
+  padding: 0;
+  font-size: .9rem;
+  line-height: 1.5;
+}

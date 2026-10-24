@@ -309,6 +309,19 @@ class TestMyData:
         assert "B-1042" in r.text
         assert "— не задан —" not in r.text
 
+    def test_me_has_install_block(self, client):
+        """В кабинете есть постоянная кнопка установки приложения (PWA).
+
+        Манифест в порядке, но Android предлагает установку один раз, а iPhone
+        системного окна не показывает вовсе — поэтому кнопка живёт на странице.
+        """
+        _login(client)
+        page = client.get("/me").text
+        assert 'id="install-app"' in page
+        assert 'id="install-app-button"' in page
+        assert "На экран «Домой»" in page
+        assert "/static/pwa-install.js" in page
+
     def test_me_requires_login(self, client):
         r = client.get("/me", follow_redirects=False)
         assert r.status_code == 303
