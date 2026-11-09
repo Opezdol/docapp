@@ -17,7 +17,7 @@ import sqlite3
 
 import pytest
 
-from docapp.core.db import SCHEMA_TABLE, declared_tables, repair, shape_problems
+from docapp.core.db import SCHEMA_TABLE, declared_tables, migrate, repair, shape_problems
 from docapp.legacy.checks import check, shape_issues
 from docapp.records.store import SCHEMA as RECORDS_SCHEMA
 from docapp.records.store import SqliteAnesthesiaStore
@@ -139,13 +139,70 @@ def test_repair_fixes_the_shape_and_keeps_rows(tmp_path):
 
 
 def test_repair_is_idempotent_and_check_goes_green(tmp_path):
-    """Повторный прогон ничего не делает; после починки `check` чист."""
+    """Повторный прогон ничего не делает; после починки и миграции `check` чист."""
     db = make_db(tmp_path)
     _make_legacy_shape(db)
 
     repair(db, [RECORDS_SCHEMA])
     assert repair(db, [RECORDS_SCHEMA]) == []
+    # Версия в файле осталась прежней (3): починка формы миграций не делает,
+    # поэтому `check` справедливо требует migrate, пока он не пройден.
+    assert not check(db).ok
+    migrate(db, RECORDS_SCHEMA)
     assert check(db).ok
+
+
+def test_check_flags_schema_behind_code(tmp_path):
+    """Отставшая версия схемы — замечание с обеими версиями, а не «всё сходится».
+
+    Так выглядела рабочая БД после добавления `signatures`: файл застрял на
+    прежней версии `records`, а `check` молчал, потому что сравнивал только форму.
+    """
+    db = make_db(tmp_path)
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        f"UPDATE {SCHEMA_TABLE} SET version = 3 WHERE module = 'records'"
+    )
+    conn.commit()
+    conn.close()
+
+    report = check(db)
+
+    assert not report.ok
+    assert any(
+        "records" in issue and "v3" in issue and "v4" in issue for issue in report.issues
+    )
+    assert "records] схема v3, в коде v4" in report.summary()
+
+
+def test_check_lists_tables_of_every_module_with_schema(tmp_path):
+    """Таблицы берутся из реестра модулей: новый модуль не надо вписывать руками."""
+    db = make_db(tmp_path)
+
+    report = check(db)
+
+    listed = dict(report.tables)
+    assert "signatures" in listed
+    assert listed["signatures"] == ("signatures",)
+    assert "signatures" in report.summary()
+    assert report.ok
+
+
+def test_check_flags_declared_table_missing_from_file(tmp_path):
+    """Версия записана, а таблицы нет — это замечание, а не строка «таблицы нет»."""
+    db = make_db(tmp_path)
+    conn = sqlite3.connect(str(db))
+    conn.execute("DROP TABLE signatures")
+    conn.commit()
+    conn.close()
+
+    report = check(db)
+
+    assert not report.ok
+    assert any(
+        "signatures" in issue and "нет объявленных таблиц" in issue
+        for issue in report.issues
+    )
 
 
 def test_current_schema_has_no_shape_problems(tmp_path):

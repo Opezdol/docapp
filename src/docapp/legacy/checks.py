@@ -1,9 +1,14 @@
 """Проверка единой БД: счётчики, версии схем и целостность (шаг 4b).
 
-`docapp check` отвечает на два вопроса: «сколько чего лежит» и «не потерялось ли
-что-нибудь при переезде». Сироты (ссылки на несуществующих сотрудников) —
-единственный автоматический признак потери: внешние ключи их не пустят при
-записи, но старые базы переносились в обход, поэтому проверяем явно.
+`docapp check` отвечает на три вопроса: «сколько чего лежит», «не потерялось ли
+что-нибудь при переезде» и «не отстала ли схема файла от кода». Сироты (ссылки на
+несуществующих сотрудников) — единственный автоматический признак потери: внешние
+ключи их не пустят при записи, но старые базы переносились в обход, поэтому
+проверяем явно.
+
+Перечень таблиц и ожидаемые версии берутся из реестра модулей (ADR-0016,
+ADR-0017), а не из списка в этом файле: ручной список разошёлся с кодом — модуль
+`signatures` в него не попал, и проверка о нём молчала.
 """
 
 from __future__ import annotations
@@ -12,26 +17,24 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from docapp.core.db import SCHEMA_TABLE, shape_problems
+from docapp.core.db import SCHEMA_TABLE, declared_tables, shape_problems
 from docapp.legacy.importer import find_orphans
 
-#: Таблицы по модулям — для счётчиков (порядок как в реестре модулей).
-MODULE_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("people", ("employees",)),
-    ("records", ("anesthesia", "active_nurse")),
-    (
-        "wiki",
-        ("wiki_sources", "wiki_articles", "wiki_revisions", "wiki_article_links",
-         "wiki_messages", "wiki_settings"),
-    ),
-    (
-        "needs",
-        ("needs_requests", "needs_request_lines", "needs_closures",
-         "needs_catalog_bases", "needs_catalog_points", "needs_catalog_groups",
-         "needs_catalog_items", "needs_catalog_audit"),
-    ),
-    ("duty", ("duty_reports", "duty_operations")),
-)
+
+def _registry() -> tuple[tuple[str, int, tuple[str, ...]], ...]:
+    """Модуль, версия его схемы и объявленные таблицы — по реестру модулей.
+
+    Модуль без схемы (`scales`, `distribution`) в список не попадает: у него нет
+    ни таблиц, ни версии. Импорт `docapp.modules` внутри функции — чтобы проверка
+    не тянула за собой все роутеры при импорте `docapp.legacy`.
+    """
+    from docapp.modules import MODULES
+
+    return tuple(
+        (module.name, module.schema.version, tuple(declared_tables(module.schema)))
+        for module in MODULES
+        if module.schema is not None
+    )
 
 
 @dataclass
@@ -39,6 +42,8 @@ class CheckReport:
     """Итог проверки: счётчики, версии схем, найденные проблемы."""
 
     db_path: Path
+    tables: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    expected: dict[str, int] = field(default_factory=dict)
     counts: dict[str, int] = field(default_factory=dict)
     versions: dict[str, int] = field(default_factory=dict)
     orphans: dict[str, list[int]] = field(default_factory=dict)
@@ -50,9 +55,18 @@ class CheckReport:
 
     def summary(self) -> str:
         lines = [f"Единая БД: {self.db_path}", ""]
-        for module, tables in MODULE_TABLES:
+        for module, tables in self.tables:
             version = self.versions.get(module)
-            header = f"[{module}]" + (f" схема v{version}" if version else " схема: нет")
+            expected = self.expected.get(module)
+            if version is None:
+                # Строки версии нет: модуль к этому файлу ещё не применялся.
+                header = f"[{module}] схема не применялась"
+                if expected:
+                    header += f" (в коде v{expected})"
+            elif expected and version != expected:
+                header = f"[{module}] схема v{version}, в коде v{expected}"
+            else:
+                header = f"[{module}] схема v{version}"
             lines.append(header)
             for table in tables:
                 if table in self.counts:
@@ -108,7 +122,10 @@ def check(db_path: str | Path) -> CheckReport:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }
-        for _, tables in MODULE_TABLES:
+        registry = _registry()
+        report.tables = tuple((name, tables) for name, _, tables in registry)
+        report.expected = {name: version for name, version, _ in registry}
+        for _, _, tables in registry:
             for table in tables:
                 if table in existing:
                     report.counts[table] = conn.execute(
@@ -120,6 +137,31 @@ def check(db_path: str | Path) -> CheckReport:
                 f"SELECT module, version FROM {SCHEMA_TABLE}"
             ).fetchall():
                 report.versions[row["module"]] = row["version"]
+
+        # Версия файла против версии кода: отставшая база — это не «всё
+        # сходится», а не пройденные миграции, и узнать об этом надо до первой
+        # записи, а не по 500 на форме.
+        for name, expected, tables in registry:
+            actual = report.versions.get(name)
+            if actual is None:
+                # Модуль к файлу ещё не применялся (новая база до первого
+                # запуска) — об этом говорит заголовок в сводке, не замечание.
+                continue
+            if actual < expected:
+                report.issues.append(
+                    f"[{name}] схема v{actual}, в коде v{expected} — нужен docapp migrate"
+                )
+            elif actual > expected:
+                report.issues.append(
+                    f"[{name}] схема v{actual} выше кода v{expected} — "
+                    "код откатили, база новее"
+                )
+            missing = [table for table in tables if table not in existing]
+            if missing:
+                report.issues.append(
+                    f"[{name}] нет объявленных таблиц ({', '.join(missing)}), "
+                    f"хотя схема v{actual} записана — лечится docapp migrate"
+                )
 
         report.orphans = find_orphans(conn)
         report.issues.extend(shape_issues(conn))
