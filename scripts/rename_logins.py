@@ -1,8 +1,8 @@
 """Точечное переименование логинов сотрудников по id.
 
 Служит для ручной правки логинов, сгенерированных автоматически
-(напр. после scripts/import_workers.py или scripts/reset_credentials.py),
-когда нужно исправить коллизии/опечатки у конкретных сотрудников.
+(напр. после scripts/reset_credentials.py), когда нужно исправить
+коллизии/опечатки у конкретных сотрудников.
 
 Запуск (из корня docapp):
     .venv/bin/python scripts/rename_logins.py [--db data/docapp.db] <id> <login> [<id> <login> ...]

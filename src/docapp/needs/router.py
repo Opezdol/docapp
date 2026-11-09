@@ -12,8 +12,7 @@
 принимает список директорий.
 
 Ошибки бизнес-слоя транслируются в HTTP: NeedsForbidden → 403,
-NeedsClosed → 409, прочие ValueError → 400. Полный UI страниц — в T8;
-сейчас страницы-заглушки.
+NeedsClosed → 409, прочие ValueError → 400.
 """
 
 from __future__ import annotations
@@ -95,7 +94,7 @@ def _api_user(request: Request) -> Employee:
 
 @router.get("", response_class=HTMLResponse)
 def needs_page(request: Request):
-    """Страница раздела «Потребности» (заглушка; полный UI — в T8)."""
+    """Страница раздела «Потребности»: заявка точки и доска старшей."""
     user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
@@ -473,7 +472,7 @@ def _analytics_params(request: Request) -> tuple[str, str, str | None, str | Non
 
 @router.get("/analytics", response_class=HTMLResponse)
 def analytics_page(request: Request):
-    """Страница аналитики по истории заявок (заглушка; UI — в T8)."""
+    """Страница аналитики по истории заявок."""
     user = access.current_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
