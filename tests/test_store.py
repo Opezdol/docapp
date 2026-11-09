@@ -33,6 +33,56 @@ def make_employee(**overrides):
     return Employee(**base)
 
 
+def test_people_migration_v1_to_v2_keeps_rows(tmp_path):
+    """Старая база сотрудников: колонка активности добавляется, строки на месте.
+
+    Файл v1 не имеет `active`; при открытии миграция добавляет колонку, а
+    существующие сотрудники считаются работающими. Пересборки таблицы нет —
+    на `employees` висят внешние ключи четырёх модулей.
+    """
+    from docapp.core.db import SCHEMA_TABLE, connect, init_version_table
+
+    db = tmp_path / "old.db"
+    conn = connect(db)
+    try:
+        conn.executescript(
+            "CREATE TABLE employees ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "last_name TEXT NOT NULL, first_name TEXT NOT NULL, "
+            "middle_name TEXT NOT NULL DEFAULT '', role TEXT NOT NULL, "
+            "login TEXT UNIQUE, password_hash TEXT, buh_id TEXT);"
+        )
+        init_version_table(conn)
+        conn.execute(
+            f"INSERT INTO {SCHEMA_TABLE} (module, version, applied_at, note) "
+            "VALUES ('people', 1, '2026-09-11T00:00:00', 'initial schema')"
+        )
+        conn.execute(
+            "INSERT INTO employees (last_name, first_name, role) "
+            "VALUES ('Иванов', 'Иван', 'doctor')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    store = SqliteEmployeeStore(db)
+    try:
+        saved = store.list_all()[0]
+        assert saved.last_name == "Иванов"
+        assert saved.active is True
+    finally:
+        store.close()
+
+    conn = sqlite3.connect(str(db))
+    try:
+        version = conn.execute(
+            f"SELECT MAX(version) FROM {SCHEMA_TABLE} WHERE module = 'people'"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert version == 2
+
+
 def make_anesthesia(**overrides):
     base = dict(
         date=date(2026, 8, 4),
@@ -109,6 +159,29 @@ class TestEmployeeStore:
             ("Волкова", HEAD_NURSE),
             ("Сидорова", NURSE),
         ]
+
+    def test_dismissed_nurse_is_not_offered_for_brigade(self, emp_store):
+        """Уволенная сестра остаётся в базе, но в выбор бригады не попадает."""
+        worker = emp_store.add(make_employee(role=NURSE, last_name="Работает", first_name="Анна"))
+        dismissed = emp_store.add(make_employee(role=NURSE, last_name="Уволена", first_name="Вера"))
+        emp_store.set_active(dismissed.id, False)
+
+        assert [e.id for e in emp_store.list_nurse_staff()] == [worker.id]
+        # В общем списке она есть: панель заведующего показывает уволенных,
+        # а прошлые записи остаются с её ФИО.
+        assert dismissed.id in [e.id for e in emp_store.list_all()]
+        assert emp_store.get_by_id(dismissed.id).active is False
+
+    def test_dismissed_can_be_returned(self, emp_store):
+        """Возврат снимает флаг — сестра снова доступна в выборе."""
+        nurse = emp_store.add(make_employee(role=NURSE))
+        emp_store.set_active(nurse.id, False)
+        emp_store.set_active(nurse.id, True)
+        assert [e.id for e in emp_store.list_nurse_staff()] == [nurse.id]
+
+    def test_set_active_unknown_id(self, emp_store):
+        with pytest.raises(KeyError):
+            emp_store.set_active(999, False)
 
     def test_duplicate_login_raises(self, emp_store):
         emp_store.add(make_employee(login="ivanov", password_hash="abc"))

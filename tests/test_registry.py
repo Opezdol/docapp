@@ -90,7 +90,7 @@ class TestModuleContract:
         """Версии схем модулей в единой БД (ADR-0016)."""
         versions = {module.name: module.schema.version for module in MODULES if module.schema}
         assert versions == {
-            "people": 1,
+            "people": 2,
             "signatures": 1,
             "records": 4,
             "wiki": 2,

@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from docapp.auth.auth import Authenticator, InvalidCredentials
+from docapp.auth.auth import AccountDisabled, Authenticator, InvalidCredentials
 from docapp.auth.passwords import hash_password, verify_password
 from docapp.domain.employee import DOCTOR, HEAD, NURSE, Employee
 from docapp.people.store import SqliteEmployeeStore
@@ -102,6 +102,27 @@ class TestAuthenticator:
         with pytest.raises(InvalidCredentials) as e2:
             auth.authenticate("ghost", "secret")
         assert str(e1.value) == str(e2.value)
+
+    def test_dismissed_account_is_refused_with_its_own_message(self, emp_store):
+        """Уволенный не входит, и текст отличает увольнение от забытого пароля."""
+        stored = hash_password("secret")
+        emp = emp_store.add(make_employee(login="ivanov", password_hash=stored))
+        emp_store.set_active(emp.id, False)
+
+        with pytest.raises(AccountDisabled) as exc:
+            Authenticator(emp_store).authenticate("ivanov", "secret")
+        assert str(exc.value) == "Учётная запись закрыта"
+
+    def test_dismissed_wrong_password_does_not_reveal_status(self, emp_store):
+        """Неверный пароль у уволенного — тот же ответ, что у всех: статус не выдаём."""
+        stored = hash_password("secret")
+        emp = emp_store.add(make_employee(login="ivanov", password_hash=stored))
+        emp_store.set_active(emp.id, False)
+
+        with pytest.raises(InvalidCredentials) as exc:
+            Authenticator(emp_store).authenticate("ivanov", "wrong")
+        assert not isinstance(exc.value, AccountDisabled)
+        assert str(exc.value) == "Неверный логин или пароль"
 
 
 class TestActiveNurse:

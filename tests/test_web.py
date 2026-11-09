@@ -458,3 +458,32 @@ class TestSessionConfig:
         app = self._make_app(tmp_path, monkeypatch)
         mw = self._session_middleware(app)
         assert mw.get("https_only") is True
+
+
+def test_dismissed_employee_loses_access_immediately(tmp_path):
+    """Увольнение (ADR-0030): вход закрыт, живая сессия перестаёт пускать.
+
+    Кука живёт 30 дней, отзыва сессий нет, поэтому отзыв — проверка активности
+    в `access.current_user` на каждом запросе.
+    """
+    db_path = tmp_path / "dismiss.db"
+    ids = _seed(db_path)
+    app = create_app(db_path=db_path, secret="test-secret")
+
+    with TestClient(app, follow_redirects=False) as client:
+        assert client.post(
+            "/login", data={"login": "anna", "password": "anna_pass"}
+        ).status_code == 303
+        assert client.get("/").status_code == 200
+
+        with SqliteEmployeeStore(db_path) as store:
+            store.set_active(ids["nurse_id"], False)
+
+        # Сессия ещё в куке, но сотрудник уволен — на главную не пускаем.
+        response = client.get("/")
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login"
+
+        again = client.post("/login", data={"login": "anna", "password": "anna_pass"})
+        assert again.status_code == 401
+        assert "Учётная запись закрыта" in again.text

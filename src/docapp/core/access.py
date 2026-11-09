@@ -206,11 +206,19 @@ def menu_for(role: str) -> list[MenuItem]:
 
 
 def current_user(request: Request) -> Employee | None:
-    """Текущий вошедший сотрудник (по сессии) или None."""
+    """Текущий вошедший сотрудник (по сессии) или None.
+
+    Уволенный (ADR-0030) теряет доступ сразу, даже если сессия ещё жива:
+    сессии не отзываются, а кука живёт 30 дней — проверка активности здесь
+    и есть отзыв.
+    """
     employee_id = request.session.get("employee_id")
     if employee_id is None:
         return None
-    return request.app.state.employees.get_by_id(employee_id)
+    employee = request.app.state.employees.get_by_id(employee_id)
+    if employee is None or not employee.active:
+        return None
+    return employee
 
 
 def ensure(user: Employee, *permissions_: str, message: str = "Недостаточно прав") -> Employee:

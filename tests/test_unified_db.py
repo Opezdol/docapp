@@ -75,7 +75,7 @@ class TestOneFile:
         assert [(r["module"], r["version"]) for r in rows] == [
             ("duty", 1),
             ("needs", 2),
-            ("people", 1),
+            ("people", 2),
             ("records", 4),
             ("signatures", 1),
             ("wiki", 2),

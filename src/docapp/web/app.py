@@ -91,11 +91,11 @@ def create_app(
     ):
         try:
             employee = request.app.state.authenticator.authenticate(login, password)
-        except InvalidCredentials:
+        except InvalidCredentials as exc:
             return TEMPLATES.TemplateResponse(
                 request,
                 "login.html",
-                {"error": "Неверный логин или пароль"},
+                {"error": str(exc)},
                 status_code=401,
             )
         request.session["employee_id"] = employee.id

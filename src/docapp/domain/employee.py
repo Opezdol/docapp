@@ -21,6 +21,10 @@ class Employee:
     login: str | None = None
     password_hash: str | None = None
     buh_id: str | None = None
+    #: Сотрудник работает. Уволенный остаётся в базе (на нём висят записи,
+    #: заявки, дежурства и подпись), но не входит и не выбирается в бригаду
+    #: (ADR-0030, ТЗ панели заведующего).
+    active: bool = True
 
     def __post_init__(self) -> None:
         if not self.last_name.strip():
