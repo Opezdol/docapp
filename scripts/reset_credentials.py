@@ -4,7 +4,7 @@
 буква имени + первая буква отчества), напр. Иванова Елена Вячеславовна
 -> ivanovaev, Чупалаева Альбина Мурадбеговна -> chupalaevaam.
 Если отчества нет — «фамилия + первая буква имени» (amanbaeva).
-Пароли — новые случайные (8 символов). Старые пароли перестают работать.
+Пароли — новые случайные (10 символов). Старые пароли перестают работать.
 
 Вывод: ФИО;логин;пароль;роль;табельный (CSV, разделитель ;).
 
@@ -13,14 +13,10 @@
 
 import argparse
 import csv
-import secrets
-import string
 import sys
 from pathlib import Path
 
-from docapp.auth.passwords import hash_password
-
-_PASSWORD_CHARS = string.ascii_letters + string.digits
+from docapp.auth.passwords import generate_password, hash_password
 
 _TRANSLIT = {
     "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
@@ -40,10 +36,6 @@ ROLE_NAMES = {
 
 def translit(text: str) -> str:
     return "".join(_TRANSLIT.get(ch, "") for ch in text.lower())
-
-
-def random_password(length: int = 8) -> str:
-    return "".join(secrets.choice(_PASSWORD_CHARS) for _ in range(length))
 
 
 def main() -> int:
@@ -87,7 +79,7 @@ def main() -> int:
             n += 1
         used_logins[login] = emp["id"]
 
-        password = random_password()
+        password = generate_password()
         password_hash = hash_password(password)
 
         conn.execute(

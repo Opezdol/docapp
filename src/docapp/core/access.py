@@ -39,6 +39,10 @@ RECORDS_EDIT = "records.edit"
 #: ролей, поэтому разрешение одно.
 DISTRIBUTION_MANAGE = "distribution.manage"
 
+#: «Панель»: учётки сотрудников и выключение разделов (ADR-0030). Раздел
+#: заведующего: он заводит людей, выдаёт пароли и решает, какие разделы видны.
+ADMIN_MANAGE = "admin.manage"
+
 #: «Чат»: чтение статей и ответы консультанта. Выдано заведующему и редактору —
 #: раздел закрыт для остальных до доработки (12.09.2026).
 WIKI_READ = "wiki.read"
@@ -112,6 +116,7 @@ ALLOWED: dict[str, frozenset[str]] = {
             SCALES_USE,
             SIGNATURES_OWN,
             DISTRIBUTION_MANAGE,
+            ADMIN_MANAGE,
             WIKI_READ,
             WIKI_CURATE,
             WIKI_SETTINGS,
@@ -163,6 +168,9 @@ MENU: tuple[MenuItem, ...] = (
     # «Распределение» — раздел заведующего: у него своё разрешение
     # (`distribution.manage`, ADR-0024), права на записи тут ни при чём.
     MenuItem("/distribution", "Распределение", "distribution"),
+    # «Панель» (ADR-0030): учётки и выключение разделов. Только заведующий —
+    # право `admin.manage` есть у одной роли.
+    MenuItem("/admin", "Панель", "admin"),
 )
 
 

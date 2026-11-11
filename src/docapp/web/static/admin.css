@@ -1,0 +1,53 @@
+/* Панель заведующего: список сотрудников (ADR-0030).
+   Только то, чего нет в style.css: таблица с горизонтальной прокруткой,
+   пометка «уволен» и плотные кнопки в строке. */
+
+.admin-table-wrap {
+  overflow-x: auto;
+  margin: 0 -4px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e3e7ec;
+  vertical-align: top;
+}
+
+.admin-table th {
+  font-size: 0.8rem;
+  color: #777;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-table tr.dismissed td {
+  color: #9aa0a6;
+}
+
+.admin-actions {
+  white-space: nowrap;
+}
+
+.admin-actions .btn {
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  margin: 0 4px 4px 0;
+}
+
+.tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #f0f2f5;
+  color: #777;
+  font-size: 0.75rem;
+}

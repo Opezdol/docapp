@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Панель — docapp{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/admin.css?v={{ git_revision }}">
+
+<div class="card">
+  <h1>Панель</h1>
+  <p class="hint">
+    Сотрудники отделения и их учётные записи. Новый пароль показывается один
+    раз — передайте его сотруднику сразу.
+  </p>
+</div>
+
+{% if error %}
+<div class="dc-banner error">{{ error }}</div>
+{% endif %}
+
+{% if new_password %}
+<div class="dc-banner ok">
+  Логин: <b>{{ new_login }}</b>, пароль: <b>{{ new_password }}</b> —
+  показывается один раз, запишите сейчас (второй раз не покажем).
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Добавить сотрудника</h2>
+  <form method="post" action="/admin/employee" class="stack">
+    <label>Фамилия
+      <input type="text" name="last_name" required value="{{ form.last_name or '' }}">
+    </label>
+    <label>Имя
+      <input type="text" name="first_name" required value="{{ form.first_name or '' }}">
+    </label>
+    <label>Отчество (если есть)
+      <input type="text" name="middle_name" value="{{ form.middle_name or '' }}">
+    </label>
+    <label>Роль
+      <select name="role">
+        {% for value, label in roles %}
+        <option value="{{ value }}" {% if form.role == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Логин (пусто — сотрудник без учётной записи)
+      <input type="text" name="login" autocapitalize="off" value="{{ form.login or '' }}">
+    </label>
+    <label>Пароль (пусто — сгенерируется)
+      <input type="text" name="password" autocapitalize="off" value="">
+    </label>
+    <button type="submit" class="primary">Добавить</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Сотрудники ({{ staff|length }})</h2>
+  <p class="hint">
+    {% if show_dismissed %}
+    <a href="/admin">скрыть уволенных</a>
+    {% else %}
+    <a href="/admin?all=1">показать уволенных</a>
+    {% endif %}
+  </p>
+
+  {% if staff %}
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>ФИО</th>
+          <th>Роль</th>
+          <th>Логин</th>
+          <th>Бухгалтерия</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for employee in staff %}
+        <tr{% if not employee.active %} class="dismissed"{% endif %}>
+          <td>
+            {{ employee.full_name }}
+            {% if not employee.active %}<span class="tag">уволен</span>{% endif %}
+          </td>
+          <td>{{ role_labels[employee.role] }}</td>
+          <td>{{ employee.login or '—' }}</td>
+          <td>{{ employee.buh_id or '—' }}</td>
+          <td class="admin-actions">
+            <a class="btn" href="/admin/employee/{{ employee.id }}">Изменить</a>
+            {% if employee.active %}
+            <form method="post" action="/admin/employee/{{ employee.id }}/active"
+                  class="inline"
+                  onsubmit="return confirm('Уволить сотрудника? Прошлые записи и заявки останутся.')">
+              <input type="hidden" name="active" value="0">
+              <button type="submit" class="btn danger">Уволить</button>
+            </form>
+            {% else %}
+            <form method="post" action="/admin/employee/{{ employee.id }}/active" class="inline">
+              <input type="hidden" name="active" value="1">
+              <button type="submit" class="btn">Вернуть</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">Сотрудников нет.</p>
+  {% endif %}
+</div>
+{% endblock %}

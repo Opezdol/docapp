@@ -26,7 +26,7 @@ class TestPermissionsTable:
 
     def test_permissions_are_namespaced(self):
         """Разрешение всегда «модуль.действие» — от этого зависит меню."""
-        modules = {"records", "scales", "wiki", "needs", "duty", "distribution", "signatures"}
+        modules = {"records", "scales", "wiki", "needs", "duty", "distribution", "signatures", "admin"}
         for role, granted in access.ALLOWED.items():
             for permission in granted:
                 module, _, action = permission.partition(".")
@@ -116,7 +116,7 @@ class TestMenu:
 
     def test_covers_all_menu_modules(self):
         modules = {item.module for item in access.MENU}
-        assert modules == {"records", "scales", "wiki", "needs", "duty", "distribution"}
+        assert modules == {"records", "scales", "wiki", "needs", "duty", "distribution", "admin"}
 
     def test_paths_are_unique(self):
         paths = [item.path for item in access.MENU]
@@ -132,7 +132,15 @@ class TestMenu:
             (HEAD_NURSE, ["Анестезии", "Потребности"]),
             (
                 HEAD,
-                ["Анестезии", "Шкалы", "Чат", "Потребности", "Дежурства", "Распределение"],
+                [
+                    "Анестезии",
+                    "Шкалы",
+                    "Чат",
+                    "Потребности",
+                    "Дежурства",
+                    "Распределение",
+                    "Панель",
+                ],
             ),
             (EDITOR, ["Анестезии", "Шкалы", "Чат", "Дежурства"]),
         ],

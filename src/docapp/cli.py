@@ -9,23 +9,13 @@
 """
 
 import argparse
-import secrets
 import sqlite3
-import string
 import sys
 
-from docapp.auth.passwords import hash_password
+from docapp.auth.passwords import generate_password, hash_password
 from docapp.config import db_path
 from docapp.domain.employee import DOCTOR, EDITOR, HEAD, HEAD_NURSE, NURSE, Employee
 from docapp.people.store import SqliteEmployeeStore
-
-_CHARS = string.ascii_letters + string.digits
-
-
-def _random_password(length: int = 10) -> str:
-    """Случайный пароль из букв и цифр (без спецсимволов — проще вводить)."""
-    return "".join(secrets.choice(_CHARS) for _ in range(length))
-
 
 def _create_user(args: argparse.Namespace) -> int:
     """Создать врача или заведующего (с логином и паролем)."""
@@ -33,7 +23,7 @@ def _create_user(args: argparse.Namespace) -> int:
         print("Ошибка: для роли doctor/head/head_nurse/editor обязателен --login", file=sys.stderr)
         return 2
 
-    password = args.password or _random_password()
+    password = args.password or generate_password()
     employee = Employee(
         last_name=args.last_name,
         first_name=args.first_name,
@@ -71,7 +61,7 @@ def _create_nurse(args: argparse.Namespace) -> int:
     password = None
     password_hash = None
     if args.login:
-        password = args.password or _random_password()
+        password = args.password or generate_password()
         password_hash = hash_password(password)
 
     employee = Employee(

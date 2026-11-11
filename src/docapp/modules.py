@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from docapp.admin.module import MODULE as ADMIN
 from docapp.core.registry import Module
 from docapp.distribution.module import MODULE as DISTRIBUTION
 from docapp.duty.module import MODULE as DUTY
@@ -28,6 +29,7 @@ from docapp.wiki.module import MODULE as COMPENDIUM
 #: Модули приложения в порядке подключения (порядок = порядок сборки).
 MODULES: tuple[Module, ...] = (
     PEOPLE,
+    ADMIN,
     SIGNATURES,
     RECORDS,
     SCALES,

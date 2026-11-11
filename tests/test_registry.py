@@ -49,6 +49,7 @@ class TestModuleContract:
         names = [module.name for module in MODULES]
         assert names == [
             "people",
+            "admin",
             "signatures",
             "records",
             "scales",

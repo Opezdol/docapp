@@ -143,6 +143,44 @@ class SqliteEmployeeStore:
         if cur.rowcount == 0:
             raise KeyError(f"Сотрудник с id {employee_id} не найден")
 
+    def set_password(self, employee_id: int, password_hash: str) -> None:
+        """Заменить пароль сотрудника (панель заведующего, ADR-0030)."""
+        cur = self._conn.execute(
+            "UPDATE employees SET password_hash = ? WHERE id = ?",
+            (password_hash, employee_id),
+        )
+        self._conn.commit()
+        if cur.rowcount == 0:
+            raise KeyError(f"Сотрудник с id {employee_id} не найден")
+
+    def update(self, employee: Employee) -> None:
+        """Переписать карточку сотрудника (ADR-0030).
+
+        Пишутся все поля карточки, включая логин и хеш пароля: вызывающий
+        передаёт целого `Employee`, а он не соберётся с логином без пароля
+        (`__post_init__`). Активность сюда не входит — она меняется отдельным
+        методом, чтобы правка имени не возвращала уволенного.
+        """
+        if employee.id is None:
+            raise ValueError("update требует сотрудника с id")
+        cur = self._conn.execute(
+            "UPDATE employees SET last_name = ?, first_name = ?, middle_name = ?, "
+            "role = ?, login = ?, password_hash = ?, buh_id = ? WHERE id = ?",
+            (
+                employee.last_name,
+                employee.first_name,
+                employee.middle_name,
+                employee.role,
+                employee.login,
+                employee.password_hash,
+                employee.buh_id,
+                employee.id,
+            ),
+        )
+        self._conn.commit()
+        if cur.rowcount == 0:
+            raise KeyError(f"Сотрудник с id {employee.id} не найден")
+
     def update_buh_id(self, employee_id: int, buh_id: str) -> None:
         cur = self._conn.execute(
             "UPDATE employees SET buh_id = ? WHERE id = ?", (buh_id, employee_id)

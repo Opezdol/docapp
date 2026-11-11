@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{{ employee.full_name }} — панель{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/admin.css?v={{ git_revision }}">
+
+<div class="card">
+  <h1>{{ employee.full_name }}</h1>
+  <p class="hint">
+    {% if employee.active %}работает{% else %}уволен{% endif %}
+    {% if employee.login %} · логин {{ employee.login }}{% else %} · без учётной записи{% endif %}
+  </p>
+</div>
+
+{% if error %}
+<div class="dc-banner error">{{ error }}</div>
+{% endif %}
+
+{% if new_password %}
+<div class="dc-banner ok">
+  Новый пароль для <b>{{ employee.login }}</b>: <b>{{ new_password }}</b> —
+  показывается один раз, передайте сотруднику сейчас.
+</div>
+{% endif %}
+
+<div class="card">
+  <form method="post" action="/admin/employee/{{ employee.id }}" class="stack">
+    <label>Фамилия
+      <input type="text" name="last_name" required value="{{ form.last_name if form else employee.last_name }}">
+    </label>
+    <label>Имя
+      <input type="text" name="first_name" required value="{{ form.first_name if form else employee.first_name }}">
+    </label>
+    <label>Отчество (если есть)
+      <input type="text" name="middle_name" value="{{ form.middle_name if form else employee.middle_name }}">
+    </label>
+    <label>Роль
+      <select name="role">
+        {% set current_role = form.role if form else employee.role %}
+        {% for value, label in roles %}
+        <option value="{{ value }}" {% if current_role == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Логин (пусто — без учётной записи)
+      <input type="text" name="login" autocapitalize="off" value="{{ form.login if form else (employee.login or '') }}">
+    </label>
+    <label>Номер в бухгалтерии
+      <input type="text" name="buh_id" value="{{ form.buh_id if form else (employee.buh_id or '') }}">
+    </label>
+    <button type="submit" class="primary">Сохранить</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Учётная запись</h2>
+  {% if employee.login %}
+  <form method="post" action="/admin/employee/{{ employee.id }}/password"
+        onsubmit="return confirm('Выдать новый пароль? Старый перестанет работать сразу.')">
+    <button type="submit" class="btn">Сбросить пароль</button>
+  </form>
+  <p class="hint">Новый пароль покажется один раз на этой странице.</p>
+  {% else %}
+  <p class="empty">
+    Учётной записи нет. Чтобы её выдать, впишите логин и сохраните карточку —
+    пароль сгенерируется и покажется один раз.
+  </p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Состояние</h2>
+  {% if employee.active %}
+  <form method="post" action="/admin/employee/{{ employee.id }}/active"
+        onsubmit="return confirm('Уволить сотрудника? Прошлые записи и заявки останутся.')">
+    <input type="hidden" name="active" value="0">
+    <button type="submit" class="btn danger">Уволить</button>
+  </form>
+  <p class="hint">Уволенный не входит в систему и не выбирается в бригаду; записи остаются.</p>
+  {% else %}
+  <form method="post" action="/admin/employee/{{ employee.id }}/active">
+    <input type="hidden" name="active" value="1">
+    <button type="submit" class="btn">Вернуть</button>
+  </form>
+  <p class="hint">Возврат включает вход с прежним паролем.</p>
+  {% endif %}
+</div>
+
+<p><a href="/admin">← К списку сотрудников</a></p>
+{% endblock %}

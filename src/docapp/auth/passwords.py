@@ -13,6 +13,15 @@ _ALGORITHM = "pbkdf2_sha256"
 _ITERATIONS = 100_000
 _SALT_BYTES = 16
 
+#: Алфавит сгенерированных паролей: без похожих друг на друга символов
+#: (0/O, 1/l/I) — пароль диктуют голосом и вводят с телефона.
+_PASSWORD_ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def generate_password(length: int = 10) -> str:
+    """Сгенерировать пароль сотруднику; показывается один раз и не хранится."""
+    return "".join(secrets.choice(_PASSWORD_ALPHABET) for _ in range(length))
+
 
 def hash_password(password: str) -> str:
     """Захешировать пароль. Каждый вызов даёт новую строку (случайная соль)."""
