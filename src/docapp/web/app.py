@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from docapp.auth.auth import Authenticator, InvalidCredentials
+from docapp.auth.auth import Authenticator, InvalidCredentials, PasswordChangeError
 from docapp.config import db_path as default_db_path
 from docapp.config import https_only, session_secret
 from docapp.core import access
@@ -106,6 +106,22 @@ def create_app(
         request.session.clear()
         return RedirectResponse("/login", status_code=303)
 
+    def _me_page(
+        request: Request, user: Employee, *, password_error: str | None = None
+    ):
+        """Страница «Мои данные»: одна сборка контекста для показа и ошибки."""
+        return TEMPLATES.TemplateResponse(
+            request,
+            "me.html",
+            {
+                "user": user,
+                "flash": None,
+                "password_error": password_error,
+                "can_sign": access.has(user.role, access.SIGNATURES_OWN),
+            },
+            status_code=400 if password_error else 200,
+        )
+
     @app.get("/me", response_class=HTMLResponse)
     def my_data(request: Request, user: Annotated[Employee, Depends(current_user)]):
         """Мои данные: просмотр (ФИО, роль, логин, номер в бухгалтерии).
@@ -113,18 +129,31 @@ def create_app(
         Здесь же ссылка на свою подпись: пункта меню у модуля подписей нет, потому
         что это действие в кабинете, а не раздел (ADR-0029). Видимость ссылки —
         вопрос прав, поэтому решается таблицей, а не перечислением ролей в шаблоне.
+
+        И смена своего пароля (ADR-0030): забытый сбрасывает заведующий из панели,
+        а обычную смену человек делает сам, не дожидаясь его.
         """
         if user is None:
             return RedirectResponse("/login", status_code=303)
-        return TEMPLATES.TemplateResponse(
-            request,
-            "me.html",
-            {
-                "user": user,
-                "flash": None,
-                "can_sign": access.has(user.role, access.SIGNATURES_OWN),
-            },
-        )
+        return _me_page(request, user)
+
+    @app.post("/me/password")
+    def change_password(
+        request: Request,
+        current: Annotated[str, Form()] = "",
+        new: Annotated[str, Form()] = "",
+        repeat: Annotated[str, Form()] = "",
+    ):
+        """Сменить свой пароль: старый, новый и повтор проверяются на сервере."""
+        user = access.current_user(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=303)
+        try:
+            request.app.state.authenticator.change_password(user, current, new, repeat)
+        except PasswordChangeError as exc:
+            return _me_page(request, user, password_error=str(exc))
+        request.session["flash"] = "Пароль изменён"
+        return RedirectResponse("/me", status_code=303)
 
     return app
 

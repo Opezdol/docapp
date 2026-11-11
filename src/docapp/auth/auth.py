@@ -1,7 +1,7 @@
 """Вход в систему: проверка логина и пароля."""
 
 from docapp.domain.employee import Employee
-from docapp.auth.passwords import verify_password
+from docapp.auth.passwords import MIN_PASSWORD, hash_password, verify_password
 
 
 class InvalidCredentials(ValueError):
@@ -10,6 +10,10 @@ class InvalidCredentials(ValueError):
 
 class AccountDisabled(InvalidCredentials):
     """Учётная запись закрыта: сотрудник уволен (ADR-0030)."""
+
+
+class PasswordChangeError(ValueError):
+    """Пароль не изменён: причина показывается человеку текстом."""
 
 
 class Authenticator:
@@ -34,3 +38,22 @@ class Authenticator:
         if not employee.active:
             raise AccountDisabled("Учётная запись закрыта")
         return employee
+
+    def change_password(
+        self, employee: Employee, current: str, new: str, repeat: str
+    ) -> None:
+        """Сменить свой пароль: старый проверяется, новый хешируется сразу.
+
+        Правила простые и все проверяются на сервере: старый пароль должен
+        сходиться, новый — не короче MIN_PASSWORD и совпадать с повтором.
+        Своё имя и пароль в текст ошибки не попадают.
+        """
+        if employee.password_hash is None or not verify_password(
+            current, employee.password_hash
+        ):
+            raise PasswordChangeError("Текущий пароль неверен")
+        if len(new) < MIN_PASSWORD:
+            raise PasswordChangeError(f"Новый пароль короче {MIN_PASSWORD} символов")
+        if new != repeat:
+            raise PasswordChangeError("Новый пароль и повтор не совпадают")
+        self._employees.set_password(employee.id, hash_password(new))

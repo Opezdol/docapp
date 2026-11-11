@@ -18,11 +18,8 @@ import sqlite3
 from dataclasses import replace
 from typing import Protocol
 
-from docapp.auth.passwords import generate_password, hash_password
+from docapp.auth.passwords import MIN_PASSWORD, generate_password, hash_password
 from docapp.domain.employee import ROLES, Employee
-
-#: Минимальная длина пароля, который принимает панель (ТЗ панели §4).
-MIN_PASSWORD = 8
 
 #: Подписи ролей для интерфейса — одно место, чтобы не разъезжались.
 ROLE_LABELS: dict[str, str] = {

@@ -23,6 +23,26 @@
     <dd>{{ user.buh_id or '— не задан —' }}</dd>
   </dl>
   <p class="empty">Данные вводит заведующий. Если найдена ошибка — сообщите ему.</p>
+
+  {% if password_error %}
+  <div class="dc-banner error">{{ password_error }}</div>
+  {% endif %}
+
+  <details class="me-password">
+    <summary>Сменить пароль</summary>
+    <form method="post" action="/me/password" class="stack">
+      <label>Текущий пароль
+        <input type="password" name="current" required autocomplete="current-password">
+      </label>
+      <label>Новый пароль (не короче 8 символов)
+        <input type="password" name="new" required autocomplete="new-password">
+      </label>
+      <label>Повтор нового пароля
+        <input type="password" name="repeat" required autocomplete="new-password">
+      </label>
+      <button type="submit" class="primary">Сменить пароль</button>
+    </form>
+  </details>
   {% if can_sign %}
   <p><a class="btn" href="/signatures">Моя подпись — загрузить или заменить</a></p>
   {% endif %}

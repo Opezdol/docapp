@@ -487,3 +487,70 @@ def test_dismissed_employee_loses_access_immediately(tmp_path):
         again = client.post("/login", data={"login": "anna", "password": "anna_pass"})
         assert again.status_code == 401
         assert "Учётная запись закрыта" in again.text
+
+
+class TestPasswordChange:
+    """Смена своего пароля в личном кабинете (ADR-0030, ТЗ панели §7)."""
+
+    def test_form_is_on_my_page(self, client):
+        _login(client)
+        page = client.get("/me")
+        assert page.status_code == 200
+        assert 'action="/me/password"' in page.text
+        assert "Сменить пароль" in page.text
+
+    def test_new_password_works_and_old_does_not(self, client):
+        _login(client)
+        response = client.post(
+            "/me/password",
+            data={
+                "current": "secret",
+                "new": "new_secret",
+                "repeat": "new_secret",
+            },
+        )
+        assert response.status_code == 303
+        assert response.headers["location"] == "/me"
+
+        client.post("/logout")
+        assert _login(client, password="new_secret").status_code == 303
+        client.post("/logout")
+        assert _login(client, password="secret").status_code == 401
+
+    def test_wrong_current_password(self, client):
+        _login(client)
+        response = client.post(
+            "/me/password",
+            data={"current": "wrong", "new": "new_secret", "repeat": "new_secret"},
+        )
+        assert response.status_code == 400
+        assert "Текущий пароль неверен" in response.text
+        # Пароль действительно не сменился.
+        client.post("/logout")
+        assert _login(client, password="secret").status_code == 303
+
+    def test_short_new_password(self, client):
+        _login(client)
+        response = client.post(
+            "/me/password",
+            data={"current": "secret", "new": "1234567", "repeat": "1234567"},
+        )
+        assert response.status_code == 400
+        assert "короче 8" in response.text
+
+    def test_repeat_mismatch(self, client):
+        _login(client)
+        response = client.post(
+            "/me/password",
+            data={"current": "secret", "new": "new_secret", "repeat": "other_secret"},
+        )
+        assert response.status_code == 400
+        assert "не совпадают" in response.text
+
+    def test_anonymous_is_sent_to_login(self, client):
+        response = client.post(
+            "/me/password",
+            data={"current": "x", "new": "new_secret", "repeat": "new_secret"},
+        )
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login"
