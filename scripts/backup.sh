@@ -61,13 +61,17 @@ else
   echo "skip: data/signatures (папки нет или пуста)"
 fi
 
-# 3. Ключ подписи сессий и каталог расходки (правятся файлом)
+# 3. Ключ подписи сессий и каталог расходки (правятся файлом).
+# ВАЖНО: копируем БЕЗ -p. cp -p сохраняет дату исходника, а чистка ниже удаляет
+# по mtime — свежая копия исчезала в том же прогоне, и ключ сессий с каталогом
+# в бэкап не попадали вовсе (нашлось 11.11.2026: исходники от августа/сентября).
 if [ -f data/secret.key ]; then
-  cp -p data/secret.key "$BACKUP_DIR/secret-$stamp.key"
+  cp data/secret.key "$BACKUP_DIR/secret-$stamp.key"
+  chmod 600 "$BACKUP_DIR/secret-$stamp.key"
   echo "OK: data/secret.key -> $BACKUP_DIR/secret-$stamp.key"
 fi
 if [ -f data/needs/catalog.yaml ]; then
-  cp -p data/needs/catalog.yaml "$BACKUP_DIR/catalog-$stamp.yaml"
+  cp data/needs/catalog.yaml "$BACKUP_DIR/catalog-$stamp.yaml"
   echo "OK: data/needs/catalog.yaml -> $BACKUP_DIR/catalog-$stamp.yaml"
 fi
 
