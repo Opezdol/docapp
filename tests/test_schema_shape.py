@@ -242,3 +242,48 @@ def test_parser_reads_declared_columns_with_comments():
     assert columns == ("id", "name", "amount")
     assert statement.upper().startswith("CREATE TABLE IF NOT EXISTS ПРИМЕР") or "пример" in statement
     assert "PRIMARY KEY (id)" in statement  # тело таблицы разобрано до парной скобки
+
+
+def test_admin_v2_migration_records_the_version(tmp_path):
+    """Новая таблица без миграции оставила бы версию схемы на v1.
+
+    `ensure_schema` записывает новую версию только на шаге миграции; DDL
+    выполняется и без неё, поэтому «добавил таблицу в DDL» тихо оставляет
+    `schema_migrations` на прежней версии (нашлось 11.11.2026 на матрице доступа).
+    """
+    from docapp.admin.store import SCHEMA as ADMIN_SCHEMA
+    from docapp.core.db import connect, init_version_table
+
+    db = tmp_path / "admin_v1.db"
+    conn = connect(db)
+    try:
+        conn.executescript(
+            "CREATE TABLE admin_sections ("
+            "module TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1, "
+            "changed_at TEXT NOT NULL DEFAULT '', "
+            "changed_by INTEGER REFERENCES employees(id));"
+        )
+        init_version_table(conn)
+        conn.execute(
+            f"INSERT INTO {SCHEMA_TABLE} (module, version, applied_at, note) "
+            "VALUES ('admin', 1, '2026-11-09T00:00:00', 'initial schema')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    migrate(db, ADMIN_SCHEMA)
+
+    conn = sqlite3.connect(str(db))
+    try:
+        version = conn.execute(
+            f"SELECT MAX(version) FROM {SCHEMA_TABLE} WHERE module = 'admin'"
+        ).fetchone()[0]
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+    finally:
+        conn.close()
+    assert version == 2
+    assert "access_sections" in tables

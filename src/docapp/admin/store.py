@@ -33,8 +33,33 @@ CREATE TABLE IF NOT EXISTS access_sections (
 );
 """
 
+#: Миграции схемы панели: только переходы со старых версий.
+#:
+#: v2 обязана существовать как миграция, даже если DDL её таблицу и так создаёт:
+#: `ensure_schema` записывает новую версию только на шаге миграции, поэтому
+#: «просто добавить таблицу в DDL» оставляет `schema_migrations` на v1 —
+#: `docapp check` предупреждает, `migrate` пишет WARN при каждом прогоне.
+#: Нашлось 11.11.2026 сразу после появления матрицы доступа.
+_MIGRATIONS: list[tuple[int, str, list[str]]] = [
+    (
+        2,
+        "add access_sections table for the role matrix",
+        [
+            "CREATE TABLE IF NOT EXISTS access_sections ("
+            "role TEXT NOT NULL, "
+            "module TEXT NOT NULL, "
+            "enabled INTEGER NOT NULL DEFAULT 1, "
+            "changed_at TEXT NOT NULL DEFAULT '', "
+            "changed_by INTEGER REFERENCES employees(id), "
+            "PRIMARY KEY (role, module))",
+        ],
+    ),
+]
+
 #: Схема панели: выключатель разделов и матрица «роль × раздел» (ADR-0033).
-SCHEMA = Schema(module="admin", sql=_SCHEMA, version=2)
+SCHEMA = Schema(
+    module="admin", sql=_SCHEMA, version=2, migrations=_MIGRATIONS
+)
 
 #: Что лежит в таблице по разделу: включён, когда и кем изменено.
 SectionState = tuple[bool, str, int | None]
