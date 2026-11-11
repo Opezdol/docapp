@@ -22,7 +22,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 
 from starlette.requests import Request
 
@@ -193,21 +194,65 @@ def permissions(role: str) -> frozenset[str]:
     return ALLOWED.get(role, frozenset())
 
 
-def has(role: str, *permissions_: str) -> bool:
-    """Есть ли у роли хотя бы одно из разрешений (правило «или»)."""
-    granted = permissions(role)
-    return any(permission in granted for permission in permissions_)
+# ── права пользователя с учётом матрицы разделов (ADR-0033) ─────────
+
+#: Роль → модули, выключенные для неё в панели заведующего.
+DisabledModules = Callable[[str], frozenset[str]]
 
 
-def has_module(role: str, module: str) -> bool:
-    """Есть ли у роли хоть какое-то разрешение модуля (для меню)."""
+def resolve_permissions(
+    role: str, disabled: DisabledModules | None = None
+) -> frozenset[str]:
+    """Права роли с учётом разделов, выключенных для неё в панели.
+
+    `disabled` — функция из панели (таблица `access_sections`). `None` значит,
+    что матрицы нет: CLI, тесты, сборка без модуля `admin` — тогда права равны
+    `ALLOWED`, то есть ровно тому, что было до матрицы.
+
+    Заведующий получает всё, что объявлено в коде: матрица его не урезает,
+    иначе одна ошибка в панели отбирает доступ у того, кто её чинит. Старшая
+    сестра не может больше сестёр: разделы, выключенные медсёстрам, выключены
+    и ей (решение владельца 11.11.2026).
+    """
+    base = permissions(role)
+    if disabled is None or role == HEAD:
+        return base
+    off = set(disabled(role))
+    if role == HEAD_NURSE:
+        off |= disabled(NURSE)
+    if not off:
+        return base
+    return frozenset(
+        permission
+        for permission in base
+        if permission.partition(".")[0] not in off
+    )
+
+
+def granted(subject: Employee | str) -> frozenset[str]:
+    """Права субъекта: у пользователя — для запроса, у строки-роли — базовые."""
+    if isinstance(subject, Employee):
+        if subject.permissions is not None:
+            return subject.permissions
+        return permissions(subject.role)
+    return permissions(subject)
+
+
+def has(subject: Employee | str, *permissions_: str) -> bool:
+    """Есть ли хотя бы одно из разрешений (правило «или»)."""
+    granted_permissions = granted(subject)
+    return any(permission in granted_permissions for permission in permissions_)
+
+
+def has_module(subject: Employee | str, module: str) -> bool:
+    """Есть ли хоть какое-то разрешение модуля (для меню)."""
     prefix = f"{module}."
-    return any(permission.startswith(prefix) for permission in permissions(role))
+    return any(permission.startswith(prefix) for permission in granted(subject))
 
 
-def menu_for(role: str) -> list[MenuItem]:
-    """Пункты меню, доступные роли."""
-    return [item for item in MENU if has_module(role, item.module)]
+def menu_for(subject: Employee | str) -> list[MenuItem]:
+    """Пункты меню: роль или пользователь с разрешёнными правами."""
+    return [item for item in MENU if has_module(subject, item.module)]
 
 
 # ── пользователь и проверки в роутерах ───────────────────────────────
@@ -226,12 +271,17 @@ def current_user(request: Request) -> Employee | None:
     employee = request.app.state.employees.get_by_id(employee_id)
     if employee is None or not employee.active:
         return None
-    return employee
+    matrix = getattr(request.app.state, "access_matrix", None)
+    if matrix is None:
+        return employee
+    return replace(
+        employee, permissions=resolve_permissions(employee.role, matrix.disabled_modules)
+    )
 
 
 def ensure(user: Employee, *permissions_: str, message: str = "Недостаточно прав") -> Employee:
     """Проверить права уже полученного пользователя; иначе AccessDenied."""
-    if not has(user.role, *permissions_):
+    if not has(user, *permissions_):
         raise AccessDenied(message)
     return user
 

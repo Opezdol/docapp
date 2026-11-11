@@ -75,6 +75,8 @@ def create_app(
     # подмножеством модулей панели не содержат — тогда выключенных нет.
     admin_container = app.state.containers.get("admin")
     app.state.section_switch = getattr(admin_container, "service", None)
+    # Матрица «роль × раздел» (ADR-0033): тот же модуль, другое назначение.
+    app.state.access_matrix = app.state.section_switch
     registry.include_routers(app, modules)
 
     @app.exception_handler(access.AccessDenied)
@@ -121,7 +123,7 @@ def create_app(
     ):
         """Страница «Мои данные»: одна сборка контекста для показа и ошибки."""
         switch = sections.switch_of(request)
-        can_sign = access.has(user.role, access.SIGNATURES_OWN) and (
+        can_sign = access.has(user, access.SIGNATURES_OWN) and (
             switch is None or switch.is_enabled("signatures")
         )
         return TEMPLATES.TemplateResponse(

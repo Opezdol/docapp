@@ -6,13 +6,20 @@
 <div class="card">
   <h1>Панель</h1>
   <nav class="admin-tabs">
-    <a href="/admin" class="{% if tab != 'sections' %}active{% endif %}">Сотрудники</a>
+    <a href="/admin" class="{% if tab == 'staff' %}active{% endif %}">Сотрудники</a>
     <a href="/admin?tab=sections" class="{% if tab == 'sections' %}active{% endif %}">Разделы</a>
+    <a href="/admin?tab=access" class="{% if tab == 'access' %}active{% endif %}">Доступ</a>
   </nav>
   {% if tab == 'sections' %}
   <p class="hint">
     Выключенный раздел не виден никому, включая вас, и включается здесь же.
     Данные, схема и файлы раздела не трогаются.
+  </p>
+  {% elif tab == 'access' %}
+  <p class="hint">
+    Что видит каждая группа. Панель только включает и выключает раздел:
+    набор действий внутри задаётся кодом модуля. Заведующему доступно всё,
+    старшая сестра не может больше сестёр.
   </p>
   {% else %}
   <p class="hint">
@@ -56,6 +63,47 @@
     «Анестезии», «Сотрудники» и сама панель в списке отсутствуют: они
     обеспечивают работу приложения и не выключаются.
   </p>
+</div>
+{% elif tab == 'access' %}
+<div class="card">
+  <h2>Доступ по группам</h2>
+  <p class="hint">
+    «Включено» — раздел виден группе, «выключено» — нет. Где стоит «нет прав
+    в коде», у группы нет разрешений на этот раздел, и включать нечего.
+    «Анестезии» в матрице нет: раздел владеет главной страницей.
+  </p>
+  <div class="admin-table-wrap">
+    <table class="admin-table access-matrix">
+      <thead>
+        <tr>
+          <th>Раздел</th>
+          {% for row in matrix %}<th>{{ row.label }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for index in range(matrix[0].cells|length) %}
+        <tr>
+          <td>{{ matrix[0].cells[index].label }}</td>
+          {% for row in matrix %}
+          {% set cell = row.cells[index] %}
+          <td>
+            {% if cell.kind == 'toggle' %}
+            <form method="post" action="/admin/access/{{ row.role }}/{{ cell.module }}" class="inline">
+              <input type="hidden" name="enabled" value="{{ 0 if cell.enabled else 1 }}">
+              <button type="submit" class="btn {% if cell.enabled %}danger{% endif %}">
+                {% if cell.enabled %}включено{% else %}выключено{% endif %}
+              </button>
+            </form>
+            {% else %}
+            <span class="access-note">{{ cell.text }}</span>
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% else %}
 <div class="card">

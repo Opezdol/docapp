@@ -476,3 +476,100 @@ class TestSections:
         _login(client, "vera", "vera_pass")
         # Старшая сестра не имеет доступа к панели — смотрим через её меню.
         assert 'href="/needs"' not in client.get("/", headers={"accept": "text/html"}).text
+
+
+class TestAccessMatrix:
+    """Матрица «роль × раздел» в панели (ADR-0033)."""
+
+    def test_matrix_page_lists_roles_and_sections(self, panel):
+        client, _ = panel
+        _login_head(client)
+
+        page = client.get("/admin?tab=access")
+        assert page.status_code == 200
+        assert "Доступ по группам" in page.text
+        for label in ("Врач", "Медсестра", "Редактор", "Старшая медсестра", "Заведующий"):
+            assert label in page.text, label
+        for label in ("Шкалы", "Чат", "Потребности", "Дежурства", "Распределение", "Подписи"):
+            assert label in page.text, label
+
+    def test_section_off_hides_it_from_the_group(self, panel):
+        client, _ = panel
+        _login_head(client)
+
+        assert client.post(
+            "/admin/access/doctor/scales", data={"enabled": "0"}
+        ).status_code == 303
+        assert "выключено" in client.get("/admin?tab=access").text
+
+        client.post("/logout")
+        _login(client, "ivanov", "secret")
+        assert 'href="/scales"' not in client.get("/").text
+        assert client.get("/scales", headers={"accept": "text/html"}).status_code == 403
+
+        client.post("/logout")
+        _login_head(client)
+        assert client.post(
+            "/admin/access/doctor/scales", data={"enabled": "1"}
+        ).status_code == 303
+        client.post("/logout")
+        _login(client, "ivanov", "secret")
+        assert 'href="/scales"' in client.get("/").text
+        assert client.get("/scales", headers={"accept": "text/html"}).status_code == 200
+
+    def test_head_nurse_follows_nurses(self, panel):
+        client, _ = panel
+        _login_head(client)
+        client.post("/admin/access/nurse/needs", data={"enabled": "0"})
+
+        client.post("/logout")
+        _login(client, "anna", "anna_pass")
+        assert 'href="/needs"' not in client.get("/").text
+
+        client.post("/logout")
+        _login(client, "vera", "vera_pass")
+        assert 'href="/needs"' not in client.get("/").text
+
+        # Заведующему доступно всё — его матрица не трогает.
+        client.post("/logout")
+        _login_head(client)
+        assert 'href="/needs"' in client.get("/").text
+
+    def test_head_and_head_nurse_are_not_editable(self, panel):
+        client, _ = panel
+        _login_head(client)
+
+        client.post("/admin/access/head/wiki", data={"enabled": "0"})
+        page = client.get("/admin?tab=access").text
+        assert "заданы в коде" in page
+        assert 'href="/wiki"' in client.get("/").text
+
+        client.post("/admin/access/head_nurse/needs", data={"enabled": "0"})
+        assert "заданы в коде" in client.get("/admin?tab=access").text
+
+    def test_role_without_rights_cannot_be_granted(self, panel):
+        """Панель включает и выключает, но не придумывает права: у врача их нет."""
+        client, _ = panel
+        _login_head(client)
+
+        client.post("/admin/access/doctor/needs", data={"enabled": "1"})
+        page = client.get("/admin?tab=access").text
+        assert "нет прав на этот раздел" in page
+        assert "нет прав в коде" in page
+
+    def test_editor_can_lose_a_section(self, panel, tmp_path):
+        """Редактор — группа тестировщиков: раздел можно выключить и ей."""
+        client, _ = panel
+        _login_head(client)
+        client.post("/admin/access/editor/wiki", data={"enabled": "0"})
+
+        # Редактор в этой базе не заведён; проверяем через сервис панели напрямую.
+        from docapp.admin.service import AdminService
+        from docapp.admin.store import SqliteSectionStore
+        from docapp.people.store import SqliteEmployeeStore
+
+        db = tmp_path / "admin.db"
+        with SqliteEmployeeStore(db) as people, SqliteSectionStore(db) as sections:
+            service = AdminService(people, sections)
+            assert "wiki" in service.disabled_modules("editor")
+            assert "wiki" not in service.disabled_modules("doctor")

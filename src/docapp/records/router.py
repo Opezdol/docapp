@@ -58,7 +58,7 @@ def index(request: Request):
 
     # Медсестра и старшая сестра видят только свои анестезии (просмотр,
     # ADR-5); право ввода — разрешение records.edit (ADR-0023).
-    if not access.has(user.role, access.RECORDS_EDIT):
+    if not access.has(user, access.RECORDS_EDIT):
         records = container.service.list_for_nurse(_user_id(user))
         doctor_by_id = {d.id: d for d in employees.list_all()}
         return TEMPLATES.TemplateResponse(
@@ -98,7 +98,7 @@ def choose_nurse(
     user = access.current_user(request)
     if user is None:
         return JSONResponse({"error": "Требуется авторизация"}, status_code=401)
-    if not access.has(user.role, access.RECORDS_EDIT):
+    if not access.has(user, access.RECORDS_EDIT):
         return JSONResponse({"error": "Выбор сестры доступен только врачам"}, status_code=403)
     _container(request).active_nurse.set_active_nurse(_user_id(user), nurse_id)
     return {"ok": True, "nurse_id": nurse_id}
@@ -115,7 +115,7 @@ def add_anesthesia(
     if user is None:
         return RedirectResponse("/login", status_code=303)
     try:
-        if not access.has(user.role, access.RECORDS_EDIT):
+        if not access.has(user, access.RECORDS_EDIT):
             # Формы у медсестры нет, но адрес открыт: отвечаем как раньше —
             # сообщением, а не страницей ошибки (поведение в тестах).
             request.session["flash"] = "Ввод анестезий доступен врачу"

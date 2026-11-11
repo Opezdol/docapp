@@ -1,6 +1,6 @@
 """Сотрудник отделения: врач, медсестра, заведующий."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 DOCTOR = "doctor"
 NURSE = "nurse"
@@ -25,6 +25,12 @@ class Employee:
     #: заявки, дежурства и подпись), но не входит и не выбирается в бригаду
     #: (ADR-0030, ТЗ панели заведующего).
     active: bool = True
+    #: Права, разрешённые для этого запроса: роль минус разделы, выключенные
+    #: для неё в панели (ADR-0033). `None` — считать по роли: так объект
+    #: приходит из хранилища, и так его создают тесты и CLI.
+    permissions: frozenset[str] | None = field(
+        default=None, compare=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         if not self.last_name.strip():

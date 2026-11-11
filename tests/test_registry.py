@@ -92,7 +92,7 @@ class TestModuleContract:
         versions = {module.name: module.schema.version for module in MODULES if module.schema}
         assert versions == {
             "people": 2,
-            "admin": 1,
+            "admin": 2,
             "signatures": 1,
             "records": 4,
             "wiki": 2,

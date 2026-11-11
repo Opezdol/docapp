@@ -216,3 +216,45 @@ class TestRequire:
         doctor = Employee(last_name="Иванов", first_name="Иван", role=DOCTOR, id=1)
         with pytest.raises(access.AccessDenied):
             access.ensure(doctor, access.NEEDS_MANAGE)
+
+
+class TestRoleMatrix:
+    """Матрица «роль × раздел» (ADR-0033): вычитание из ALLOWED, не замена."""
+
+    def test_without_matrix_rights_are_base(self):
+        assert access.resolve_permissions(DOCTOR, None) == access.permissions(DOCTOR)
+
+    def test_disabled_module_is_subtracted(self):
+        disabled = lambda role: frozenset({"scales"}) if role == DOCTOR else frozenset()  # noqa: E731
+        granted = access.resolve_permissions(DOCTOR, disabled)
+        assert access.SCALES_USE not in granted
+        assert access.RECORDS_EDIT in granted
+
+    def test_head_is_never_cut(self):
+        granted = access.resolve_permissions(
+            HEAD, lambda role: frozenset({"wiki", "needs", "admin"})
+        )
+        assert access.WIKI_READ in granted
+        assert access.ADMIN_MANAGE in granted
+
+    def test_head_nurse_follows_nurses(self):
+        granted = access.resolve_permissions(
+            HEAD_NURSE,
+            lambda role: frozenset({"needs"}) if role == NURSE else frozenset(),
+        )
+        assert access.NEEDS_MANAGE not in granted
+        assert access.RECORDS_VIEW_OWN in granted
+
+    def test_user_with_resolved_permissions(self):
+        """Пользователь с разрешёнными правами важнее роли: так работает matrix."""
+        doctor = Employee(
+            last_name="Иванов",
+            first_name="Иван",
+            role=DOCTOR,
+            id=1,
+            permissions=frozenset({access.SCALES_USE}),
+        )
+        assert access.has(doctor, access.SCALES_USE) is True
+        assert access.has(doctor, access.RECORDS_EDIT) is False
+        # Строка-роль остаётся базовой: ею пользуются сервисы и тесты.
+        assert access.has(DOCTOR, access.RECORDS_EDIT) is True

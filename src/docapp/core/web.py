@@ -38,7 +38,7 @@ def _menu_context(request: Request) -> dict:
     user = access.current_user(request)
     if user is None:
         return {"menu": []}
-    items = access.menu_for(user.role)
+    items = access.menu_for(user)
     switch = sections.switch_of(request)
     if switch is not None:
         items = [item for item in items if switch.is_enabled(item.module)]

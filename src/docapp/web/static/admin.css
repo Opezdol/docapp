@@ -102,3 +102,18 @@
   color: #999;
   font-size: 0.8rem;
 }
+
+/* Матрица «роль × раздел» (ADR-0033). */
+.access-matrix td {
+  vertical-align: middle;
+}
+
+.access-matrix .btn {
+  min-width: 92px;
+}
+
+.access-note {
+  color: #999;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}

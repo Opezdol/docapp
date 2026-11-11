@@ -20,7 +20,15 @@ from typing import Protocol
 
 from docapp.auth.passwords import MIN_PASSWORD, generate_password, hash_password
 from docapp.core import access
-from docapp.domain.employee import ROLES, Employee
+from docapp.domain.employee import (
+    DOCTOR,
+    EDITOR,
+    HEAD,
+    HEAD_NURSE,
+    NURSE,
+    ROLES,
+    Employee,
+)
 
 #: Подписи ролей для интерфейса — одно место, чтобы не разъезжались.
 ROLE_LABELS: dict[str, str] = {
@@ -34,6 +42,16 @@ ROLE_LABELS: dict[str, str] = {
 #: Модули, которые обеспечивают работу приложения и выключаться не могут:
 #: сама панель, учётки (вход и внешние ключи) и владелец главной страницы.
 SERVICE_MODULES = frozenset({"admin", "people", "records"})
+
+#: Роли, чьи разделы настраиваются в панели (ADR-0033). У заведующего доступно
+#: всё, старшая сестра не может больше сестёр — их права заданы в коде.
+EDITABLE_ROLES = (DOCTOR, NURSE, EDITOR)
+
+#: Как показать в матрице роли, которые не настраиваются.
+FIXED_ROLE_NOTES: dict[str, str] = {
+    HEAD_NURSE: "как у медсестёр",
+    HEAD: "всё",
+}
 
 #: Раздел без пункта меню: у подписей вход из личного кабинета (ADR-0029),
 #: но выключить их нужно — ссылка в кабинете тоже должна исчезнуть.
@@ -296,6 +314,100 @@ class AdminService:
             if name == module:
                 return label
         return module
+
+    # ── матрица «роль × раздел» (ADR-0033) ──────────────────────────
+
+    def disabled_modules(self, role: str) -> frozenset[str]:
+        """Разделы, выключенные для роли: их права вычитаются из `ALLOWED`.
+
+        Старшая сестра наследует выключения медсестёр: «всё, что доступно
+        сёстрам, доступно и ей» — значит выключенное сёстрам выключено и ей.
+        Заведующий не урезается никогда.
+        """
+        if role == HEAD:
+            return frozenset()
+        state = self._sections.role_state()
+        off = {
+            module
+            for (state_role, module), enabled in state.items()
+            if state_role == role and not enabled
+        }
+        if role == HEAD_NURSE:
+            off |= {
+                module
+                for (state_role, module), enabled in state.items()
+                if state_role == NURSE and not enabled
+            }
+        return frozenset(off)
+
+    def access_matrix(self) -> list[dict]:
+        """Матрица для панели: роли по строкам, разделы по столбцам."""
+        state = self._sections.role_state()
+        base = {role: access.permissions(role) for role in ROLES}
+        rows: list[dict] = []
+        for role in (*EDITABLE_ROLES, HEAD_NURSE, HEAD):
+            cells: list[dict] = []
+            for module, _, module_label in SWITCHABLE:
+                cell = {"module": module, "label": module_label}
+                has_rights = any(
+                    permission.startswith(module + ".")
+                    for permission in base[role]
+                )
+                if role == HEAD:
+                    cell.update(kind="all", text=FIXED_ROLE_NOTES[HEAD])
+                elif role == HEAD_NURSE:
+                    if not any(
+                        permission.startswith(module + ".")
+                        for permission in base[NURSE]
+                    ):
+                        cell.update(kind="none", text="—")
+                    else:
+                        nurse_on = state.get((NURSE, module), True)
+                        cell.update(
+                            kind="follow",
+                            text=FIXED_ROLE_NOTES[HEAD_NURSE]
+                            + (": включено" if nurse_on else ": выключено"),
+                        )
+                elif not has_rights:
+                    cell.update(kind="none", text="нет прав в коде")
+                else:
+                    cell.update(
+                        kind="toggle",
+                        enabled=state.get((role, module), True),
+                    )
+                cells.append(cell)
+            rows.append(
+                {
+                    "role": role,
+                    "label": ROLE_LABELS[role],
+                    "editable": role in EDITABLE_ROLES,
+                    "cells": cells,
+                }
+            )
+        return rows
+
+    def set_role_section(
+        self, *, actor: Employee, role: str, module: str, enabled: bool
+    ) -> str:
+        """Включить или выключить раздел для роли; вернуть строку для сообщения."""
+        if role not in EDITABLE_ROLES:
+            raise PanelError(
+                "Права этой группы заданы в коде: заведующему доступно всё, "
+                "старшая сестра не может больше сестёр"
+            )
+        if module not in {name for name, _, _ in SWITCHABLE}:
+            raise PanelError("Этого раздела нет в матрице доступа")
+        has_rights = any(
+            permission.startswith(module + ".")
+            for permission in access.permissions(role)
+        )
+        if not has_rights:
+            raise PanelError(
+                "У группы нет прав на этот раздел: набор действий задаётся "
+                "в коде модуля, панель только включает и выключает"
+            )
+        self._sections.set_role_module(role, module, enabled, actor.id)
+        return f"{ROLE_LABELS[role]} · {self.section_label(module)}"
 
     def set_section(self, *, actor: Employee, module: str, enabled: bool) -> str:
         """Включить или выключить раздел; вернуть его подпись для сообщения."""

@@ -76,8 +76,8 @@ def compendium_page(request: Request):
             "user": user,
             "flash": None,
             "stats": _service(request).stats(),
-            "is_curator": access.has(user.role, access.WIKI_CURATE),
-            "is_head": access.has(user.role, access.WIKI_SETTINGS),
+            "is_curator": access.has(user, access.WIKI_CURATE),
+            "is_head": access.has(user, access.WIKI_SETTINGS),
         },
     )
 
@@ -215,7 +215,7 @@ def article_page(request: Request, article_id: int):
         return RedirectResponse("/login", status_code=303)
     _require_not_nurse(user)
     service = _service(request)
-    is_curator = access.has(user.role, access.WIKI_CURATE)
+    is_curator = access.has(user, access.WIKI_CURATE)
     article = service.article(article_id) if is_curator else service.article_public(article_id)
     if article is None:
         return HTMLResponse("Статья не найдена", status_code=404)
