@@ -9,10 +9,6 @@ from docapp.admin.service import AdminService
 
 @dataclass(frozen=True)
 class AdminContainer:
-    """Панель заведующего. Своих таблиц у неё пока нет — только сотрудники.
-
-    Таблица состояния разделов появится шагом 1.4 ТЗ панели; сотрудники
-    остаются данными модуля `people` (ADR-0017).
-    """
+    """Панель заведующего: сотрудники (данные `people`) и состояние разделов."""
 
     service: AdminService

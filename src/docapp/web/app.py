@@ -18,8 +18,9 @@ from docapp.auth.auth import Authenticator, InvalidCredentials, PasswordChangeEr
 from docapp.config import db_path as default_db_path
 from docapp.config import https_only, session_secret
 from docapp.core import access
-from docapp.core import registry, web
+from docapp.core import registry, sections, web
 from docapp.core.registry import Module
+from docapp.core.sections import SectionsMiddleware
 from docapp.domain.employee import Employee
 from docapp.modules import MODULES
 from docapp.people.store import SqliteEmployeeStore
@@ -47,6 +48,10 @@ def create_app(
     db_file.parent.mkdir(parents=True, exist_ok=True)
 
     app = FastAPI(title="docapp")
+    # Выключение разделов (ADR-0030) стоит ВНУТРИ сессии: middleware, добавленная
+    # раньше, оказывается глубже, поэтому к моменту проверки `request.session`
+    # уже есть и сообщение «раздел выключен» доезжает до главной страницы.
+    app.add_middleware(SectionsMiddleware)
     app.add_middleware(
         SessionMiddleware,
         secret_key=secret,
@@ -65,6 +70,11 @@ def create_app(
     # Модули: контейнеры собираются в порядке реестра, поэтому модуль может взять
     # интерфейс соседа, объявленного раньше (ADR-0017).
     registry.build_containers(app, modules, registry.AppContext(db_path=db_file))
+    # Выключатель разделов: приложение берёт его из состояния, поэтому `core`
+    # не импортирует модуль `admin` (обратной зависимости нет). Тесты с
+    # подмножеством модулей панели не содержат — тогда выключенных нет.
+    admin_container = app.state.containers.get("admin")
+    app.state.section_switch = getattr(admin_container, "service", None)
     registry.include_routers(app, modules)
 
     @app.exception_handler(access.AccessDenied)
@@ -110,6 +120,10 @@ def create_app(
         request: Request, user: Employee, *, password_error: str | None = None
     ):
         """Страница «Мои данные»: одна сборка контекста для показа и ошибки."""
+        switch = sections.switch_of(request)
+        can_sign = access.has(user.role, access.SIGNATURES_OWN) and (
+            switch is None or switch.is_enabled("signatures")
+        )
         return TEMPLATES.TemplateResponse(
             request,
             "me.html",
@@ -117,7 +131,7 @@ def create_app(
                 "user": user,
                 "flash": None,
                 "password_error": password_error,
-                "can_sign": access.has(user.role, access.SIGNATURES_OWN),
+                "can_sign": can_sign,
             },
             status_code=400 if password_error else 200,
         )

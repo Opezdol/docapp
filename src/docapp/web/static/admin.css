@@ -51,3 +51,54 @@
   color: #777;
   font-size: 0.75rem;
 }
+
+/* Вкладки панели: «Сотрудники» и «Разделы» (ADR-0030). */
+.admin-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+
+.admin-tabs a {
+  padding: 7px 12px;
+  border-radius: 8px 8px 0 0;
+  color: #555;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.admin-tabs a.active {
+  background: #e8f0fb;
+  color: #1565c0;
+  font-weight: 600;
+}
+
+/* Список разделов с тумблерами. */
+.admin-sections {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-sections li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #e3e7ec;
+}
+
+.admin-sections li:last-child {
+  border-bottom: none;
+}
+
+.admin-section-name {
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-section-name small {
+  color: #999;
+  font-size: 0.8rem;
+}

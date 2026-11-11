@@ -92,6 +92,7 @@ class TestModuleContract:
         versions = {module.name: module.schema.version for module in MODULES if module.schema}
         assert versions == {
             "people": 2,
+            "admin": 1,
             "signatures": 1,
             "records": 4,
             "wiki": 2,
@@ -105,6 +106,7 @@ class TestModuleContract:
         rows = databases(MODULES, path)
         assert [name for name, _, _ in rows] == [
             "people",
+            "admin",
             "signatures",
             "records",
             "wiki",

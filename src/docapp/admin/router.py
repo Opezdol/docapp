@@ -60,12 +60,17 @@ def _render_staff(
     form: dict | None = None,
     status_code: int = 200,
 ):
-    """Страница со списком сотрудников и формой добавления."""
+    """Страница панели: вкладка «Сотрудники» или «Разделы»."""
     show_dismissed = request.query_params.get("all") == "1"
+    tab = request.query_params.get("tab", "staff")
+    tab = tab if tab in {"staff", "sections"} else "staff"
+    service = _service(request)
     context = _common_context(request, user)
     context.update(
         {
-            "staff": _service(request).staff(show_dismissed=show_dismissed),
+            "tab": tab,
+            "staff": service.staff(show_dismissed=show_dismissed),
+            "sections": service.sections(),
             "show_dismissed": show_dismissed,
             "error": error,
             "new_login": new_login,
@@ -244,6 +249,33 @@ def reset_password(request: Request, employee_id: int):
     return _render_employee(
         request, user, service.get(employee_id), new_password=password
     )
+
+
+@router.post("/section/{module}")
+def switch_section(
+    request: Request,
+    module: str,
+    enabled: Annotated[int, Form()] = 1,
+):
+    """Включить или выключить раздел (ADR-0030).
+
+    Сервисные разделы (панель, учётки, анестезии) выключать нельзя: служба
+    откажет текстом, а не переключит их молча.
+    """
+    user = _page_user(request)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    try:
+        label = _service(request).set_section(
+            actor=user, module=module, enabled=bool(enabled)
+        )
+    except PanelError as exc:
+        request.session["flash"] = str(exc)
+        return RedirectResponse("/admin?tab=sections", status_code=303)
+    request.session["flash"] = (
+        f"Раздел «{label}» включён" if enabled else f"Раздел «{label}» выключен"
+    )
+    return RedirectResponse("/admin?tab=sections", status_code=303)
 
 
 @router.post("/employee/{employee_id}/active")

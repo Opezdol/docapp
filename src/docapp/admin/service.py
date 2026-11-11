@@ -19,6 +19,7 @@ from dataclasses import replace
 from typing import Protocol
 
 from docapp.auth.passwords import MIN_PASSWORD, generate_password, hash_password
+from docapp.core import access
 from docapp.domain.employee import ROLES, Employee
 
 #: Подписи ролей для интерфейса — одно место, чтобы не разъезжались.
@@ -30,9 +31,51 @@ ROLE_LABELS: dict[str, str] = {
     "editor": "Редактор",
 }
 
+#: Модули, которые обеспечивают работу приложения и выключаться не могут:
+#: сама панель, учётки (вход и внешние ключи) и владелец главной страницы.
+SERVICE_MODULES = frozenset({"admin", "people", "records"})
+
+#: Раздел без пункта меню: у подписей вход из личного кабинета (ADR-0029),
+#: но выключить их нужно — ссылка в кабинете тоже должна исчезнуть.
+EXTRA_SECTIONS: dict[str, tuple[str, str]] = {
+    "signatures": ("/signatures", "Подписи"),
+}
+
+
+def _switchable() -> tuple[tuple[str, str, str], ...]:
+    """(модуль, адрес, подпись) каждого выключаемого раздела.
+
+    Считается из `MENU`: второй список разделов разошёлся бы с меню, как
+    когда-то разошёлся ручной список таблиц в `docapp check`.
+    """
+    items: list[tuple[str, str, str]] = [
+        (item.module, item.path, item.label)
+        for item in access.MENU
+        if item.module not in SERVICE_MODULES
+    ]
+    known = {module for module, _, _ in items}
+    for module, (path, label) in EXTRA_SECTIONS.items():
+        if module not in SERVICE_MODULES and module not in known:
+            items.append((module, path, label))
+    return tuple(items)
+
+
+#: Выключаемые разделы в порядке меню, затем те, у кого пункта меню нет.
+SWITCHABLE = _switchable()
+
 
 class PanelError(ValueError):
     """Ошибка панели: человеку показывается текстом, а не 500."""
+
+
+class SectionsInterface(Protocol):
+    """Что панели нужно от хранилища состояния разделов."""
+
+    def is_enabled(self, module: str) -> bool: ...
+
+    def state(self) -> dict[str, tuple[bool, str, int | None]]: ...
+
+    def set_enabled(self, module: str, enabled: bool, changed_by: int | None) -> None: ...
 
 
 class EmployeesInterface(Protocol):
@@ -56,8 +99,11 @@ class EmployeesInterface(Protocol):
 class AdminService:
     """Сотрудники в панели заведующего."""
 
-    def __init__(self, employees: EmployeesInterface) -> None:
+    def __init__(
+        self, employees: EmployeesInterface, sections: SectionsInterface
+    ) -> None:
         self._employees = employees
+        self._sections = sections
 
     # ── чтение ──────────────────────────────────────────────────────
 
@@ -206,6 +252,59 @@ class AdminService:
         password = generate_password()
         self._employees.set_password(employee_id, hash_password(password))
         return password
+
+    # ── разделы ─────────────────────────────────────────────────────
+
+    def sections(self) -> list[dict]:
+        """Разделы с их состоянием — для вкладки «Разделы»."""
+        state = self._sections.state()
+        result: list[dict] = []
+        for module, path, label in SWITCHABLE:
+            enabled, changed_at, _ = state.get(module, (True, "", None))
+            result.append(
+                {
+                    "module": module,
+                    "path": path,
+                    "label": label,
+                    "enabled": enabled,
+                    "changed_at": changed_at,
+                }
+            )
+        return result
+
+    def is_enabled(self, module: str) -> bool:
+        """Раздел включён? Сервисные и невыключаемые — всегда да."""
+        if module not in {name for name, _, _ in SWITCHABLE}:
+            return True
+        return self._sections.is_enabled(module)
+
+    def module_for_path(self, path: str) -> str | None:
+        """Модуль, которому принадлежит адрес: точный путь или его подпапка.
+
+        Сравнение по границе `/`, а не по сырому префиксу: `/needsomething`
+        не должен закрываться разделом «Потребности».
+        """
+        best: tuple[str, str] | None = None
+        for module, prefix, _ in SWITCHABLE:
+            if path == prefix or path.startswith(prefix + "/"):
+                if best is None or len(prefix) > len(best[1]):
+                    best = (module, prefix)
+        return None if best is None else best[0]
+
+    def section_label(self, module: str) -> str:
+        for name, _, label in SWITCHABLE:
+            if name == module:
+                return label
+        return module
+
+    def set_section(self, *, actor: Employee, module: str, enabled: bool) -> str:
+        """Включить или выключить раздел; вернуть его подпись для сообщения."""
+        if module not in {name for name, _, _ in SWITCHABLE}:
+            raise PanelError(
+                "Этот раздел выключать нельзя: он обеспечивает работу приложения"
+            )
+        self._sections.set_enabled(module, enabled, actor.id)
+        return self.section_label(module)
 
     # ── вспомогательные проверки ────────────────────────────────────
 

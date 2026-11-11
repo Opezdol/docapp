@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
 from docapp.config import git_revision
-from docapp.core import access
+from docapp.core import access, sections
 
 #: Папка общих шаблонов приложения (base.html) — рядом с этим модулем.
 WEB_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "web" / "templates"
@@ -30,9 +30,19 @@ def _revision_context(request: Request) -> dict:
 
 
 def _menu_context(request: Request) -> dict:
-    """Меню разделов: из таблицы прав, второго списка не существует (ADR-0023)."""
+    """Меню разделов: из таблицы прав, второго списка не существует (ADR-0023).
+
+    Выключенный раздел не показывается никому, включая заведующего (ADR-0030):
+    убрать его из меню — такая же часть выключения, как отказ на странице.
+    """
     user = access.current_user(request)
-    return {"menu": access.menu_for(user.role) if user else []}
+    if user is None:
+        return {"menu": []}
+    items = access.menu_for(user.role)
+    switch = sections.switch_of(request)
+    if switch is not None:
+        items = [item for item in items if switch.is_enabled(item.module)]
+    return {"menu": items}
 
 
 def templates(*directories: Path) -> Jinja2Templates:

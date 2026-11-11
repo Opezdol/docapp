@@ -380,3 +380,99 @@ class TestPassword:
         response = client.post(f"/admin/employee/{ids['head'].id}/password")
         assert response.status_code == 200
         assert "показывается один раз" in response.text
+
+
+class TestSections:
+    """Вкладка «Разделы»: выключение и включение (шаг 1.4 ТЗ панели)."""
+
+    def test_tab_lists_only_switchable_sections(self, panel):
+        client, _ = panel
+        _login_head(client)
+
+        page = client.get("/admin?tab=sections")
+        assert page.status_code == 200
+        for module in ("scales", "wiki", "needs", "duty", "distribution", "signatures"):
+            assert f'action="/admin/section/{module}"' in page.text, module
+        # Сервисные модули выключать нельзя — их в списке нет.
+        for module in ("records", "people", "admin"):
+            assert f'action="/admin/section/{module}"' not in page.text, module
+
+    def test_switch_off_hides_menu_and_blocks_page(self, panel):
+        client, _ = panel
+        _login_head(client)
+
+        assert client.post(
+            "/admin/section/scales", data={"enabled": "0"}
+        ).status_code == 303
+
+        home = client.get("/")
+        assert 'href="/scales"' not in home.text
+        assert "Раздел «Шкалы» выключен" in home.text
+
+        response = client.get("/scales", headers={"accept": "text/html"})
+        assert response.status_code == 303
+        assert response.headers["location"] == "/"
+
+    def test_switch_on_returns_section(self, panel):
+        client, _ = panel
+        _login_head(client)
+        client.post("/admin/section/scales", data={"enabled": "0"})
+
+        assert client.post(
+            "/admin/section/scales", data={"enabled": "1"}
+        ).status_code == 303
+        assert 'href="/scales"' in client.get("/").text
+        assert client.get("/scales", headers={"accept": "text/html"}).status_code == 200
+
+    def test_api_of_disabled_section_answers_403(self, panel):
+        client, _ = panel
+        _login_head(client)
+        client.post("/admin/section/distribution", data={"enabled": "0"})
+
+        response = client.get("/distribution/api/aggregate")
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Раздел выключен"
+
+    def test_signatures_link_disappears_from_my_page(self, panel):
+        client, _ = panel
+        _login_head(client)
+        assert 'href="/signatures"' in client.get("/me").text
+
+        client.post("/admin/section/signatures", data={"enabled": "0"})
+        assert 'href="/signatures"' not in client.get("/me").text
+        response = client.get("/signatures", headers={"accept": "text/html"})
+        assert response.status_code == 303
+        assert response.headers["location"] == "/"
+
+    def test_service_modules_cannot_be_switched_off(self, panel):
+        client, _ = panel
+        _login_head(client)
+
+        for module in ("records", "people", "admin"):
+            assert client.post(
+                f"/admin/section/{module}", data={"enabled": "0"}
+            ).status_code == 303
+            page = client.get("/admin?tab=sections").text
+            assert "выключать нельзя" in page, module
+
+        # Анестезии по-прежнему открываются: попытка ничего не переключила.
+        assert client.get("/").status_code == 200
+
+    def test_doctor_cannot_switch_sections(self, panel):
+        client, _ = panel
+        _login(client, "ivanov", "secret")
+        response = client.post("/admin/section/scales", data={"enabled": "0"})
+        assert response.status_code == 403
+
+    def test_state_survives_page_reload(self, panel):
+        client, _ = panel
+        _login_head(client)
+        client.post("/admin/section/needs", data={"enabled": "0"})
+
+        page = client.get("/admin?tab=sections").text
+        assert "Включить" in page
+        # Старшая сестра «Потребности» больше не видит.
+        client.post("/logout")
+        _login(client, "vera", "vera_pass")
+        # Старшая сестра не имеет доступа к панели — смотрим через её меню.
+        assert 'href="/needs"' not in client.get("/", headers={"accept": "text/html"}).text
